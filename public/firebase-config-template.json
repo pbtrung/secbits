@@ -1,0 +1,13 @@
+{
+  "user_id": "xxx",
+  "db_name": "xxx",
+  "auth": {
+    "apiKey": "",
+    "authDomain": "",
+    "databaseURL": "",
+    "projectId": "",
+    "storageBucket": "",
+    "messagingSenderId": "",
+    "appId": ""
+  }
+}

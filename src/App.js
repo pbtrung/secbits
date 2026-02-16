@@ -1,9 +1,11 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import FirebaseSetup from './components/FirebaseSetup';
 import TagsSidebar from './components/TagsSidebar';
 import EntryList from './components/EntryList';
 import EntryDetail from './components/EntryDetail';
 import ResizeHandle from './components/ResizeHandle';
-import { sampleUser, sampleEntries, getNextId } from './sampleData';
+import { initFirebase, signIn, fetchUserName } from './firebase';
+import { sampleEntries, getNextId } from './sampleData';
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -16,6 +18,23 @@ function useIsMobile() {
 }
 
 function App() {
+  const [firebaseReady, setFirebaseReady] = useState(false);
+  const [userId, setUserId] = useState(null);
+
+  const handleConfigLoaded = useCallback((config, uid, dbName) => {
+    initFirebase(config, dbName);
+    setUserId(uid);
+    setFirebaseReady(true);
+  }, []);
+
+  if (!firebaseReady) {
+    return <FirebaseSetup onConfigLoaded={handleConfigLoaded} />;
+  }
+
+  return <MainApp userId={userId} />;
+}
+
+function MainApp({ userId }) {
   const [entries, setEntries] = useState(sampleEntries);
   const [selectedTag, setSelectedTag] = useState(null);
   const [selectedEntryId, setSelectedEntryId] = useState(null);
@@ -23,10 +42,25 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [tagsWidth, setTagsWidth] = useState(220);
   const [entriesWidth, setEntriesWidth] = useState(320);
+  const [userName, setUserName] = useState('');
   // Mobile navigation: 'tags' | 'entries' | 'detail'
   const [mobileView, setMobileView] = useState('tags');
 
   const isMobile = useIsMobile();
+
+  useEffect(() => {
+    console.log('[SecBits] MainApp userId:', userId);
+    signIn()
+      .then(() => fetchUserName(userId))
+      .then((name) => {
+        console.log('[SecBits] Fetched username:', name);
+        setUserName(name || 'Unknown');
+      })
+      .catch((err) => {
+        console.error('[SecBits] Error fetching user:', err);
+        setUserName('Unknown');
+      });
+  }, [userId]);
 
   const handleResizeTags = useCallback((delta) => {
     setTagsWidth((w) => Math.max(140, Math.min(400, w + delta)));
@@ -227,7 +261,7 @@ function App() {
                 tags={allTags}
                 selectedTag={selectedTag}
                 onSelectTag={handleSelectTag}
-                userName={sampleUser.name}
+                userName={userName}
                 mobile
               />
             )}
@@ -255,7 +289,7 @@ function App() {
                 tags={allTags}
                 selectedTag={selectedTag}
                 onSelectTag={handleSelectTag}
-                userName={sampleUser.name}
+                userName={userName}
               />
             </div>
             <ResizeHandle onResize={handleResizeTags} />
