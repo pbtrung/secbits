@@ -1,10 +1,9 @@
 import React from 'react';
 
-function TagsSidebar({ tags, selectedTag, onSelectTag }) {
+function TagsSidebar({ tags, selectedTag, onSelectTag, mobile, userName }) {
   return (
     <div
-      className="d-flex flex-column bg-white border-end"
-      style={{ width: 200, minWidth: 200 }}
+      className={`d-flex flex-column bg-white ${mobile ? 'h-100' : 'h-100 border-end'}`}
     >
       <div className="p-3 border-bottom">
         <h6 className="text-uppercase text-muted mb-0 small fw-bold">
@@ -36,6 +35,12 @@ function TagsSidebar({ tags, selectedTag, onSelectTag }) {
           ))}
         </div>
       </div>
+      {userName && (
+        <div className="border-top p-3 d-flex align-items-center text-muted small">
+          <i className="bi bi-person-circle me-2 fs-5"></i>
+          <span className="text-truncate">{userName}</span>
+        </div>
+      )}
     </div>
   );
 }

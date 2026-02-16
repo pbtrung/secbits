@@ -1,10 +1,9 @@
 import React from 'react';
 
-function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, selectedTag }) {
+function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, selectedTag, mobile }) {
   return (
     <div
-      className="d-flex flex-column bg-white border-end"
-      style={{ width: 280, minWidth: 280 }}
+      className={`d-flex flex-column bg-white ${mobile ? 'h-100' : 'h-100 border-end'}`}
     >
       <div className="p-3 border-bottom d-flex justify-content-between align-items-center">
         <h6 className="text-uppercase text-muted mb-0 small fw-bold">
@@ -32,10 +31,10 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
                 }`}
                 onClick={() => onSelectEntry(entry.id)}
               >
-                <div className="fw-semibold">
+                <div className="fw-semibold text-truncate">
                   {entry.title || <span className="fst-italic text-muted">Untitled</span>}
                 </div>
-                <small className={selectedEntryId === entry.id ? 'text-light' : 'text-muted'}>
+                <small className={`text-truncate d-block ${selectedEntryId === entry.id ? 'text-light' : 'text-muted'}`}>
                   {entry.username}
                 </small>
                 <div className="mt-1">

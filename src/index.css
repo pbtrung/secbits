@@ -20,3 +20,33 @@ input[type="password"].form-control {
   font-family: monospace;
   letter-spacing: 2px;
 }
+
+/* Drag resize handle between columns */
+.resize-handle {
+  width: 5px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: #dee2e6;
+  transition: background 0.15s;
+}
+
+.resize-handle:hover,
+.resize-handle.active {
+  background: #0d6efd;
+}
+
+/* Search input */
+.form-control.bg-secondary::placeholder {
+  color: #adb5bd;
+}
+
+.bg-dark .input-group .form-control:focus,
+.bg-dark .input-group .input-group-text,
+.bg-dark .input-group .btn {
+  box-shadow: none;
+  outline: none;
+}
+
+.bg-dark .input-group .form-control:focus {
+  border-color: #6c757d;
+}
