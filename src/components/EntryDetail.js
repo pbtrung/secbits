@@ -38,7 +38,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel }) {
 
   const removeUrl = (index) => {
     const urls = draft.urls.filter((_, i) => i !== index);
-    setDraft({ ...draft, urls: urls.length ? urls : [''] });
+    setDraft({ ...draft, urls });
   };
 
   const addHiddenField = () => {
@@ -194,13 +194,15 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel }) {
                 </button>
               </div>
             ))}
-            <button className="btn btn-sm btn-outline-secondary" onClick={addUrl}>
-              <i className="bi bi-plus me-1"></i>Add URL
-            </button>
+            <div>
+              <button className="btn btn-sm btn-outline-secondary" onClick={addUrl}>
+                <i className="bi bi-plus me-1"></i>Add URL
+              </button>
+            </div>
           </>
         ) : (
           <div>
-            {data.urls.map((url, i) => (
+            {data.urls.filter(Boolean).map((url, i) => (
               <div key={i} className="mb-1">
                 <a href={url} target="_blank" rel="noopener noreferrer">
                   {url}
@@ -216,9 +218,6 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel }) {
         <label className="form-label text-muted small fw-semibold">
           <i className="bi bi-incognito me-1"></i> Secret Fields
         </label>
-        {data.hiddenFields.length === 0 && !isEditing && (
-          <div className="text-muted small">None</div>
-        )}
         {(isEditing ? draft.hiddenFields : data.hiddenFields).map((field) => (
           <div key={field.id} className="card card-body p-2 mb-2 bg-white">
             {isEditing ? (
@@ -276,9 +275,11 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel }) {
           </div>
         ))}
         {isEditing && (
-          <button className="btn btn-sm btn-outline-secondary" onClick={addHiddenField}>
-            <i className="bi bi-plus me-1"></i>Add Secret Field
-          </button>
+          <div>
+            <button className="btn btn-sm btn-outline-secondary" onClick={addHiddenField}>
+              <i className="bi bi-plus me-1"></i>Add Secret Field
+            </button>
+          </div>
         )}
       </div>
 
