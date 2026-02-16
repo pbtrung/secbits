@@ -4,14 +4,19 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel }) {
   const [draft, setDraft] = useState(entry);
   const [visiblePasswords, setVisiblePasswords] = useState({});
   const [copied, setCopied] = useState(null);
+  const [tagsInput, setTagsInput] = useState('');
 
   useEffect(() => {
     setDraft(entry);
     setVisiblePasswords({});
+    setTagsInput(Array.isArray(entry.tags) ? entry.tags.join(', ') : '');
   }, [entry]);
 
   useEffect(() => {
-    if (isEditing) setDraft(entry);
+    if (isEditing) {
+      setDraft(entry);
+      setTagsInput(Array.isArray(entry.tags) ? entry.tags.join(', ') : '');
+    }
   }, [isEditing, entry]);
 
   const toggleVisibility = (key) => {
@@ -65,16 +70,18 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel }) {
     });
   };
 
-  const updateTags = (value) => {
-    const tags = value
+  const parseTagsInput = (value) =>
+    value
       .split(',')
       .map((t) => t.trim().toLowerCase())
       .filter(Boolean);
-    setDraft({ ...draft, tags });
+
+  const updateTags = (value) => {
+    setTagsInput(value);
   };
 
   const handleSave = () => {
-    onSave(draft);
+    onSave({ ...draft, tags: parseTagsInput(tagsInput) });
   };
 
   const handleDelete = () => {
@@ -311,7 +318,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel }) {
         {isEditing ? (
           <input
             className="form-control"
-            value={draft.tags.join(', ')}
+            value={tagsInput}
             onChange={(e) => updateTags(e.target.value)}
             placeholder="tag1, tag2, ..."
           />

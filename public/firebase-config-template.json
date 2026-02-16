@@ -1,6 +1,7 @@
 {
   "user_id": "xxx",
   "db_name": "xxx",
+  "master_key": "<base64-encoded, at least 128 bytes>",
   "auth": {
     "apiKey": "",
     "authDomain": "",

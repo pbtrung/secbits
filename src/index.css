@@ -50,3 +50,9 @@ input[type="password"].form-control {
 .bg-dark .input-group .form-control:focus {
   border-color: #6c757d;
 }
+
+/* Logout button */
+.logout-btn:hover {
+  background-color: #e9ecef;
+  text-decoration: none;
+}

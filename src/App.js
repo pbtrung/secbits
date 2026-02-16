@@ -4,8 +4,7 @@ import TagsSidebar from './components/TagsSidebar';
 import EntryList from './components/EntryList';
 import EntryDetail from './components/EntryDetail';
 import ResizeHandle from './components/ResizeHandle';
-import { initFirebase, signIn, fetchUserName } from './firebase';
-import { sampleEntries, getNextId } from './sampleData';
+import { fetchUserEntries, createUserEntry, updateUserEntry, deleteUserEntry } from './firebase';
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -18,47 +17,63 @@ function useIsMobile() {
 }
 
 function App() {
-  const [firebaseReady, setFirebaseReady] = useState(false);
-  const [userId, setUserId] = useState(null);
+  const [session, setSession] = useState(null);
 
-  const handleConfigLoaded = useCallback((config, uid, dbName) => {
-    initFirebase(config, dbName);
-    setUserId(uid);
-    setFirebaseReady(true);
+  const handleReady = useCallback((userId, userName) => {
+    setSession({ userId, userName });
   }, []);
 
-  if (!firebaseReady) {
-    return <FirebaseSetup onConfigLoaded={handleConfigLoaded} />;
+  const handleLogout = useCallback(() => {
+    setSession(null);
+  }, []);
+
+  if (!session) {
+    return <FirebaseSetup onReady={handleReady} />;
   }
 
-  return <MainApp userId={userId} />;
+  return <MainApp userId={session.userId} initialUserName={session.userName} onLogout={handleLogout} />;
 }
 
-function MainApp({ userId }) {
-  const [entries, setEntries] = useState(sampleEntries);
+let nextLocalId = 1;
+const getNextId = () => String(nextLocalId++);
+const isLocalEntryId = (id) => String(id).startsWith('local-');
+
+function MainApp({ userId, initialUserName, onLogout }) {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [syncError, setSyncError] = useState('');
   const [selectedTag, setSelectedTag] = useState(null);
   const [selectedEntryId, setSelectedEntryId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [tagsWidth, setTagsWidth] = useState(220);
   const [entriesWidth, setEntriesWidth] = useState(320);
-  const [userName, setUserName] = useState('');
+  const userName = initialUserName;
   // Mobile navigation: 'tags' | 'entries' | 'detail'
   const [mobileView, setMobileView] = useState('tags');
 
   const isMobile = useIsMobile();
 
   useEffect(() => {
-    console.log('[SecBits] MainApp userId:', userId);
-    signIn()
-      .then(() => fetchUserName(userId))
-      .then((name) => {
-        console.log('[SecBits] Fetched username:', name);
-        setUserName(name || 'Unknown');
+    fetchUserEntries(userId)
+      .then((data) => {
+        const filtered = data
+          .map((e) => ({
+            title: '',
+            username: '',
+            password: '',
+            notes: '',
+            ...e,
+            urls: Array.isArray(e.urls) ? e.urls : [],
+            hiddenFields: Array.isArray(e.hiddenFields) ? e.hiddenFields : [],
+            tags: Array.isArray(e.tags) ? e.tags : [],
+          }));
+        setEntries(filtered);
+        setLoading(false);
       })
-      .catch((err) => {
-        console.error('[SecBits] Error fetching user:', err);
-        setUserName('Unknown');
+      .catch(() => {
+        setSyncError('Failed to load entries from Firebase.');
+        setLoading(false);
       });
   }, [userId]);
 
@@ -110,7 +125,8 @@ function MainApp({ userId }) {
 
   const handleNewEntry = useCallback(() => {
     const newEntry = {
-      id: getNextId(),
+      id: `local-${getNextId()}`,
+      _isNew: true,
       title: '',
       username: '',
       password: '',
@@ -125,17 +141,40 @@ function MainApp({ userId }) {
     if (isMobile) setMobileView('detail');
   }, [selectedTag, isMobile]);
 
-  const handleSave = useCallback((updated) => {
-    setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
-    setEditingId(null);
-  }, []);
+  const handleSave = useCallback(async (updated) => {
+    setSyncError('');
+    const wasNew = isLocalEntryId(updated.id) || updated._isNew;
 
-  const handleDelete = useCallback((id) => {
-    setEntries((prev) => prev.filter((e) => e.id !== id));
-    setSelectedEntryId((prev) => (prev === id ? null : prev));
-    setEditingId(null);
-    if (isMobile) setMobileView('entries');
-  }, [isMobile]);
+    try {
+      if (wasNew) {
+        const created = await createUserEntry(userId, updated);
+        setEntries((prev) => prev.map((e) => (e.id === updated.id ? created : e)));
+        setSelectedEntryId(created.id);
+      } else {
+        const persisted = await updateUserEntry(userId, updated.id, updated);
+        setEntries((prev) => prev.map((e) => (e.id === updated.id ? persisted : e)));
+      }
+      setEditingId(null);
+    } catch {
+      setSyncError('Failed to save entry to Firebase.');
+    }
+  }, [userId]);
+
+  const handleDelete = useCallback(async (id) => {
+    setSyncError('');
+
+    try {
+      if (!isLocalEntryId(id)) {
+        await deleteUserEntry(userId, id);
+      }
+      setEntries((prev) => prev.filter((e) => e.id !== id));
+      setSelectedEntryId((prev) => (prev === id ? null : prev));
+      setEditingId(null);
+      if (isMobile) setMobileView('entries');
+    } catch {
+      setSyncError('Failed to delete entry from Firebase.');
+    }
+  }, [isMobile, userId]);
 
   const handleEdit = useCallback((id) => {
     setEditingId(id);
@@ -160,6 +199,14 @@ function MainApp({ userId }) {
     if (mobileView === 'detail') setMobileView('entries');
     else if (mobileView === 'entries') setMobileView('tags');
   };
+
+  if (loading) {
+    return (
+      <div className="d-flex align-items-center justify-content-center vh-100 text-muted">
+        Loading entries...
+      </div>
+    );
+  }
 
   const detailPane = selectedEntry ? (
     <EntryDetail
@@ -250,6 +297,11 @@ function MainApp({ userId }) {
           </>
         )}
       </nav>
+      {syncError && (
+        <div className="alert alert-danger rounded-0 mb-0 py-2 px-3" role="alert">
+          {syncError}
+        </div>
+      )}
 
       {/* Main content */}
       <div className="flex-grow-1 overflow-hidden">
@@ -262,6 +314,7 @@ function MainApp({ userId }) {
                 selectedTag={selectedTag}
                 onSelectTag={handleSelectTag}
                 userName={userName}
+                onLogout={onLogout}
                 mobile
               />
             )}
@@ -290,6 +343,7 @@ function MainApp({ userId }) {
                 selectedTag={selectedTag}
                 onSelectTag={handleSelectTag}
                 userName={userName}
+                onLogout={onLogout}
               />
             </div>
             <ResizeHandle onResize={handleResizeTags} />

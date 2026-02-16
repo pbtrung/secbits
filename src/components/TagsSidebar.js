@@ -1,6 +1,6 @@
 import React from 'react';
 
-function TagsSidebar({ tags, selectedTag, onSelectTag, mobile, userName }) {
+function TagsSidebar({ tags, selectedTag, onSelectTag, mobile, userName, onLogout }) {
   return (
     <div
       className={`d-flex flex-column bg-white ${mobile ? 'h-100' : 'h-100 border-end'}`}
@@ -38,7 +38,16 @@ function TagsSidebar({ tags, selectedTag, onSelectTag, mobile, userName }) {
       {userName && (
         <div className="border-top p-3 d-flex align-items-center text-muted small">
           <i className="bi bi-person-circle me-2 fs-5"></i>
-          <span className="text-truncate">{userName}</span>
+          <span className="text-truncate flex-grow-1">{userName}</span>
+          {onLogout && (
+            <button
+              className="btn btn-sm btn-link text-muted ms-2 flex-shrink-0 p-1 rounded logout-btn"
+              onClick={onLogout}
+              title="Log out"
+            >
+              <i className="bi bi-box-arrow-right"></i>
+            </button>
+          )}
         </div>
       )}
     </div>

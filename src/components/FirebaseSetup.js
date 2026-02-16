@@ -1,9 +1,13 @@
 import React, { useState, useRef } from 'react';
+import { initFirebase, signIn, fetchUser, saveUserMasterKey, initUserDataCollection } from '../firebase';
+import { decodeMasterKey, masterKeySetup, masterKeyVerify } from '../crypto';
 
 const REQUIRED_KEYS = ['apiKey', 'authDomain', 'databaseURL', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
 
-function FirebaseSetup({ onConfigLoaded }) {
+function FirebaseSetup({ onReady }) {
   const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef();
 
@@ -23,7 +27,7 @@ function FirebaseSetup({ onConfigLoaded }) {
       return;
     }
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const json = JSON.parse(e.target.result);
         const config = json.auth || json;
@@ -37,8 +41,66 @@ function FirebaseSetup({ onConfigLoaded }) {
           setError('Missing required field: user_id');
           return;
         }
+        if (!json.master_key) {
+          setError('Missing required field: master_key');
+          return;
+        }
         const dbName = json.db_name || '';
-        onConfigLoaded(config, userId, dbName);
+
+        // Decode and validate master_key (base64, >= 128 bytes)
+        let masterKeyBytes;
+        try {
+          masterKeyBytes = decodeMasterKey(json.master_key);
+        } catch (mkErr) {
+          setError(mkErr.message);
+          return;
+        }
+
+        setLoading(true);
+
+        try {
+          // Init Firebase and authenticate
+          setStatus('Authenticating...');
+          initFirebase(config, dbName);
+          await signIn();
+
+          // Fetch user document
+          setStatus('Fetching user...');
+          const userData = await fetchUser(userId);
+          if (!userData) {
+            setError('User not found');
+            setLoading(false);
+            return;
+          }
+          const username = userData.username;
+          if (!username) {
+            setError('Username is empty');
+            setLoading(false);
+            return;
+          }
+
+          // Master key flow
+          const storedMasterKey = userData.master_key;
+          if (!storedMasterKey) {
+            // First-time setup
+            setStatus('Setting up encryption...');
+            const { storedValue } = masterKeySetup(masterKeyBytes);
+            await saveUserMasterKey(userId, storedValue);
+          } else {
+            // Returning user — verify
+            setStatus('Verifying master key...');
+            masterKeyVerify(masterKeyBytes, storedMasterKey);
+          }
+
+          // Ensure user data collection exists
+          setStatus('Loading data...');
+          await initUserDataCollection(userId);
+
+          onReady(userId, username);
+        } catch (connErr) {
+          setError(connErr.message);
+          setLoading(false);
+        }
       } catch {
         setError('Invalid JSON file');
       }
@@ -75,27 +137,34 @@ function FirebaseSetup({ onConfigLoaded }) {
             <p className="text-muted small">Upload your Firebase configuration to get started</p>
           </div>
 
-          <div
-            className={`border border-2 rounded-3 p-4 text-center ${dragOver ? 'border-primary bg-primary bg-opacity-10' : 'border-dashed'}`}
-            onDrop={handleDrop}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            style={{ cursor: 'pointer', borderStyle: dragOver ? 'solid' : 'dashed' }}
-            onClick={() => fileRef.current.click()}
-          >
-            <i className={`bi ${dragOver ? 'bi-cloud-arrow-down' : 'bi-file-earmark-arrow-up'} fs-2 ${dragOver ? 'text-primary' : 'text-muted'}`}></i>
-            <p className="mb-1 mt-2">
-              {dragOver ? 'Drop here' : 'Drag & drop your config JSON'}
-            </p>
-            <p className="text-muted small mb-0">or click to browse</p>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".json"
-              className="d-none"
-              onChange={handleFileChange}
-            />
-          </div>
+          {loading ? (
+            <div className="text-center py-4">
+              <div className="spinner-border text-primary mb-3" role="status"></div>
+              <p className="text-muted small mb-0">{status}</p>
+            </div>
+          ) : (
+            <div
+              className={`border border-2 rounded-3 p-4 text-center ${dragOver ? 'border-primary bg-primary bg-opacity-10' : 'border-dashed'}`}
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              style={{ cursor: 'pointer', borderStyle: dragOver ? 'solid' : 'dashed' }}
+              onClick={() => fileRef.current.click()}
+            >
+              <i className={`bi ${dragOver ? 'bi-cloud-arrow-down' : 'bi-file-earmark-arrow-up'} fs-2 ${dragOver ? 'text-primary' : 'text-muted'}`}></i>
+              <p className="mb-1 mt-2">
+                {dragOver ? 'Drop here' : 'Drag & drop your config JSON'}
+              </p>
+              <p className="text-muted small mb-0">or click to browse</p>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".json"
+                className="d-none"
+                onChange={handleFileChange}
+              />
+            </div>
+          )}
 
           {error && (
             <div className="alert alert-danger mt-3 mb-0 small">
@@ -110,6 +179,7 @@ function FirebaseSetup({ onConfigLoaded }) {
 {`{
   "user_id": "xxx",
   "db_name": "xxx",
+  "master_key": "<base64, >=128 bytes>",
   "auth": {
     "apiKey": "",
     "authDomain": "",
