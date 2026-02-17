@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { hmac } from '@noble/hashes/hmac.js';
 import { sha1 } from '@noble/hashes/legacy.js';
+import { PasswordGenerator, PasswordStrengthBar } from './PasswordGenerator';
 
 function base32Decode(str) {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -290,20 +291,27 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
           <i className="bi bi-lock me-1"></i> Password
         </label>
         {isEditing ? (
-          <div className="input-group">
-            <input
-              type={visiblePasswords['password'] ? 'text' : 'password'}
-              className="form-control"
-              value={draft.password}
-              onChange={(e) => updateDraft('password', e.target.value)}
+          <>
+            <div className="input-group">
+              <input
+                type={visiblePasswords['password'] ? 'text' : 'password'}
+                className="form-control"
+                value={draft.password}
+                onChange={(e) => updateDraft('password', e.target.value)}
+              />
+              <button
+                className="btn btn-outline-secondary"
+                onClick={() => toggleVisibility('password')}
+              >
+                <i className={`bi ${visiblePasswords['password'] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
+              </button>
+            </div>
+            <PasswordStrengthBar password={draft.password} />
+            <PasswordGenerator
+              onGenerate={(pw) => updateDraft('password', pw)}
+              onCopy={(pw) => copyToClipboard(pw, 'password')}
             />
-            <button
-              className="btn btn-outline-secondary"
-              onClick={() => toggleVisibility('password')}
-            >
-              <i className={`bi ${visiblePasswords['password'] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-            </button>
-          </div>
+          </>
         ) : (
           <div className="input-group">
             <input
