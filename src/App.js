@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import FirebaseSetup from './components/FirebaseSetup';
 import TagsSidebar from './components/TagsSidebar';
 import EntryList from './components/EntryList';
@@ -58,6 +58,16 @@ function MainApp({ userId, initialUserName, onLogout }) {
   const [mobileView, setMobileView] = useState('tags');
 
   const isMobile = useIsMobile();
+  const dirtyRef = useRef(false);
+
+  const handleDirtyChange = useCallback((dirty) => {
+    dirtyRef.current = dirty;
+  }, []);
+
+  const confirmUnsavedChanges = useCallback(() => {
+    if (!dirtyRef.current) return true;
+    return window.confirm('You have unsaved changes. Discard and leave?');
+  }, []);
 
   useEffect(() => {
     fetchUserEntries(userId)
@@ -82,6 +92,15 @@ function MainApp({ userId, initialUserName, onLogout }) {
         setLoading(false);
       });
   }, [userId]);
+
+  useEffect(() => {
+    if (!editingId) return;
+    const handler = (e) => {
+      if (dirtyRef.current) e.preventDefault();
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [editingId]);
 
   const handleResizeTags = useCallback((delta) => {
     setTagsWidth((w) => Math.max(140, Math.min(400, w + delta)));
@@ -117,19 +136,21 @@ function MainApp({ userId, initialUserName, onLogout }) {
   const selectedEntry = entries.find((e) => e.id === selectedEntryId) || null;
 
   const handleSelectTag = useCallback((tag) => {
+    if (!confirmUnsavedChanges()) return;
     setSelectedTag(tag);
     setSelectedEntryId(null);
     setEditingId(null);
     setSettingsMode(false);
     setSettingsPage(null);
     if (isMobile) setMobileView('entries');
-  }, [isMobile]);
+  }, [isMobile, confirmUnsavedChanges]);
 
   const handleSelectEntry = useCallback((id) => {
+    if (!confirmUnsavedChanges()) return;
     setSelectedEntryId(id);
     setEditingId(null);
     if (isMobile) setMobileView('detail');
-  }, [isMobile]);
+  }, [isMobile, confirmUnsavedChanges]);
 
   const handleNewEntry = useCallback(() => {
     const newEntry = {
@@ -165,8 +186,8 @@ function MainApp({ userId, initialUserName, onLogout }) {
         setEntries((prev) => prev.map((e) => (e.id === updated.id ? persisted : e)));
       }
       setEditingId(null);
-    } catch {
-      setSyncError('Failed to save entry to Firebase.');
+    } catch (err) {
+      setSyncError(err?.message || 'Failed to save entry to Firebase.');
     } finally {
       setSaving(false);
     }
@@ -193,6 +214,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
   }, []);
 
   const handleSettings = useCallback(() => {
+    if (!confirmUnsavedChanges()) return;
     setSettingsMode((prev) => {
       if (!prev) {
         setSelectedEntryId(null);
@@ -201,7 +223,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
       }
       return !prev;
     });
-  }, []);
+  }, [confirmUnsavedChanges]);
 
   const handleSelectSetting = useCallback((page) => {
     setSettingsPage(page);
@@ -227,6 +249,11 @@ function MainApp({ userId, initialUserName, onLogout }) {
     else if (mobileView === 'entries') setMobileView('tags');
   };
 
+  const handleLogoutGuarded = useCallback(() => {
+    if (!confirmUnsavedChanges()) return;
+    onLogout();
+  }, [onLogout, confirmUnsavedChanges]);
+
   if (loading) {
     return (
       <div className="d-flex align-items-center justify-content-center vh-100 text-muted">
@@ -245,6 +272,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
       onDelete={handleDelete}
       onCancel={handleCancelEdit}
       saving={saving}
+      onDirtyChange={handleDirtyChange}
     />
   ) : (
     <div className="d-flex align-items-center justify-content-center h-100 text-muted">
@@ -280,7 +308,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
                   placeholder="Search..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  disabled={settingsMode}
+                  disabled={settingsMode || editingId !== null}
                 />
                 {searchQuery && (
                   <button
@@ -311,7 +339,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
                   placeholder="Search..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  disabled={settingsMode}
+                  disabled={settingsMode || editingId !== null}
                 />
                 {searchQuery && (
                   <button
@@ -345,7 +373,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
                 onSelectTag={handleSelectTag}
                 userName={userName}
                 onSettings={handleSettings}
-                onLogout={onLogout}
+                onLogout={handleLogoutGuarded}
                 settingsMode={settingsMode}
                 mobile
               />
@@ -388,7 +416,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
                 onSelectTag={handleSelectTag}
                 userName={userName}
                 onSettings={handleSettings}
-                onLogout={onLogout}
+                onLogout={handleLogoutGuarded}
                 settingsMode={settingsMode}
               />
             </div>

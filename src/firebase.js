@@ -24,6 +24,14 @@ let db = null;
 let auth = null;
 let entryMasterKeyBytes = null;
 const MAX_ENTRY_HISTORY = 5;
+const MAX_VALUE_BYTES = 999999;
+
+function checkValueSize(value) {
+  const size = new TextEncoder().encode(value).length;
+  if (size > MAX_VALUE_BYTES) {
+    throw new Error(`Entry data is too large (${Math.ceil(size / 1000)} KB). Maximum allowed is ${MAX_VALUE_BYTES / 1000} KB. Try reducing notes or removing attachments.`);
+  }
+}
 
 export function initFirebase(config, dbName) {
   app = initializeApp(config);
@@ -218,6 +226,7 @@ export async function createUserEntry(userId, entry) {
   const docKeyBytes = generateEntryDocKey();
   const enc_key = wrapEntryDocKey(entryMasterKeyBytes, docKeyBytes);
   const value = encryptEntrySnapshotsWithDocKey(docKeyBytes, [payload]);
+  checkValueSize(value);
   const created = await addDoc(colRef, { enc_key, value });
   return { id: created.id, ...payload, _snapshots: [payload] };
 }
@@ -233,6 +242,7 @@ export async function updateUserEntry(userId, entryId, entry) {
     .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
     .slice(0, MAX_ENTRY_HISTORY);
   const nextData = toSnapshotsJson(existingValue, existingEncKey, payload);
+  checkValueSize(nextData.value);
   await updateDoc(docRef, nextData);
   return { id: String(entryId), ...payload, _snapshots: allSnapshots };
 }

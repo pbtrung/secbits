@@ -95,7 +95,7 @@ function formatTimestamp(ts) {
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, saving }) {
+function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, saving, onDirtyChange }) {
   const [draft, setDraft] = useState(entry);
   const [visiblePasswords, setVisiblePasswords] = useState({});
   const [copied, setCopied] = useState(null);
@@ -123,6 +123,25 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
       setTagsInput(Array.isArray(viewEntry.tags) ? viewEntry.tags.join(', ') : '');
     }
   }, [isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!onDirtyChange || !isEditing) {
+      onDirtyChange?.(false);
+      return;
+    }
+    const tagsNow = tagsInput.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean).join(',');
+    const tagsOrig = (Array.isArray(entry.tags) ? entry.tags : []).join(',');
+    const dirty =
+      draft.title !== entry.title ||
+      draft.username !== entry.username ||
+      draft.password !== entry.password ||
+      draft.notes !== entry.notes ||
+      JSON.stringify(draft.urls) !== JSON.stringify(entry.urls) ||
+      JSON.stringify(draft.totpSecrets) !== JSON.stringify(entry.totpSecrets) ||
+      JSON.stringify(draft.hiddenFields) !== JSON.stringify(entry.hiddenFields) ||
+      tagsNow !== tagsOrig;
+    onDirtyChange(dirty);
+  }, [draft, tagsInput, entry, isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleVisibility = (key) => {
     setVisiblePasswords((prev) => ({ ...prev, [key]: !prev[key] }));
