@@ -4,6 +4,7 @@ import TagsSidebar from './components/TagsSidebar';
 import EntryList from './components/EntryList';
 import EntryDetail from './components/EntryDetail';
 import ResizeHandle from './components/ResizeHandle';
+import SettingsList from './components/SettingsList';
 import SettingsPanel from './components/SettingsPanel';
 import { fetchUserEntries, fetchRawUserDocs, createUserEntry, updateUserEntry, deleteUserEntry } from './firebase';
 
@@ -204,8 +205,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
 
   const handleSelectSetting = useCallback((page) => {
     setSettingsPage(page);
-    if (isMobile) setMobileView('entries');
-  }, [isMobile]);
+  }, []);
 
   const handleCancelEdit = useCallback(() => {
     setEditingId((currentEditingId) => {
@@ -280,6 +280,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
                   placeholder="Search..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  disabled={settingsMode}
                 />
                 {searchQuery && (
                   <button
@@ -310,6 +311,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
                   placeholder="Search..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  disabled={settingsMode}
                 />
                 {searchQuery && (
                   <button
@@ -343,7 +345,6 @@ function MainApp({ userId, initialUserName, onLogout }) {
                 onSelectTag={handleSelectTag}
                 userName={userName}
                 onSettings={handleSettings}
-                onSelectSetting={handleSelectSetting}
                 onLogout={onLogout}
                 settingsMode={settingsMode}
                 mobile
@@ -351,9 +352,11 @@ function MainApp({ userId, initialUserName, onLogout }) {
             )}
             {mobileView === 'entries' && (
               settingsMode ? (
-                <div className="h-100 overflow-auto bg-light">
-                  <SettingsPanel page={settingsPage} userId={userId} />
-                </div>
+                <SettingsList
+                  selectedPage={settingsPage}
+                  onSelectPage={(page) => { handleSelectSetting(page); setMobileView('detail'); }}
+                  mobile
+                />
               ) : (
                 <EntryList
                   entries={filteredEntries}
@@ -365,9 +368,13 @@ function MainApp({ userId, initialUserName, onLogout }) {
                 />
               )
             )}
-            {mobileView === 'detail' && !settingsMode && (
+            {mobileView === 'detail' && (
               <div className="h-100 overflow-auto bg-light">
-                {detailPane}
+                {settingsMode ? (
+                  <SettingsPanel page={settingsPage} userId={userId} />
+                ) : (
+                  detailPane
+                )}
               </div>
             )}
           </div>
@@ -381,33 +388,35 @@ function MainApp({ userId, initialUserName, onLogout }) {
                 onSelectTag={handleSelectTag}
                 userName={userName}
                 onSettings={handleSettings}
-                onSelectSetting={handleSelectSetting}
                 onLogout={onLogout}
                 settingsMode={settingsMode}
               />
             </div>
             <ResizeHandle onResize={handleResizeTags} />
-            {settingsMode ? (
-              <div className="flex-grow-1 overflow-auto bg-light">
+            <div className="d-flex flex-column bg-white" style={{ width: entriesWidth, flexShrink: 0 }}>
+              {settingsMode ? (
+                <SettingsList
+                  selectedPage={settingsPage}
+                  onSelectPage={handleSelectSetting}
+                />
+              ) : (
+                <EntryList
+                  entries={filteredEntries}
+                  selectedEntryId={selectedEntryId}
+                  onSelectEntry={handleSelectEntry}
+                  onNewEntry={handleNewEntry}
+                  selectedTag={selectedTag}
+                />
+              )}
+            </div>
+            <ResizeHandle onResize={handleResizeEntries} />
+            <div className="flex-grow-1 overflow-auto bg-light" style={{ minWidth: 300 }}>
+              {settingsMode ? (
                 <SettingsPanel page={settingsPage} userId={userId} />
-              </div>
-            ) : (
-              <>
-                <div className="d-flex flex-column bg-white" style={{ width: entriesWidth, flexShrink: 0 }}>
-                  <EntryList
-                    entries={filteredEntries}
-                    selectedEntryId={selectedEntryId}
-                    onSelectEntry={handleSelectEntry}
-                    onNewEntry={handleNewEntry}
-                    selectedTag={selectedTag}
-                  />
-                </div>
-                <ResizeHandle onResize={handleResizeEntries} />
-                <div className="flex-grow-1 overflow-auto bg-light" style={{ minWidth: 300 }}>
-                  {detailPane}
-                </div>
-              </>
-            )}
+              ) : (
+                detailPane
+              )}
+            </div>
           </div>
         )}
       </div>

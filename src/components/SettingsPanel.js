@@ -120,6 +120,7 @@ function SettingsPanel({ page, userId }) {
       <div className="text-center">
         <i className="bi bi-gear" style={{ fontSize: '4rem' }}></i>
         <p className="mt-3">Select a setting</p>
+        <p className="small">Press the gear icon again to go back</p>
       </div>
     </div>
   );

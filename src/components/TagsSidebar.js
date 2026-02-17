@@ -1,66 +1,46 @@
 import React from 'react';
 
-function TagsSidebar({ tags, selectedTag, onSelectTag, mobile, userName, onSettings, onSelectSetting, onLogout, settingsMode }) {
+function TagsSidebar({ tags, selectedTag, onSelectTag, mobile, userName, onSettings, onLogout, settingsMode }) {
   return (
     <div
       className={`d-flex flex-column bg-white ${mobile ? 'h-100' : 'h-100 border-end'}`}
     >
       <div className="p-3 border-bottom">
         <h6 className="text-uppercase text-muted mb-0 small fw-bold">
-          <i className={`bi ${settingsMode ? 'bi-gear' : 'bi-tags'} me-1`}></i>
-          {settingsMode ? 'Settings' : 'Tags'}
+          <i className="bi bi-tags me-1"></i> Tags
         </h6>
       </div>
       <div className="overflow-auto flex-grow-1">
-        {settingsMode ? (
-          <div className="list-group list-group-flush">
+        <div className="list-group list-group-flush">
+          <button
+            className={`list-group-item list-group-item-action d-flex justify-content-between align-items-center ${
+              !settingsMode && selectedTag === null ? 'active' : ''
+            }`}
+            onClick={() => onSelectTag(null)}
+          >
+            All
+            <i className="bi bi-collection"></i>
+          </button>
+          {tags.map((tag) => (
             <button
-              className="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
-              onClick={() => onSelectSetting && onSelectSetting('export')}
-            >
-              Export
-              <i className="bi bi-download"></i>
-            </button>
-            <button
-              className="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
-              onClick={() => onSelectSetting && onSelectSetting('about')}
-            >
-              About
-              <i className="bi bi-info-circle"></i>
-            </button>
-          </div>
-        ) : (
-          <div className="list-group list-group-flush">
-            <button
+              key={tag}
               className={`list-group-item list-group-item-action d-flex justify-content-between align-items-center ${
-                selectedTag === null ? 'active' : ''
+                !settingsMode && selectedTag === tag ? 'active' : ''
               }`}
-              onClick={() => onSelectTag(null)}
+              onClick={() => onSelectTag(tag)}
             >
-              All
-              <i className="bi bi-collection"></i>
+              {tag}
+              <i className="bi bi-tag"></i>
             </button>
-            {tags.map((tag) => (
-              <button
-                key={tag}
-                className={`list-group-item list-group-item-action d-flex justify-content-between align-items-center ${
-                  selectedTag === tag ? 'active' : ''
-                }`}
-                onClick={() => onSelectTag(tag)}
-              >
-                {tag}
-                <i className="bi bi-tag"></i>
-              </button>
-            ))}
-          </div>
-        )}
+          ))}
+        </div>
       </div>
       {userName && (
         <div className="border-top p-3 d-flex align-items-center text-muted small">
           <i className="bi bi-person-circle me-2 fs-5"></i>
           <span className="text-truncate flex-grow-1">{userName}</span>
           <button
-            className="btn btn-sm btn-link text-muted ms-2 flex-shrink-0 p-1 rounded logout-btn"
+            className={`btn btn-sm btn-link ms-2 flex-shrink-0 p-1 rounded logout-btn ${settingsMode ? 'text-primary' : 'text-muted'}`}
             onClick={onSettings}
             title="Settings"
           >
