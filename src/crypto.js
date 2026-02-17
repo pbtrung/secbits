@@ -117,42 +117,6 @@ export function masterKeyVerify(masterKeyBytes, storedB64) {
   return userMasterKey;
 }
 
-export function encryptEntrySnapshots(masterKeyBytes, snapshots) {
-  const salt = randomBytes(SALT_LEN);
-  const { encKey, encIv, hmacKey } = deriveKeys(masterKeyBytes, salt);
-
-  const plain = encoder.encode(JSON.stringify(snapshots));
-  const ciphertext = xchacha20(encKey, encIv, plain);
-  const mac = computeHmac(hmacKey, concat(salt, ciphertext));
-
-  return bytesToB64(concat(salt, ciphertext, mac));
-}
-
-export function decryptEntrySnapshots(masterKeyBytes, storedB64) {
-  const blob = b64ToBytes(storedB64);
-  if (blob.length < SALT_LEN + HMAC_LEN) {
-    throw new Error('Invalid encrypted value');
-  }
-
-  const salt = blob.slice(0, SALT_LEN);
-  const ciphertext = blob.slice(SALT_LEN, blob.length - HMAC_LEN);
-  const storedMac = blob.slice(blob.length - HMAC_LEN);
-  const { encKey, encIv, hmacKey } = deriveKeys(masterKeyBytes, salt);
-  const mac = computeHmac(hmacKey, concat(salt, ciphertext));
-
-  if (!timingSafeEqual(mac, storedMac)) {
-    throw new Error('Invalid encrypted value MAC');
-  }
-
-  const plain = xchacha20(encKey, encIv, ciphertext);
-  const text = decoder.decode(plain);
-  const parsed = JSON.parse(text);
-  if (!Array.isArray(parsed)) {
-    throw new Error('Decrypted value is not a JSON array');
-  }
-  return parsed;
-}
-
 function encryptBytes(keyBytes, plainBytes) {
   const salt = randomBytes(SALT_LEN);
   const { encKey, encIv, hmacKey } = deriveKeys(keyBytes, salt);

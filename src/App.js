@@ -6,7 +6,7 @@ import EntryDetail from './components/EntryDetail';
 import ResizeHandle from './components/ResizeHandle';
 import SettingsList from './components/SettingsList';
 import SettingsPanel from './components/SettingsPanel';
-import { fetchUserEntries, fetchRawUserDocs, createUserEntry, updateUserEntry, deleteUserEntry } from './firebase';
+import { fetchUserEntries, createUserEntry, updateUserEntry, deleteUserEntry } from './firebase';
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);

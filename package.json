@@ -14,7 +14,6 @@
     "firebase": "^12.9.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-resizable-panels": "^4.6.4",
     "react-scripts": "5.0.1",
     "web-vitals": "^2.1.4"
   },
