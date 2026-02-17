@@ -65,6 +65,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
             notes: '',
             ...e,
             urls: Array.isArray(e.urls) ? e.urls : [],
+            totpSecrets: Array.isArray(e.totpSecrets) ? e.totpSecrets : [],
             hiddenFields: Array.isArray(e.hiddenFields) ? e.hiddenFields : [],
             tags: Array.isArray(e.tags) ? e.tags : [],
           }));
@@ -131,6 +132,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
       username: '',
       password: '',
       urls: [''],
+      totpSecrets: [],
       hiddenFields: [],
       notes: '',
       tags: selectedTag ? [selectedTag] : [],

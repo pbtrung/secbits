@@ -11,10 +11,19 @@ import {
   deleteDoc,
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously } from 'firebase/auth';
+import {
+  decryptEntrySnapshotsWithDocKey,
+  encryptEntrySnapshotsWithDocKey,
+  generateEntryDocKey,
+  unwrapEntryDocKey,
+  wrapEntryDocKey,
+} from './crypto';
 
 let app = null;
 let db = null;
 let auth = null;
+let entryMasterKeyBytes = null;
+const MAX_ENTRY_HISTORY = 5;
 
 export function initFirebase(config, dbName) {
   app = initializeApp(config);
@@ -25,6 +34,10 @@ export function initFirebase(config, dbName) {
 
 export async function signIn() {
   await signInAnonymously(auth);
+}
+
+export function setEntryMasterKey(masterKeyBytes) {
+  entryMasterKeyBytes = masterKeyBytes;
 }
 
 export async function fetchUser(userId) {
@@ -48,16 +61,11 @@ export async function fetchUserEntries(userId) {
 
     if (raw._placeholder) return;
 
-    if (typeof raw.value === 'string') {
-      try {
-        const parsed = JSON.parse(raw.value);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          entries.push({ id: d.id, ...normalizeEntryShape(parsed) });
-          return;
-        }
-      } catch {
-        // Ignore invalid JSON payloads and fall back to legacy shape.
-      }
+    const snapshots = parseEntrySnapshots(raw.value, raw.enc_key);
+    if (snapshots.length > 0) {
+      const latest = snapshots[0];
+      entries.push({ id: d.id, ...normalizeEntryShape(latest), _snapshots: snapshots });
+      return;
     }
 
     // Backward compatibility for legacy documents that stored entry fields directly.
@@ -89,32 +97,132 @@ function normalizeHiddenFields(hiddenFields) {
   }));
 }
 
+function normalizeTotpSecrets(totpSecrets) {
+  if (!Array.isArray(totpSecrets)) return [];
+  return totpSecrets.map((secret) => String(secret ?? '')).filter((secret) => secret.length > 0);
+}
+
 function normalizeEntryShape(entry) {
   const safe = entry && typeof entry === 'object' ? entry : {};
   return {
     ...safe,
+    timestamp: normalizeTimestamp(safe.timestamp),
     tags: normalizeTags(safe.tags),
+    totpSecrets: normalizeTotpSecrets(safe.totpSecrets),
     hiddenFields: normalizeHiddenFields(safe.hiddenFields),
   };
 }
 
+function normalizeTimestamp(timestamp) {
+  if (typeof timestamp === 'string') {
+    const ms = Date.parse(timestamp);
+    if (Number.isFinite(ms)) {
+      return new Date(ms).toISOString();
+    }
+  }
+  return new Date().toISOString();
+}
+
 function toEntryPayload(entry) {
   const { id, _placeholder, _isNew, ...payload } = entry || {};
-  return normalizeEntryShape(payload);
+  return {
+    ...normalizeEntryShape(payload),
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function parseEntrySnapshots(value, encKeyB64) {
+  if (typeof value !== 'string') return [];
+
+  if (typeof encKeyB64 === 'string') {
+    if (!entryMasterKeyBytes) {
+      throw new Error('Entry master key is not initialized');
+    }
+
+    // Strict mode for encrypted docs: unwrap/decrypt must pass HMAC verification.
+    const docKeyBytes = unwrapEntryDocKey(entryMasterKeyBytes, encKeyB64);
+    const decrypted = decryptEntrySnapshotsWithDocKey(docKeyBytes, value);
+    return decrypted
+      .filter((item) => item && typeof item === 'object')
+      .map((item) => normalizeEntryShape(item))
+      .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
+      .slice(0, MAX_ENTRY_HISTORY);
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+
+    // Current format: JSON array of entry snapshots.
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((item) => item && typeof item === 'object')
+        .map((item) => normalizeEntryShape(item))
+        .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
+        .slice(0, MAX_ENTRY_HISTORY);
+    }
+
+    // Legacy transitional format: single JSON object.
+    if (parsed && typeof parsed === 'object') {
+      return [normalizeEntryShape(parsed)];
+    }
+  } catch {
+    // Ignore invalid JSON and let callers fall back to legacy shape.
+  }
+
+  return [];
+}
+
+function toSnapshotsJson(existingValue, existingEncKey, nextPayload) {
+  const existing = parseEntrySnapshots(existingValue, existingEncKey);
+  const snapshots = [nextPayload, ...existing]
+    .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
+    .slice(0, MAX_ENTRY_HISTORY);
+
+  if (!entryMasterKeyBytes) {
+    throw new Error('Entry master key is not initialized');
+  }
+
+  if (typeof existingEncKey === 'string') {
+    const docKeyBytes = unwrapEntryDocKey(entryMasterKeyBytes, existingEncKey);
+    return {
+      enc_key: existingEncKey,
+      value: encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots),
+    };
+  }
+
+  const docKeyBytes = generateEntryDocKey();
+  return {
+    enc_key: wrapEntryDocKey(entryMasterKeyBytes, docKeyBytes),
+    value: encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots),
+  };
 }
 
 export async function createUserEntry(userId, entry) {
   const payload = toEntryPayload(entry);
   const colRef = collection(db, 'users', String(userId), 'data');
-  const created = await addDoc(colRef, { value: JSON.stringify(payload) });
-  return { id: created.id, ...payload };
+  if (!entryMasterKeyBytes) {
+    throw new Error('Entry master key is not initialized');
+  }
+  const docKeyBytes = generateEntryDocKey();
+  const enc_key = wrapEntryDocKey(entryMasterKeyBytes, docKeyBytes);
+  const value = encryptEntrySnapshotsWithDocKey(docKeyBytes, [payload]);
+  const created = await addDoc(colRef, { enc_key, value });
+  return { id: created.id, ...payload, _snapshots: [payload] };
 }
 
 export async function updateUserEntry(userId, entryId, entry) {
   const payload = toEntryPayload(entry);
   const docRef = doc(db, 'users', String(userId), 'data', String(entryId));
-  await updateDoc(docRef, { value: JSON.stringify(payload) });
-  return { id: String(entryId), ...payload };
+  const snap = await getDoc(docRef);
+  const existingValue = snap.exists() ? snap.data()?.value : null;
+  const existingEncKey = snap.exists() ? snap.data()?.enc_key : null;
+  const existing = parseEntrySnapshots(existingValue, existingEncKey);
+  const allSnapshots = [payload, ...existing]
+    .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
+    .slice(0, MAX_ENTRY_HISTORY);
+  const nextData = toSnapshotsJson(existingValue, existingEncKey, payload);
+  await updateDoc(docRef, nextData);
+  return { id: String(entryId), ...payload, _snapshots: allSnapshots };
 }
 
 export async function deleteUserEntry(userId, entryId) {

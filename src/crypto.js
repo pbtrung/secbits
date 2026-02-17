@@ -6,11 +6,15 @@ import { hmac } from '@noble/hashes/hmac.js';
 
 const SALT_LEN = 64;
 const C2_LEN = 64;
+const DOC_KEY_LEN = 64;
 const ENC_KEY_LEN = 32;
 const ENC_IV_LEN = 24;
 const HMAC_KEY_LEN = 64;
+const HMAC_LEN = 64;
 const HKDF_OUT_LEN = ENC_KEY_LEN + ENC_IV_LEN + HMAC_KEY_LEN; // 120
 const TOTAL_LEN = SALT_LEN + C2_LEN + 64; // 192 (salt + enc_c2 + hmac)
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
 
 function b64ToBytes(b64) {
   const bin = atob(b64);
@@ -111,4 +115,101 @@ export function masterKeyVerify(masterKeyBytes, storedB64) {
 
   const c2 = xchacha20(encKey, encIv, encC2);
   return c2;
+}
+
+export function encryptEntrySnapshots(masterKeyBytes, snapshots) {
+  const salt = randomBytes(SALT_LEN);
+  const { encKey, encIv, hmacKey } = deriveKeys(masterKeyBytes, salt);
+
+  const plain = encoder.encode(JSON.stringify(snapshots));
+  const c1 = xchacha20(encKey, encIv, plain);
+  const mac = computeHmac(hmacKey, c1);
+
+  return bytesToB64(concat(salt, c1, mac));
+}
+
+export function decryptEntrySnapshots(masterKeyBytes, storedB64) {
+  const blob = b64ToBytes(storedB64);
+  if (blob.length < SALT_LEN + HMAC_LEN) {
+    throw new Error('Invalid encrypted value');
+  }
+
+  const salt = blob.slice(0, SALT_LEN);
+  const c1 = blob.slice(SALT_LEN, blob.length - HMAC_LEN);
+  const storedMac = blob.slice(blob.length - HMAC_LEN);
+  const { encKey, encIv, hmacKey } = deriveKeys(masterKeyBytes, salt);
+  const mac = computeHmac(hmacKey, c1);
+
+  if (!timingSafeEqual(mac, storedMac)) {
+    throw new Error('Invalid encrypted value MAC');
+  }
+
+  const plain = xchacha20(encKey, encIv, c1);
+  const text = decoder.decode(plain);
+  const parsed = JSON.parse(text);
+  if (!Array.isArray(parsed)) {
+    throw new Error('Decrypted value is not a JSON array');
+  }
+  return parsed;
+}
+
+function encryptBytes(keyBytes, plainBytes) {
+  const salt = randomBytes(SALT_LEN);
+  const { encKey, encIv, hmacKey } = deriveKeys(keyBytes, salt);
+  const c1 = xchacha20(encKey, encIv, plainBytes);
+  const mac = computeHmac(hmacKey, c1);
+  return bytesToB64(concat(salt, c1, mac));
+}
+
+function decryptBytes(keyBytes, storedB64) {
+  const blob = b64ToBytes(storedB64);
+  if (blob.length < SALT_LEN + HMAC_LEN) {
+    throw new Error('Invalid encrypted value');
+  }
+
+  const salt = blob.slice(0, SALT_LEN);
+  const c1 = blob.slice(SALT_LEN, blob.length - HMAC_LEN);
+  const storedMac = blob.slice(blob.length - HMAC_LEN);
+  const { encKey, encIv, hmacKey } = deriveKeys(keyBytes, salt);
+  const mac = computeHmac(hmacKey, c1);
+
+  if (!timingSafeEqual(mac, storedMac)) {
+    throw new Error('Invalid encrypted value MAC');
+  }
+
+  return xchacha20(encKey, encIv, c1);
+}
+
+export function generateEntryDocKey() {
+  return randomBytes(DOC_KEY_LEN);
+}
+
+export function wrapEntryDocKey(c2, docKeyBytes) {
+  if (!(docKeyBytes instanceof Uint8Array) || docKeyBytes.length !== DOC_KEY_LEN) {
+    throw new Error('docKeyBytes must be 64 bytes');
+  }
+  return encryptBytes(c2, docKeyBytes);
+}
+
+export function unwrapEntryDocKey(c2, encKeyB64) {
+  const docKeyBytes = decryptBytes(c2, encKeyB64);
+  if (docKeyBytes.length !== DOC_KEY_LEN) {
+    throw new Error('Invalid decrypted doc key length');
+  }
+  return docKeyBytes;
+}
+
+export function encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots) {
+  const plain = encoder.encode(JSON.stringify(snapshots));
+  return encryptBytes(docKeyBytes, plain);
+}
+
+export function decryptEntrySnapshotsWithDocKey(docKeyBytes, valueB64) {
+  const plain = decryptBytes(docKeyBytes, valueB64);
+  const text = decoder.decode(plain);
+  const parsed = JSON.parse(text);
+  if (!Array.isArray(parsed)) {
+    throw new Error('Decrypted value is not a JSON array');
+  }
+  return parsed;
 }

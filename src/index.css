@@ -21,6 +21,11 @@ input[type="password"].form-control {
   letter-spacing: 2px;
 }
 
+input[type="password"].form-control.totp-secret-input {
+  font-family: inherit;
+  letter-spacing: normal;
+}
+
 /* Drag resize handle between columns */
 .resize-handle {
   width: 5px;
@@ -49,6 +54,14 @@ input[type="password"].form-control {
 
 .bg-dark .input-group .form-control:focus {
   border-color: #6c757d;
+}
+
+/* TOTP code display */
+.totp-code {
+  font-family: monospace;
+  font-size: 0.85rem;
+  letter-spacing: 2px;
+  white-space: nowrap;
 }
 
 /* Logout button */

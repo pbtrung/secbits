@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { initFirebase, signIn, fetchUser, saveUserMasterKey, initUserDataCollection } from '../firebase';
+import { initFirebase, signIn, fetchUser, saveUserMasterKey, initUserDataCollection, setEntryMasterKey } from '../firebase';
 import { decodeMasterKey, masterKeySetup, masterKeyVerify } from '../crypto';
 
 const REQUIRED_KEYS = ['apiKey', 'authDomain', 'databaseURL', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
@@ -81,16 +81,20 @@ function FirebaseSetup({ onReady }) {
 
           // Master key flow
           const storedMasterKey = userData.master_key;
+          let entryKeyBytes;
           if (!storedMasterKey) {
             // First-time setup
             setStatus('Setting up encryption...');
-            const { storedValue } = masterKeySetup(masterKeyBytes);
+            const { storedValue, c2 } = masterKeySetup(masterKeyBytes);
             await saveUserMasterKey(userId, storedValue);
+            entryKeyBytes = c2;
           } else {
             // Returning user — verify
             setStatus('Verifying master key...');
-            masterKeyVerify(masterKeyBytes, storedMasterKey);
+            entryKeyBytes = masterKeyVerify(masterKeyBytes, storedMasterKey);
           }
+
+          setEntryMasterKey(entryKeyBytes);
 
           // Ensure user data collection exists
           setStatus('Loading data...');
