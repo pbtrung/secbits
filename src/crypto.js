@@ -5,14 +5,14 @@ import { sha3_512 } from '@noble/hashes/sha3.js';
 import { hmac } from '@noble/hashes/hmac.js';
 
 const SALT_LEN = 64;
-const C2_LEN = 64;
+const USER_MASTER_KEY_LEN = 64;
 const DOC_KEY_LEN = 64;
 const ENC_KEY_LEN = 32;
 const ENC_IV_LEN = 24;
 const HMAC_KEY_LEN = 64;
 const HMAC_LEN = 64;
 const HKDF_OUT_LEN = ENC_KEY_LEN + ENC_IV_LEN + HMAC_KEY_LEN; // 120
-const TOTAL_LEN = SALT_LEN + C2_LEN + 64; // 192 (salt + enc_c2 + hmac)
+const MASTER_BLOB_LEN = SALT_LEN + USER_MASTER_KEY_LEN + 64; // 192 (salt + encEntryMasterKey + hmac)
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -73,48 +73,48 @@ export function decodeMasterKey(masterKeyB64) {
 }
 
 /**
- * First-time setup: generate salt, encrypt c2, return base64 blob to store.
- * Also returns decrypted c2 for session use.
+ * First-time setup: generate salt, encrypt entry master key, return base64 blob to store.
+ * Also returns entry master key for session use.
  */
 export function masterKeySetup(masterKeyBytes) {
   const salt = randomBytes(SALT_LEN);
   const { encKey, encIv, hmacKey } = deriveKeys(masterKeyBytes, salt);
 
-  const c2 = randomBytes(C2_LEN);
-  const encC2 = xchacha20(encKey, encIv, c2);
+  const userMasterKey = randomBytes(USER_MASTER_KEY_LEN);
+  const encEntryMasterKey = xchacha20(encKey, encIv, userMasterKey);
 
-  const mac = computeHmac(hmacKey, concat(salt, encC2));
-  const blob = concat(salt, encC2, mac);
+  const mac = computeHmac(hmacKey, concat(salt, encEntryMasterKey));
+  const blob = concat(salt, encEntryMasterKey, mac);
 
   return {
     storedValue: bytesToB64(blob),
-    c2,
+    userMasterKey,
   };
 }
 
 /**
  * Returning user: verify master key against stored blob.
- * Returns decrypted c2 or throws on wrong key.
+ * Returns decrypted entry master key or throws on wrong key.
  */
 export function masterKeyVerify(masterKeyBytes, storedB64) {
   const blob = b64ToBytes(storedB64);
-  if (blob.length !== TOTAL_LEN) {
+  if (blob.length !== MASTER_BLOB_LEN) {
     throw new Error('Invalid stored master_key data');
   }
 
   const salt = blob.slice(0, SALT_LEN);
-  const encC2 = blob.slice(SALT_LEN, SALT_LEN + C2_LEN);
-  const storedMac = blob.slice(SALT_LEN + C2_LEN);
+  const encEntryMasterKey = blob.slice(SALT_LEN, SALT_LEN + USER_MASTER_KEY_LEN);
+  const storedMac = blob.slice(SALT_LEN + USER_MASTER_KEY_LEN);
 
   const { encKey, encIv, hmacKey } = deriveKeys(masterKeyBytes, salt);
 
-  const mac = computeHmac(hmacKey, concat(salt, encC2));
+  const mac = computeHmac(hmacKey, concat(salt, encEntryMasterKey));
   if (!timingSafeEqual(mac, storedMac)) {
     throw new Error('Wrong master key');
   }
 
-  const c2 = xchacha20(encKey, encIv, encC2);
-  return c2;
+  const userMasterKey = xchacha20(encKey, encIv, encEntryMasterKey);
+  return userMasterKey;
 }
 
 export function encryptEntrySnapshots(masterKeyBytes, snapshots) {
@@ -122,10 +122,10 @@ export function encryptEntrySnapshots(masterKeyBytes, snapshots) {
   const { encKey, encIv, hmacKey } = deriveKeys(masterKeyBytes, salt);
 
   const plain = encoder.encode(JSON.stringify(snapshots));
-  const c1 = xchacha20(encKey, encIv, plain);
-  const mac = computeHmac(hmacKey, c1);
+  const ciphertext = xchacha20(encKey, encIv, plain);
+  const mac = computeHmac(hmacKey, concat(salt, ciphertext));
 
-  return bytesToB64(concat(salt, c1, mac));
+  return bytesToB64(concat(salt, ciphertext, mac));
 }
 
 export function decryptEntrySnapshots(masterKeyBytes, storedB64) {
@@ -135,16 +135,16 @@ export function decryptEntrySnapshots(masterKeyBytes, storedB64) {
   }
 
   const salt = blob.slice(0, SALT_LEN);
-  const c1 = blob.slice(SALT_LEN, blob.length - HMAC_LEN);
+  const ciphertext = blob.slice(SALT_LEN, blob.length - HMAC_LEN);
   const storedMac = blob.slice(blob.length - HMAC_LEN);
   const { encKey, encIv, hmacKey } = deriveKeys(masterKeyBytes, salt);
-  const mac = computeHmac(hmacKey, c1);
+  const mac = computeHmac(hmacKey, concat(salt, ciphertext));
 
   if (!timingSafeEqual(mac, storedMac)) {
     throw new Error('Invalid encrypted value MAC');
   }
 
-  const plain = xchacha20(encKey, encIv, c1);
+  const plain = xchacha20(encKey, encIv, ciphertext);
   const text = decoder.decode(plain);
   const parsed = JSON.parse(text);
   if (!Array.isArray(parsed)) {
@@ -156,9 +156,9 @@ export function decryptEntrySnapshots(masterKeyBytes, storedB64) {
 function encryptBytes(keyBytes, plainBytes) {
   const salt = randomBytes(SALT_LEN);
   const { encKey, encIv, hmacKey } = deriveKeys(keyBytes, salt);
-  const c1 = xchacha20(encKey, encIv, plainBytes);
-  const mac = computeHmac(hmacKey, c1);
-  return bytesToB64(concat(salt, c1, mac));
+  const ciphertext = xchacha20(encKey, encIv, plainBytes);
+  const mac = computeHmac(hmacKey, concat(salt, ciphertext));
+  return bytesToB64(concat(salt, ciphertext, mac));
 }
 
 function decryptBytes(keyBytes, storedB64) {
@@ -168,31 +168,31 @@ function decryptBytes(keyBytes, storedB64) {
   }
 
   const salt = blob.slice(0, SALT_LEN);
-  const c1 = blob.slice(SALT_LEN, blob.length - HMAC_LEN);
+  const ciphertext = blob.slice(SALT_LEN, blob.length - HMAC_LEN);
   const storedMac = blob.slice(blob.length - HMAC_LEN);
   const { encKey, encIv, hmacKey } = deriveKeys(keyBytes, salt);
-  const mac = computeHmac(hmacKey, c1);
+  const mac = computeHmac(hmacKey, concat(salt, ciphertext));
 
   if (!timingSafeEqual(mac, storedMac)) {
     throw new Error('Invalid encrypted value MAC');
   }
 
-  return xchacha20(encKey, encIv, c1);
+  return xchacha20(encKey, encIv, ciphertext);
 }
 
 export function generateEntryDocKey() {
   return randomBytes(DOC_KEY_LEN);
 }
 
-export function wrapEntryDocKey(c2, docKeyBytes) {
+export function wrapEntryDocKey(userMasterKey, docKeyBytes) {
   if (!(docKeyBytes instanceof Uint8Array) || docKeyBytes.length !== DOC_KEY_LEN) {
     throw new Error('docKeyBytes must be 64 bytes');
   }
-  return encryptBytes(c2, docKeyBytes);
+  return encryptBytes(userMasterKey, docKeyBytes);
 }
 
-export function unwrapEntryDocKey(c2, encKeyB64) {
-  const docKeyBytes = decryptBytes(c2, encKeyB64);
+export function unwrapEntryDocKey(userMasterKey, encKeyB64) {
+  const docKeyBytes = decryptBytes(userMasterKey, encKeyB64);
   if (docKeyBytes.length !== DOC_KEY_LEN) {
     throw new Error('Invalid decrypted doc key length');
   }
