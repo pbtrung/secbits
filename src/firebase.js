@@ -52,6 +52,18 @@ export async function saveUserMasterKey(userId, masterKeyBlob) {
   await updateDoc(docRef, { master_key: masterKeyBlob });
 }
 
+export async function fetchRawUserDocs(userId) {
+  const colRef = collection(db, 'users', String(userId), 'data');
+  const snap = await getDocs(colRef);
+  const docs = [];
+  snap.forEach((d) => {
+    const raw = d.data();
+    if (raw._placeholder) return;
+    docs.push({ id: d.id, ...raw });
+  });
+  return docs;
+}
+
 export async function fetchUserEntries(userId) {
   const colRef = collection(db, 'users', String(userId), 'data');
   const snap = await getDocs(colRef);

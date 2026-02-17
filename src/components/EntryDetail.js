@@ -95,7 +95,7 @@ function formatTimestamp(ts) {
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel }) {
+function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, saving }) {
   const [draft, setDraft] = useState(entry);
   const [visiblePasswords, setVisiblePasswords] = useState({});
   const [copied, setCopied] = useState(null);
@@ -230,7 +230,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel }) {
   );
 
   return (
-    <div className="p-4" style={{ maxWidth: 700 }}>
+    <fieldset disabled={saving} className="p-4" style={{ maxWidth: 700 }}>
       {/* Title */}
       <div className="d-flex justify-content-between align-items-start mb-4">
         {isEditing ? (
@@ -553,7 +553,11 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel }) {
         {isEditing ? (
           <>
             <button className="btn btn-success" onClick={handleSave}>
-              <i className="bi bi-check-lg me-1"></i>Save
+              {saving ? (
+                <><span className="spinner-border spinner-border-sm me-1"></span>Saving...</>
+              ) : (
+                <><i className="bi bi-check-lg me-1"></i>Save</>
+              )}
             </button>
             <button className="btn btn-secondary" onClick={onCancel}>
               Cancel
@@ -568,7 +572,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel }) {
           <i className="bi bi-trash me-1"></i>Delete
         </button>
       </div>
-    </div>
+    </fieldset>
   );
 }
 
