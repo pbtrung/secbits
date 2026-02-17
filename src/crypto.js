@@ -3,6 +3,7 @@ import { randomBytes } from '@noble/ciphers/utils.js';
 import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha3_512 } from '@noble/hashes/sha3.js';
 import { hmac } from '@noble/hashes/hmac.js';
+import brotliPromise from 'brotli-wasm';
 
 const SALT_LEN = 64;
 const USER_MASTER_KEY_LEN = 64;
@@ -13,8 +14,10 @@ const HMAC_KEY_LEN = 64;
 const HMAC_LEN = 64;
 const HKDF_OUT_LEN = ENC_KEY_LEN + ENC_IV_LEN + HMAC_KEY_LEN; // 120
 const MASTER_BLOB_LEN = SALT_LEN + USER_MASTER_KEY_LEN + 64; // 192 (salt + encEntryMasterKey + hmac)
+const SNAPSHOT_ENCODING_BROTLI_V1 = 'BR1';
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+let brotliModulePromise = null;
 
 function b64ToBytes(b64) {
   const bin = atob(b64);
@@ -144,6 +147,13 @@ function decryptBytes(keyBytes, storedB64) {
   return xchacha20(encKey, encIv, ciphertext);
 }
 
+async function getBrotli() {
+  if (!brotliModulePromise) {
+    brotliModulePromise = brotliPromise;
+  }
+  return brotliModulePromise;
+}
+
 export function generateEntryDocKey() {
   return randomBytes(DOC_KEY_LEN);
 }
@@ -163,13 +173,22 @@ export function unwrapEntryDocKey(userMasterKey, encKeyB64) {
   return docKeyBytes;
 }
 
-export function encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots) {
+export async function encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots) {
+  const brotli = await getBrotli();
   const plain = encoder.encode(JSON.stringify(snapshots));
-  return encryptBytes(docKeyBytes, plain);
+  const compressed = brotli.compress(plain);
+  const payload = concat(encoder.encode(SNAPSHOT_ENCODING_BROTLI_V1), compressed);
+  return encryptBytes(docKeyBytes, payload);
 }
 
-export function decryptEntrySnapshotsWithDocKey(docKeyBytes, valueB64) {
-  const plain = decryptBytes(docKeyBytes, valueB64);
+export async function decryptEntrySnapshotsWithDocKey(docKeyBytes, valueB64) {
+  const brotli = await getBrotli();
+  const payload = decryptBytes(docKeyBytes, valueB64);
+  const header = decoder.decode(payload.slice(0, SNAPSHOT_ENCODING_BROTLI_V1.length));
+  const plain =
+    header === SNAPSHOT_ENCODING_BROTLI_V1
+      ? brotli.decompress(payload.slice(SNAPSHOT_ENCODING_BROTLI_V1.length))
+      : payload;
   const text = decoder.decode(plain);
   const parsed = JSON.parse(text);
   if (!Array.isArray(parsed)) {

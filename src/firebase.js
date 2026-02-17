@@ -76,21 +76,21 @@ export async function fetchUserEntries(userId) {
   const colRef = collection(db, 'users', String(userId), 'data');
   const snap = await getDocs(colRef);
   const entries = [];
-  snap.forEach((d) => {
+  for (const d of snap.docs) {
     const raw = d.data();
 
-    if (raw._placeholder) return;
+    if (raw._placeholder) continue;
 
-    const snapshots = parseEntrySnapshots(raw.value, raw.enc_key);
+    const snapshots = await parseEntrySnapshots(raw.value, raw.enc_key);
     if (snapshots.length > 0) {
       const latest = snapshots[0];
       entries.push({ id: d.id, ...normalizeEntryShape(latest), _snapshots: snapshots });
-      return;
+      continue;
     }
 
     // Backward compatibility for legacy documents that stored entry fields directly.
     entries.push({ id: d.id, ...normalizeEntryShape(raw) });
-  });
+  }
   return entries;
 }
 
@@ -151,7 +151,7 @@ function toEntryPayload(entry) {
   };
 }
 
-function parseEntrySnapshots(value, encKeyB64) {
+async function parseEntrySnapshots(value, encKeyB64) {
   if (typeof value !== 'string') return [];
 
   if (typeof encKeyB64 === 'string') {
@@ -161,7 +161,7 @@ function parseEntrySnapshots(value, encKeyB64) {
 
     // Strict mode for encrypted docs: unwrap/decrypt must pass HMAC verification.
     const docKeyBytes = unwrapEntryDocKey(entryMasterKeyBytes, encKeyB64);
-    const decrypted = decryptEntrySnapshotsWithDocKey(docKeyBytes, value);
+    const decrypted = await decryptEntrySnapshotsWithDocKey(docKeyBytes, value);
     return decrypted
       .filter((item) => item && typeof item === 'object')
       .map((item) => normalizeEntryShape(item))
@@ -192,8 +192,8 @@ function parseEntrySnapshots(value, encKeyB64) {
   return [];
 }
 
-function toSnapshotsJson(existingValue, existingEncKey, nextPayload) {
-  const existing = parseEntrySnapshots(existingValue, existingEncKey);
+async function toSnapshotsJson(existingValue, existingEncKey, nextPayload) {
+  const existing = await parseEntrySnapshots(existingValue, existingEncKey);
   const snapshots = [nextPayload, ...existing]
     .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
     .slice(0, MAX_ENTRY_HISTORY);
@@ -206,14 +206,14 @@ function toSnapshotsJson(existingValue, existingEncKey, nextPayload) {
     const docKeyBytes = unwrapEntryDocKey(entryMasterKeyBytes, existingEncKey);
     return {
       enc_key: existingEncKey,
-      value: encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots),
+      value: await encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots),
     };
   }
 
   const docKeyBytes = generateEntryDocKey();
   return {
     enc_key: wrapEntryDocKey(entryMasterKeyBytes, docKeyBytes),
-    value: encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots),
+    value: await encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots),
   };
 }
 
@@ -225,7 +225,7 @@ export async function createUserEntry(userId, entry) {
   }
   const docKeyBytes = generateEntryDocKey();
   const enc_key = wrapEntryDocKey(entryMasterKeyBytes, docKeyBytes);
-  const value = encryptEntrySnapshotsWithDocKey(docKeyBytes, [payload]);
+  const value = await encryptEntrySnapshotsWithDocKey(docKeyBytes, [payload]);
   checkValueSize(value);
   const created = await addDoc(colRef, { enc_key, value });
   return { id: created.id, ...payload, _snapshots: [payload] };
@@ -237,11 +237,11 @@ export async function updateUserEntry(userId, entryId, entry) {
   const snap = await getDoc(docRef);
   const existingValue = snap.exists() ? snap.data()?.value : null;
   const existingEncKey = snap.exists() ? snap.data()?.enc_key : null;
-  const existing = parseEntrySnapshots(existingValue, existingEncKey);
+  const existing = await parseEntrySnapshots(existingValue, existingEncKey);
   const allSnapshots = [payload, ...existing]
     .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
     .slice(0, MAX_ENTRY_HISTORY);
-  const nextData = toSnapshotsJson(existingValue, existingEncKey, payload);
+  const nextData = await toSnapshotsJson(existingValue, existingEncKey, payload);
   checkValueSize(nextData.value);
   await updateDoc(docRef, nextData);
   return { id: String(entryId), ...payload, _snapshots: allSnapshots };
