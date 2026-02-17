@@ -14,7 +14,6 @@ const HMAC_KEY_LEN = 64;
 const HMAC_LEN = 64;
 const HKDF_OUT_LEN = ENC_KEY_LEN + ENC_IV_LEN + HMAC_KEY_LEN; // 120
 const MASTER_BLOB_LEN = SALT_LEN + USER_MASTER_KEY_LEN + 64; // 192 (salt + encEntryMasterKey + hmac)
-const SNAPSHOT_ENCODING_BROTLI_V1 = 'BR1';
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 let brotliModulePromise = null;
@@ -177,18 +176,13 @@ export async function encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots) {
   const brotli = await getBrotli();
   const plain = encoder.encode(JSON.stringify(snapshots));
   const compressed = brotli.compress(plain);
-  const payload = concat(encoder.encode(SNAPSHOT_ENCODING_BROTLI_V1), compressed);
-  return encryptBytes(docKeyBytes, payload);
+  return encryptBytes(docKeyBytes, compressed);
 }
 
 export async function decryptEntrySnapshotsWithDocKey(docKeyBytes, valueB64) {
   const brotli = await getBrotli();
-  const payload = decryptBytes(docKeyBytes, valueB64);
-  const header = decoder.decode(payload.slice(0, SNAPSHOT_ENCODING_BROTLI_V1.length));
-  const plain =
-    header === SNAPSHOT_ENCODING_BROTLI_V1
-      ? brotli.decompress(payload.slice(SNAPSHOT_ENCODING_BROTLI_V1.length))
-      : payload;
+  const compressed = decryptBytes(docKeyBytes, valueB64);
+  const plain = brotli.decompress(compressed);
   const text = decoder.decode(plain);
   const parsed = JSON.parse(text);
   if (!Array.isArray(parsed)) {
