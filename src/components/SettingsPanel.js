@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { fetchRawUserDocs, fetchUser } from '../firebase';
+import { fetchRawUserDocs, fetchUser, getEntryMasterKey } from '../firebase';
+import { unwrapEntryDocKey, decryptEntrySnapshotsWithDocKey, bytesToB64 } from '../crypto';
 
 function formatBytes(bytes) {
   if (bytes === 0) return '0 B';
@@ -19,11 +20,30 @@ function ExportPage({ userId }) {
         fetchRawUserDocs(userId),
         fetchUser(userId),
       ]);
+      const masterKey = getEntryMasterKey();
+      const decryptedDocs = [];
+      for (const d of docs) {
+        const entry = { id: d.id };
+        if (typeof d.enc_key === 'string' && masterKey) {
+          const docKeyBytes = unwrapEntryDocKey(masterKey, d.enc_key);
+          entry.enc_key = bytesToB64(docKeyBytes);
+          if (typeof d.value === 'string') {
+            const snapshots = await decryptEntrySnapshotsWithDocKey(docKeyBytes, d.value);
+            entry.value = snapshots.map(({ _snapshots, ...rest }) => rest);
+          } else {
+            entry.value = d.value;
+          }
+        } else {
+          entry.enc_key = d.enc_key;
+          entry.value = d.value;
+        }
+        decryptedDocs.push(entry);
+      }
       const exportData = {
         user_id: userId,
-        master_key: userData?.master_key || null,
+        master_key: masterKey ? bytesToB64(masterKey) : (userData?.master_key || null),
         username: userData?.username || null,
-        data: docs,
+        data: decryptedDocs,
       };
       const json = JSON.stringify(exportData, null, 2);
       const blob = new Blob([json], { type: 'application/json' });
@@ -46,7 +66,7 @@ function ExportPage({ userId }) {
         <i className="bi bi-download me-2"></i>Export
       </h5>
       <p className="text-muted small">
-        Export all entries from your database as a JSON file. This includes the raw encrypted data for each document.
+        Export all entries from your database as a decrypted JSON file.
       </p>
       <button className="btn btn-primary" onClick={handleExport} disabled={exporting}>
         {exporting ? (

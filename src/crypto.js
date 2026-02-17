@@ -25,7 +25,7 @@ function b64ToBytes(b64) {
   return bytes;
 }
 
-function bytesToB64(bytes) {
+export function bytesToB64(bytes) {
   let bin = '';
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
   return btoa(bin);

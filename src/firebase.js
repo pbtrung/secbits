@@ -48,6 +48,10 @@ export function setEntryMasterKey(masterKeyBytes) {
   entryMasterKeyBytes = masterKeyBytes;
 }
 
+export function getEntryMasterKey() {
+  return entryMasterKeyBytes;
+}
+
 export async function fetchUser(userId) {
   const docRef = doc(db, 'users', String(userId));
   const snap = await getDoc(docRef);
@@ -144,7 +148,7 @@ function normalizeTimestamp(timestamp) {
 }
 
 function toEntryPayload(entry) {
-  const { id, _placeholder, _isNew, ...payload } = entry || {};
+  const { id, _placeholder, _isNew, _snapshots, ...payload } = entry || {};
   return {
     ...normalizeEntryShape(payload),
     timestamp: new Date().toISOString(),
