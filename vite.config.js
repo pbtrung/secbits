@@ -7,4 +7,7 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['brotli-wasm'],
   },
+  test: {
+    environment: 'node',
+  },
 });

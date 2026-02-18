@@ -3,7 +3,6 @@ import { randomBytes } from '@noble/ciphers/utils.js';
 import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha3_512 } from '@noble/hashes/sha3.js';
 import { hmac } from '@noble/hashes/hmac.js';
-import brotliPromise from 'brotli-wasm';
 
 const SALT_LEN = 64;
 const USER_MASTER_KEY_LEN = 64;
@@ -126,7 +125,7 @@ export function masterKeyVerify(masterKeyBytes, storedBlob) {
   return userMasterKey;
 }
 
-function encryptBytesToBlob(keyBytes, plainBytes) {
+export function encryptBytesToBlob(keyBytes, plainBytes) {
   const salt = randomBytes(SALT_LEN);
   const { encKey, encIv, hmacKey } = deriveKeys(keyBytes, salt);
   const ciphertext = xchacha20(encKey, encIv, plainBytes);
@@ -134,7 +133,7 @@ function encryptBytesToBlob(keyBytes, plainBytes) {
   return concat(salt, ciphertext, mac);
 }
 
-function decryptBlobBytes(keyBytes, blob) {
+export function decryptBlobBytes(keyBytes, blob) {
   if (blob.length < SALT_LEN + HMAC_LEN) {
     throw new Error('Invalid encrypted value');
   }
@@ -154,7 +153,7 @@ function decryptBlobBytes(keyBytes, blob) {
 
 async function getBrotli() {
   if (!brotliModulePromise) {
-    brotliModulePromise = brotliPromise;
+    brotliModulePromise = import('brotli-wasm').then((m) => m.default);
   }
   return brotliModulePromise;
 }
