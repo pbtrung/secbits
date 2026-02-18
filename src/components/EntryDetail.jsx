@@ -338,6 +338,22 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
     }
   };
 
+  const hasInvalidFields =
+    Object.values(totpErrors).some(Boolean) ||
+    Object.values(urlErrors).some(Boolean);
+
+  const allFieldsEmpty =
+    !draft.title.trim() &&
+    !draft.username.trim() &&
+    !draft.password.trim() &&
+    !draft.notes.trim() &&
+    !draft.urls.some((u) => u.trim()) &&
+    draft.totpSecrets.length === 0 &&
+    draft.hiddenFields.length === 0 &&
+    !tagsInput.trim();
+
+  const saveDisabled = hasInvalidFields || allFieldsEmpty;
+
   const data = isEditing ? draft : viewEntry;
 
   const CopyBtn = ({ text, label }) => (
@@ -728,7 +744,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
       <div className="d-flex gap-2 align-items-center border-top pt-3">
         {isEditing ? (
           <>
-            <button className="btn btn-success" onClick={handleSave}>
+            <button className="btn btn-success" onClick={handleSave} disabled={saveDisabled}>
               {saving ? (
                 <><span className="spinner-border spinner-border-sm me-1"></span>Saving...</>
               ) : (
