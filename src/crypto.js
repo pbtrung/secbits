@@ -31,6 +31,12 @@ export function bytesToB64(bytes) {
   return btoa(bin);
 }
 
+function toBytes(value, label = 'value') {
+  if (value instanceof Uint8Array) return value;
+  if (value && typeof value.toUint8Array === 'function') return value.toUint8Array();
+  throw new Error(`${label} must be bytes`);
+}
+
 function deriveKeys(masterKeyBytes, salt) {
   const derived = hkdf(sha3_512, masterKeyBytes, salt, new Uint8Array(), HKDF_OUT_LEN);
   return {
@@ -75,7 +81,7 @@ export function decodeMasterKey(masterKeyB64) {
 }
 
 /**
- * First-time setup: generate salt, encrypt entry master key, return base64 blob to store.
+ * First-time setup: generate salt, encrypt entry master key, return bytes blob to store.
  * Also returns entry master key for session use.
  */
 export function masterKeySetup(masterKeyBytes) {
@@ -89,7 +95,7 @@ export function masterKeySetup(masterKeyBytes) {
   const blob = concat(salt, encEntryMasterKey, mac);
 
   return {
-    storedValue: bytesToB64(blob),
+    storedValue: blob,
     userMasterKey,
   };
 }
@@ -98,8 +104,8 @@ export function masterKeySetup(masterKeyBytes) {
  * Returning user: verify master key against stored blob.
  * Returns decrypted entry master key or throws on wrong key.
  */
-export function masterKeyVerify(masterKeyBytes, storedB64) {
-  const blob = b64ToBytes(storedB64);
+export function masterKeyVerify(masterKeyBytes, storedBlob) {
+  const blob = toBytes(storedBlob, 'stored master_key');
   if (blob.length !== MASTER_BLOB_LEN) {
     throw new Error('Invalid stored master_key data');
   }
@@ -119,16 +125,15 @@ export function masterKeyVerify(masterKeyBytes, storedB64) {
   return userMasterKey;
 }
 
-function encryptBytes(keyBytes, plainBytes) {
+function encryptBytesToBlob(keyBytes, plainBytes) {
   const salt = randomBytes(SALT_LEN);
   const { encKey, encIv, hmacKey } = deriveKeys(keyBytes, salt);
   const ciphertext = xchacha20(encKey, encIv, plainBytes);
   const mac = computeHmac(hmacKey, concat(salt, ciphertext));
-  return bytesToB64(concat(salt, ciphertext, mac));
+  return concat(salt, ciphertext, mac);
 }
 
-function decryptBytes(keyBytes, storedB64) {
-  const blob = b64ToBytes(storedB64);
+function decryptBlobBytes(keyBytes, blob) {
   if (blob.length < SALT_LEN + HMAC_LEN) {
     throw new Error('Invalid encrypted value');
   }
@@ -161,11 +166,11 @@ export function wrapEntryDocKey(userMasterKey, docKeyBytes) {
   if (!(docKeyBytes instanceof Uint8Array) || docKeyBytes.length !== DOC_KEY_LEN) {
     throw new Error('docKeyBytes must be 64 bytes');
   }
-  return encryptBytes(userMasterKey, docKeyBytes);
+  return encryptBytesToBlob(userMasterKey, docKeyBytes);
 }
 
-export function unwrapEntryDocKey(userMasterKey, encKeyB64) {
-  const docKeyBytes = decryptBytes(userMasterKey, encKeyB64);
+export function unwrapEntryDocKey(userMasterKey, encKeyBlob) {
+  const docKeyBytes = decryptBlobBytes(userMasterKey, toBytes(encKeyBlob, 'enc_key'));
   if (docKeyBytes.length !== DOC_KEY_LEN) {
     throw new Error('Invalid decrypted doc key length');
   }
@@ -176,12 +181,12 @@ export async function encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots) {
   const brotli = await getBrotli();
   const plain = encoder.encode(JSON.stringify(snapshots));
   const compressed = brotli.compress(plain);
-  return encryptBytes(docKeyBytes, compressed);
+  return encryptBytesToBlob(docKeyBytes, compressed);
 }
 
-export async function decryptEntrySnapshotsWithDocKey(docKeyBytes, valueB64) {
+export async function decryptEntrySnapshotsWithDocKey(docKeyBytes, encryptedValue) {
   const brotli = await getBrotli();
-  const compressed = decryptBytes(docKeyBytes, valueB64);
+  const compressed = decryptBlobBytes(docKeyBytes, toBytes(encryptedValue, 'value'));
   const plain = brotli.decompress(compressed);
   const text = decoder.decode(plain);
   const parsed = JSON.parse(text);

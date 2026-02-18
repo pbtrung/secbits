@@ -9,6 +9,7 @@ import {
   getDocs,
   addDoc,
   deleteDoc,
+  Bytes,
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously } from 'firebase/auth';
 import {
@@ -27,10 +28,28 @@ const MAX_ENTRY_HISTORY = 5;
 const MAX_VALUE_BYTES = 999999;
 
 function checkValueSize(value) {
-  const size = new TextEncoder().encode(value).length;
+  const size = getStoredValueSize(value);
   if (size > MAX_VALUE_BYTES) {
     throw new Error(`Entry data is too large (${Math.ceil(size / 1000)} KB). Maximum allowed is ${MAX_VALUE_BYTES / 1000} KB. Try reducing notes or removing attachments.`);
   }
+}
+
+function toUint8Array(value) {
+  if (value instanceof Uint8Array) return value;
+  if (value && typeof value.toUint8Array === 'function') return value.toUint8Array();
+  return null;
+}
+
+function getStoredValueSize(value) {
+  const bytes = toUint8Array(value);
+  if (!bytes) throw new Error('Stored value must be bytes');
+  return bytes.length;
+}
+
+function toFirestoreBytes(value) {
+  const bytes = toUint8Array(value);
+  if (!bytes) throw new Error('Encrypted value must be bytes');
+  return Bytes.fromUint8Array(bytes);
 }
 
 export function initFirebase(config, dbName) {
@@ -61,7 +80,7 @@ export async function fetchUser(userId) {
 
 export async function saveUserMasterKey(userId, masterKeyBlob) {
   const docRef = doc(db, 'users', String(userId));
-  await updateDoc(docRef, { master_key: masterKeyBlob });
+  await updateDoc(docRef, { master_key: toFirestoreBytes(masterKeyBlob) });
 }
 
 export async function fetchRawUserDocs(userId) {
@@ -86,14 +105,9 @@ export async function fetchUserEntries(userId) {
     if (raw._placeholder) continue;
 
     const snapshots = await parseEntrySnapshots(raw.value, raw.enc_key);
-    if (snapshots.length > 0) {
-      const latest = snapshots[0];
-      entries.push({ id: d.id, ...normalizeEntryShape(latest), _snapshots: snapshots });
-      continue;
-    }
-
-    // Backward compatibility for legacy documents that stored entry fields directly.
-    entries.push({ id: d.id, ...normalizeEntryShape(raw) });
+    if (snapshots.length === 0) continue;
+    const latest = snapshots[0];
+    entries.push({ id: d.id, ...normalizeEntryShape(latest), _snapshots: snapshots });
   }
   return entries;
 }
@@ -155,45 +169,21 @@ function toEntryPayload(entry) {
   };
 }
 
-async function parseEntrySnapshots(value, encKeyB64) {
-  if (typeof value !== 'string') return [];
-
-  if (typeof encKeyB64 === 'string') {
-    if (!entryMasterKeyBytes) {
-      throw new Error('Entry master key is not initialized');
-    }
-
-    // Strict mode for encrypted docs: unwrap/decrypt must pass HMAC verification.
-    const docKeyBytes = unwrapEntryDocKey(entryMasterKeyBytes, encKeyB64);
-    const decrypted = await decryptEntrySnapshotsWithDocKey(docKeyBytes, value);
-    return decrypted
-      .filter((item) => item && typeof item === 'object')
-      .map((item) => normalizeEntryShape(item))
-      .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
-      .slice(0, MAX_ENTRY_HISTORY);
+async function parseEntrySnapshots(value, encKeyBlob) {
+  const valueBytes = toUint8Array(value);
+  const encKeyBytes = toUint8Array(encKeyBlob);
+  if (!valueBytes || !encKeyBytes) return [];
+  if (!entryMasterKeyBytes) {
+    throw new Error('Entry master key is not initialized');
   }
 
-  try {
-    const parsed = JSON.parse(value);
-
-    // Current format: JSON array of entry snapshots.
-    if (Array.isArray(parsed)) {
-      return parsed
-        .filter((item) => item && typeof item === 'object')
-        .map((item) => normalizeEntryShape(item))
-        .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
-        .slice(0, MAX_ENTRY_HISTORY);
-    }
-
-    // Legacy transitional format: single JSON object.
-    if (parsed && typeof parsed === 'object') {
-      return [normalizeEntryShape(parsed)];
-    }
-  } catch {
-    // Ignore invalid JSON and let callers fall back to legacy shape.
-  }
-
-  return [];
+  const docKeyBytes = unwrapEntryDocKey(entryMasterKeyBytes, encKeyBytes);
+  const decrypted = await decryptEntrySnapshotsWithDocKey(docKeyBytes, valueBytes);
+  return decrypted
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => normalizeEntryShape(item))
+    .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
+    .slice(0, MAX_ENTRY_HISTORY);
 }
 
 async function toSnapshotsJson(existingValue, existingEncKey, nextPayload) {
@@ -206,18 +196,19 @@ async function toSnapshotsJson(existingValue, existingEncKey, nextPayload) {
     throw new Error('Entry master key is not initialized');
   }
 
-  if (typeof existingEncKey === 'string') {
-    const docKeyBytes = unwrapEntryDocKey(entryMasterKeyBytes, existingEncKey);
+  const existingEncKeyBytes = toUint8Array(existingEncKey);
+  if (existingEncKeyBytes) {
+    const docKeyBytes = unwrapEntryDocKey(entryMasterKeyBytes, existingEncKeyBytes);
     return {
-      enc_key: existingEncKey,
-      value: await encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots),
+      enc_key: toFirestoreBytes(existingEncKeyBytes),
+      value: toFirestoreBytes(await encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots)),
     };
   }
 
   const docKeyBytes = generateEntryDocKey();
   return {
-    enc_key: wrapEntryDocKey(entryMasterKeyBytes, docKeyBytes),
-    value: await encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots),
+    enc_key: toFirestoreBytes(wrapEntryDocKey(entryMasterKeyBytes, docKeyBytes)),
+    value: toFirestoreBytes(await encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots)),
   };
 }
 
@@ -228,8 +219,9 @@ export async function createUserEntry(userId, entry) {
     throw new Error('Entry master key is not initialized');
   }
   const docKeyBytes = generateEntryDocKey();
-  const enc_key = wrapEntryDocKey(entryMasterKeyBytes, docKeyBytes);
-  const value = await encryptEntrySnapshotsWithDocKey(docKeyBytes, [payload]);
+  const enc_key = toFirestoreBytes(wrapEntryDocKey(entryMasterKeyBytes, docKeyBytes));
+  const encryptedValue = await encryptEntrySnapshotsWithDocKey(docKeyBytes, [payload]);
+  const value = toFirestoreBytes(encryptedValue);
   checkValueSize(value);
   const created = await addDoc(colRef, { enc_key, value });
   return { id: created.id, ...payload, _snapshots: [payload] };

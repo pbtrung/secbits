@@ -10,6 +10,19 @@ function formatBytes(bytes) {
   return `${value % 1 === 0 ? value : value.toFixed(2)} ${units[i]}`;
 }
 
+function valueToBytes(value) {
+  if (value instanceof Uint8Array) return value;
+  if (value && typeof value.toUint8Array === 'function') return value.toUint8Array();
+  return null;
+}
+
+function valueByteLength(value) {
+  if (typeof value === 'string') return new TextEncoder().encode(value).length;
+  const bytes = valueToBytes(value);
+  if (bytes) return bytes.length;
+  return new Blob([JSON.stringify(value ?? null)]).size;
+}
+
 function ExportPage({ userId }) {
   const [exporting, setExporting] = useState(false);
 
@@ -24,24 +37,26 @@ function ExportPage({ userId }) {
       const decryptedDocs = [];
       for (const d of docs) {
         const entry = { id: d.id };
-        if (typeof d.enc_key === 'string' && masterKey) {
-          const docKeyBytes = unwrapEntryDocKey(masterKey, d.enc_key);
+        const encKeyBytes = valueToBytes(d.enc_key);
+        if (encKeyBytes && masterKey) {
+          const docKeyBytes = unwrapEntryDocKey(masterKey, encKeyBytes);
           entry.enc_key = bytesToB64(docKeyBytes);
-          if (typeof d.value === 'string') {
+          if (valueToBytes(d.value)) {
             const snapshots = await decryptEntrySnapshotsWithDocKey(docKeyBytes, d.value);
             entry.value = snapshots.map(({ _snapshots, ...rest }) => rest);
           } else {
             entry.value = d.value;
           }
         } else {
-          entry.enc_key = d.enc_key;
+          entry.enc_key = encKeyBytes ? bytesToB64(encKeyBytes) : d.enc_key;
           entry.value = d.value;
         }
         decryptedDocs.push(entry);
       }
+      const storedMasterKey = valueToBytes(userData?.master_key);
       const exportData = {
         user_id: userId,
-        master_key: masterKey ? bytesToB64(masterKey) : (userData?.master_key || null),
+        master_key: masterKey ? bytesToB64(masterKey) : (storedMasterKey ? bytesToB64(storedMasterKey) : null),
         username: userData?.username || null,
         data: decryptedDocs,
       };
@@ -88,8 +103,8 @@ function AboutPage({ userId }) {
       .then((docs) => {
         let totalBytes = 0;
         docs.forEach((doc) => {
-          if (doc.value) totalBytes += new Blob([doc.value]).size;
-          if (doc.enc_key) totalBytes += new Blob([doc.enc_key]).size;
+          if (doc.value) totalBytes += valueByteLength(doc.value);
+          if (doc.enc_key) totalBytes += valueByteLength(doc.enc_key);
         });
         setStats({ count: docs.length, totalBytes });
         setLoading(false);
