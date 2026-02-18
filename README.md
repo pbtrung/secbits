@@ -1,60 +1,56 @@
 # SecBits
 
-A self-hosted, end-to-end encrypted password manager. All data is encrypted on the client before it reaches Firebase — the server never sees plaintext secrets.
-
----
+A self-hosted, end-to-end encrypted password manager. All data is encrypted on the client before it reaches Firebase. The server never sees plaintext secrets.
 
 ## Table of Contents
 
-- [Features](#features)
-- [Cryptographic Design](#cryptographic-design)
-- [Firebase Setup](#firebase-setup)
-- [Config File Format](#config-file-format)
-- [Building and Deploying](#building-and-deploying)
-- [Usage Guide](#usage-guide)
-- [Security Notes](#security-notes)
-- [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
-
----
+1. [Features](#features)
+2. [Cryptographic Design](#cryptographic-design)
+3. [Firebase Setup](#firebase-setup)
+4. [Config File Format](#config-file-format)
+5. [Building and Deploying](#building-and-deploying)
+6. [Usage Guide](#usage-guide)
+7. [Security Notes](#security-notes)
+8. [Tech Stack](#tech-stack)
+9. [Project Structure](#project-structure)
 
 ## Features
 
-- **End-to-end encryption** — XChaCha20 + HMAC-SHA3-512; Firebase stores only ciphertext
-- **Per-entry document keys** — each entry uses its own randomly generated key
-- **Version history** — up to 5 snapshots per entry for auditing and recovery
-- **TOTP generation** — live 6-digit codes with countdown timer
-- **Password generator** — configurable charset, length 8–128, entropy display
-- **Custom fields** — arbitrary hidden key/value pairs per entry
-- **Tags** — organize entries with comma-separated tags; sidebar filter with counts
-- **Full-text search** — searches title, username, and URLs in real time
-- **Export** — download a decrypted JSON backup at any time
-- **Responsive layout** — three-column resizable desktop view; stacked mobile navigation
-- **Session persistence** — config cached in `sessionStorage` for the tab lifetime (cleared on close/logout)
-- **Clipboard auto-clear** — clipboard is overwritten 30 seconds after any copy
-- **Notes auto-hide** — revealed notes are hidden after 15 seconds or on window blur
-
----
+| Feature | Description |
+|---|---|
+| End-to-end encryption | XChaCha20 + HMAC-SHA3-512; Firebase stores only ciphertext |
+| Per-entry document keys | Each entry uses its own randomly generated key |
+| Version history | Up to 5 snapshots per entry for auditing and recovery |
+| TOTP generation | Live 6-digit codes with countdown timer |
+| Password generator | Configurable charset, length 8 to 128, entropy display |
+| Custom fields | Arbitrary hidden key/value pairs per entry |
+| Tags | Organize entries with comma-separated tags; sidebar filter with counts |
+| Full-text search | Searches title, username, and URLs in real time |
+| Export | Download a decrypted JSON backup at any time |
+| Responsive layout | Three-column resizable desktop view; stacked mobile navigation |
+| Session persistence | Config cached in `sessionStorage` for the tab lifetime (cleared on close/logout) |
+| Clipboard auto-clear | Clipboard is overwritten 30 seconds after any copy |
+| Notes auto-hide | Revealed notes are hidden after 15 seconds or on window blur |
 
 ## Cryptographic Design
 
 ### Key hierarchy
 
 ```
-User Master Key (from config file, ≥128 bytes)
-    │
-    ├─ HKDF-SHA3-512 → encKey (32B) + encIv (24B) + hmacKey (64B)
-    │
-    ├─ XChaCha20(encKey, encIv, userMasterKey) → stored in Firestore
-    ├─ HMAC-SHA3-512(hmacKey, salt ‖ ciphertext) → integrity tag
-    │
-    └─ userMasterKey (64B, random, decrypted at login)
-            │
-            └─ per-entry doc key (64B, random per entry)
-                    │
-                    ├─ HKDF-SHA3-512 → encKey + encIv + hmacKey
-                    ├─ JSON → Brotli compress → XChaCha20 encrypt
-                    └─ HMAC-SHA3-512 → integrity tag
+User Master Key (from config file, >=128 bytes)
+    |
+    +-- HKDF-SHA3-512 -> encKey (32B) + encIv (24B) + hmacKey (64B)
+    |
+    +-- XChaCha20(encKey, encIv, userMasterKey) -> stored in Firestore
+    +-- HMAC-SHA3-512(hmacKey, salt || ciphertext) -> integrity tag
+    |
+    +-- userMasterKey (64B, random, decrypted at login)
+            |
+            +-- per-entry doc key (64B, random per entry)
+                    |
+                    +-- HKDF-SHA3-512 -> encKey + encIv + hmacKey
+                    +-- JSON -> Brotli compress -> XChaCha20 encrypt
+                    +-- HMAC-SHA3-512 -> integrity tag
 ```
 
 ### Algorithms
@@ -70,14 +66,16 @@ User Master Key (from config file, ≥128 bytes)
 ### Master key flow
 
 **First login (new user):**
-1. `decodeMasterKey()` validates the base64 key from the config file (must decode to ≥128 bytes).
-2. A random 64-byte `userMasterKey` is generated and encrypted with HKDF+XChaCha20+HMAC using the master key.
-3. The 192-byte blob (`salt ‖ encryptedKey ‖ mac`) is written to `users/{userId}/master_key` in Firestore.
+
+1. `decodeMasterKey()` validates the base64 key from the config file (must decode to >=128 bytes).
+2. A random 64-byte `userMasterKey` is generated and encrypted with HKDF + XChaCha20 + HMAC using the master key.
+3. The 192-byte blob (`salt || encryptedKey || mac`) is written to `users/{userId}/master_key` in Firestore.
 4. The in-memory `userMasterKey` is used for the rest of the session.
 
 **Returning user:**
+
 1. The stored blob is fetched from Firestore.
-2. HMAC is verified (timing-safe comparison) against the derived key — wrong master key fails here.
+2. HMAC is verified (timing-safe comparison) against the derived key. A wrong master key fails here.
 3. `userMasterKey` is decrypted and used for the session.
 
 ### Entry encryption
@@ -85,15 +83,13 @@ User Master Key (from config file, ≥128 bytes)
 Each entry stores an array of up to 5 snapshots (version history). On every save:
 
 ```
-snapshots[]  →  JSON.stringify  →  Brotli compress
-    →  XChaCha20 encrypt (with entry's doc key)
-    →  HMAC tag appended
-    →  stored as Firestore Bytes in value field
+snapshots[]  ->  JSON.stringify  ->  Brotli compress
+    ->  XChaCha20 encrypt (with entry's doc key)
+    ->  HMAC tag appended
+    ->  stored as Firestore Bytes in value field
 ```
 
-The entry's doc key is itself wrapped (encrypted + MAC'd) using the `userMasterKey` and stored in the `enc_key` field of the same Firestore document.
-
----
+The entry's doc key is itself wrapped (encrypted and MAC'd) using the `userMasterKey` and stored in the `enc_key` field of the same Firestore document.
 
 ## Firebase Setup
 
@@ -101,15 +97,15 @@ The entry's doc key is itself wrapped (encrypted + MAC'd) using the `userMasterK
 
 1. Go to [console.firebase.google.com](https://console.firebase.google.com) and create a new project.
 2. Enable **Firestore Database** (choose a region; **Native mode**).
-3. Enable **Anonymous Authentication**: Authentication → Sign-in method → Anonymous → Enable.
+3. Enable **Anonymous Authentication**: Authentication > Sign-in method > Anonymous > Enable.
 
 ### 2. Register a web app
 
-In Project Settings → General → Your apps → Add app (Web). Copy the `firebaseConfig` object — you will need these values.
+In Project Settings > General > Your apps > Add app (Web). Copy the `firebaseConfig` object. You will need these values.
 
 ### 3. Set Firestore security rules
 
-Go to Firestore → Rules and replace the default rules with:
+Go to Firestore > Rules and replace the default rules with:
 
 ```
 rules_version = '2';
@@ -143,19 +139,17 @@ const b64 = btoa(String.fromCharCode(...bytes));
 console.log(b64);
 ```
 
-Copy the output — this is your `master_key`. **Store it safely.** It cannot be recovered if lost. Treat it like a private key.
-
----
+Copy the output. This is your `master_key`. **Store it safely.** It cannot be recovered if lost. Treat it like a private key.
 
 ## Config File Format
 
-Save the following as a `.json` file (e.g. `secbits-config.json`). **Keep this file private — it contains your master key.**
+Save the following as a `.json` file (e.g. `secbits-config.json`). **Keep this file private. It contains your master key.**
 
 ```json
 {
   "user_id": "your-firestore-user-document-id",
   "db_name": "",
-  "master_key": "<base64-encoded key, ≥128 bytes when decoded>",
+  "master_key": "<base64-encoded key, >=128 bytes when decoded>",
   "auth": {
     "apiKey": "...",
     "authDomain": "your-project.firebaseapp.com",
@@ -170,19 +164,16 @@ Save the following as a `.json` file (e.g. `secbits-config.json`). **Keep this f
 
 | Field | Required | Description |
 |---|---|---|
-| `user_id` | Yes | ID of your user document in `users/` collection |
+| `user_id` | Yes | ID of your user document in the `users/` collection |
 | `db_name` | No | Named Firestore database (leave `""` for the default database) |
-| `master_key` | Yes | Base64-encoded random key, must decode to ≥128 bytes |
-| `auth` | Yes | Firebase web app config object from Firebase console |
-
----
+| `master_key` | Yes | Base64-encoded random key, must decode to >=128 bytes |
+| `auth` | Yes | Firebase web app config object from the Firebase console |
 
 ## Building and Deploying
 
 ### Prerequisites
 
-- Node.js 18+
-- npm 9+
+Node.js 18 or later and npm 9 or later.
 
 ### Install dependencies
 
@@ -212,9 +203,10 @@ npm run preview
 
 ### Deploying
 
-The `dist/` directory is a standard static site. Deploy it to any static host:
+The `dist/` directory is a standard static site. Deploy it to any static host.
 
 **Firebase Hosting:**
+
 ```bash
 npm install -g firebase-tools
 firebase login
@@ -224,16 +216,14 @@ firebase deploy
 ```
 
 **Netlify / Vercel / Cloudflare Pages:**
-- Build command: `npm run build`
-- Output directory: `dist`
-- No server-side rendering needed
+
+Set the build command to `npm run build` and the output directory to `dist`. No server-side rendering is needed.
 
 **NGINX / Apache:**
+
 Copy the contents of `dist/` to your web root. Configure the server to serve `index.html` for all routes (SPA routing).
 
 > The app is fully client-side. There is no backend process to run.
-
----
 
 ## Usage Guide
 
@@ -242,7 +232,7 @@ Copy the contents of `dist/` to your web root. Configure the server to serve `in
 1. Open the app in your browser.
 2. Drag and drop (or click to browse) your config `.json` file onto the upload area.
 3. The app verifies your master key against Firestore and decrypts your data. On first login a new encryption key pair is generated and stored.
-4. The config is cached in `sessionStorage` for the lifetime of the browser tab — you will not be asked to upload it again unless you close the tab or log out.
+4. The config is cached in `sessionStorage` for the lifetime of the browser tab. You will not be asked to upload it again unless you close the tab or log out.
 
 ### Creating an entry
 
@@ -258,11 +248,11 @@ If you cancel while there are unsaved edits, you will be asked to confirm before
 |---|---|
 | Title | Display name for the entry |
 | Username | Account login name or email |
-| Password | Secret — hidden by default, toggle to reveal |
-| TOTP Secrets | Base32-encoded TOTP seeds (validates format on save) |
+| Password | Secret, hidden by default, toggle to reveal |
+| TOTP Secrets | Base32-encoded TOTP seeds (format is validated) |
 | URLs | One or more URLs linked to the account (validated, open in new tab) |
 | Custom Fields | Hidden key/value pairs for API keys, recovery codes, etc. |
-| Notes | Free-text notes — hidden by default, reveals for 15 seconds |
+| Notes | Free-text notes, hidden by default, reveals for 15 seconds |
 | Tags | Comma-separated; case-insensitive; autocomplete from existing tags |
 
 ### Copying values
@@ -283,32 +273,33 @@ In edit mode, click **Generate Password** below the password field to open the g
 
 ### Tags and search
 
-- Select a tag in the left sidebar to filter entries.
-- Use the search bar to search across title, username, and URLs.
-- Tag suggestions appear as you type in the tags field.
+Select a tag in the left sidebar to filter entries. Use the search bar to search across title, username, and URLs. Tag suggestions appear as you type in the tags field.
 
 ### Export
 
-Go to **Settings → Export**. A JSON file containing all your decrypted entry data is downloaded. Keep this file secure — it contains your plaintext secrets along with the master key.
+Go to **Settings > Export**. A JSON file containing all your decrypted entry data is downloaded. Keep this file secure. It contains your plaintext secrets along with the master key.
 
 ### Logging out
 
-Click the logout button (arrow icon) in the bottom of the tag sidebar. The `sessionStorage` config is cleared immediately.
-
----
+Click the logout button (arrow icon) at the bottom of the tag sidebar. The `sessionStorage` config is cleared immediately.
 
 ## Security Notes
 
-- **The master key is everything.** Anyone with your config file and access to your Firestore database can decrypt all your data. Keep the config file off shared machines and out of version control.
-- **Firebase never sees plaintext.** All encryption and decryption happens in the browser. Firestore only stores ciphertext blobs.
-- **Per-entry keys.** Each entry is encrypted with its own randomly generated document key. Compromise of one entry's key does not affect others.
-- **HMAC integrity.** Every encrypted value is authenticated with HMAC-SHA3-512. Tampered ciphertext is detected before decryption.
-- **Timing-safe MAC verification.** The HMAC comparison uses a constant-time function to prevent timing side-channels.
-- **Anonymous auth.** Firebase Anonymous Authentication is used to satisfy Firestore security rules — no account creation or password is required.
-- **Session scope.** The config is stored in `sessionStorage`, which is scoped to the tab and cleared when the tab is closed. It is never written to `localStorage`.
-- **Content Security Policy.** A CSP header restricts scripts, connections, styles, fonts, and images to known-good origins.
+**The master key is everything.** Anyone with your config file and access to your Firestore database can decrypt all your data. Keep the config file off shared machines and out of version control.
 
----
+**Firebase never sees plaintext.** All encryption and decryption happens in the browser. Firestore only stores ciphertext blobs.
+
+**Per-entry keys.** Each entry is encrypted with its own randomly generated document key. Compromise of one entry's key does not affect others.
+
+**HMAC integrity.** Every encrypted value is authenticated with HMAC-SHA3-512. Tampered ciphertext is detected before decryption.
+
+**Timing-safe MAC verification.** The HMAC comparison uses a constant-time function to prevent timing side-channels.
+
+**Anonymous auth.** Firebase Anonymous Authentication is used to satisfy Firestore security rules. No account creation or password is required.
+
+**Session scope.** The config is stored in `sessionStorage`, which is scoped to the tab and cleared when the tab is closed. It is never written to `localStorage`.
+
+**Content Security Policy.** A CSP header restricts scripts, connections, styles, fonts, and images to known-good origins.
 
 ## Tech Stack
 
@@ -324,8 +315,6 @@ Click the logout button (arrow icon) in the bottom of the tag sidebar. The `sess
 | Database | Firebase Firestore |
 | Auth | Firebase Anonymous Auth |
 
----
-
 ## Project Structure
 
 ```
@@ -334,7 +323,7 @@ secbits/
 ├── vite.config.js               # Vite + React + WASM plugins
 ├── package.json
 └── src/
-    ├── main.jsx                 # Entry point — mounts React root
+    ├── main.jsx                 # Entry point, mounts React root
     ├── App.jsx                  # Root component, state management
     ├── crypto.js                # All cryptographic operations
     ├── firebase.js              # Firestore read/write operations
