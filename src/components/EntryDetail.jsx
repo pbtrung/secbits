@@ -55,6 +55,28 @@ function formatTimestamp(ts) {
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
+function hasDraftChanges(draft, entry, tagCurrentInput) {
+  const normalizeText = (value) => (typeof value === 'string' ? value : '');
+  const normalizeArray = (value) => (Array.isArray(value) ? value : []);
+  const currentTagText = tagCurrentInput.trim().toLowerCase();
+  const draftTags = normalizeArray(draft?.tags);
+  const tagsNow = (currentTagText && !draftTags.includes(currentTagText))
+    ? [...draftTags, currentTagText]
+    : draftTags;
+  const tagsOrig = normalizeArray(entry?.tags);
+
+  return (
+    normalizeText(draft?.title) !== normalizeText(entry?.title) ||
+    normalizeText(draft?.username) !== normalizeText(entry?.username) ||
+    normalizeText(draft?.password) !== normalizeText(entry?.password) ||
+    normalizeText(draft?.notes) !== normalizeText(entry?.notes) ||
+    JSON.stringify(normalizeArray(draft?.urls)) !== JSON.stringify(normalizeArray(entry?.urls)) ||
+    JSON.stringify(normalizeArray(draft?.totpSecrets)) !== JSON.stringify(normalizeArray(entry?.totpSecrets)) ||
+    JSON.stringify(normalizeArray(draft?.hiddenFields)) !== JSON.stringify(normalizeArray(entry?.hiddenFields)) ||
+    tagsNow.join(',') !== tagsOrig.join(',')
+  );
+}
+
 function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, saving, deleting, allTags = [], onDirtyChange }) {
   const [draft, setDraft] = useState(entry);
   const [visiblePasswords, setVisiblePasswords] = useState({});
@@ -99,22 +121,8 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
       onDirtyChange?.(false);
       return;
     }
-    const currentTagText = tagCurrentInput.trim().toLowerCase();
-    const tagsNow = (currentTagText && !(draft.tags || []).includes(currentTagText))
-      ? [...(draft.tags || []), currentTagText]
-      : (draft.tags || []);
-    const tagsOrig = Array.isArray(entry.tags) ? entry.tags : [];
-    const dirty =
-      draft.title !== entry.title ||
-      draft.username !== entry.username ||
-      draft.password !== entry.password ||
-      draft.notes !== entry.notes ||
-      JSON.stringify(draft.urls) !== JSON.stringify(entry.urls) ||
-      JSON.stringify(draft.totpSecrets) !== JSON.stringify(entry.totpSecrets) ||
-      JSON.stringify(draft.hiddenFields) !== JSON.stringify(entry.hiddenFields) ||
-      tagsNow.join(',') !== tagsOrig.join(',');
-    onDirtyChange(dirty);
-  }, [draft, tagCurrentInput, entry, isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
+    onDirtyChange(hasDraftChanges(draft, viewEntry, tagCurrentInput));
+  }, [draft, tagCurrentInput, viewEntry, isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const hideNotes = () => setNotesVisible(false);
@@ -329,7 +337,8 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
   };
 
   const handleVersionChange = (index) => {
-    if (isEditing && index > 0 && !window.confirm('Load this older version into the editor? Unsaved changes will be replaced.')) {
+    const dirty = hasDraftChanges(draft, viewEntry, tagCurrentInput);
+    if (isEditing && dirty && index > 0 && !window.confirm('Load this older version into the editor? Unsaved changes will be replaced.')) {
       return;
     }
     setSelectedVersion(index);
