@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchRawUserDocs, fetchUser, getEntryMasterKey } from '../firebase';
+import { fetchRawUserDocs, fetchUser, getUserMasterKey } from '../firebase';
 import { unwrapEntryDocKey, decryptEntrySnapshotsWithDocKey, bytesToB64 } from '../crypto';
 
 function formatBytes(bytes) {
@@ -33,13 +33,13 @@ function ExportPage({ userId }) {
         fetchRawUserDocs(userId),
         fetchUser(userId),
       ]);
-      const masterKey = getEntryMasterKey();
+      const userMasterKey = getUserMasterKey();
       const decryptedDocs = [];
       for (const d of docs) {
         const entry = { id: d.id };
         const encKeyBytes = valueToBytes(d.enc_key);
-        if (encKeyBytes && masterKey) {
-          const docKeyBytes = unwrapEntryDocKey(masterKey, encKeyBytes);
+        if (encKeyBytes && userMasterKey) {
+          const docKeyBytes = unwrapEntryDocKey(userMasterKey, encKeyBytes);
           entry.enc_key = bytesToB64(docKeyBytes);
           if (valueToBytes(d.value)) {
             const snapshots = await decryptEntrySnapshotsWithDocKey(docKeyBytes, d.value);
@@ -56,7 +56,7 @@ function ExportPage({ userId }) {
       const storedMasterKey = valueToBytes(userData?.master_key);
       const exportData = {
         user_id: userId,
-        master_key: masterKey ? bytesToB64(masterKey) : (storedMasterKey ? bytesToB64(storedMasterKey) : null),
+        master_key: userMasterKey ? bytesToB64(userMasterKey) : (storedMasterKey ? bytesToB64(storedMasterKey) : null),
         username: userData?.username || null,
         data: decryptedDocs,
       };

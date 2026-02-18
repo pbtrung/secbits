@@ -37,14 +37,14 @@ A self-hosted, end-to-end encrypted password manager. All data is encrypted on t
 ### Key hierarchy
 
 ```
-User Master Key (from config file, >=128 bytes)
+Root Master Key (from config file, >=128 bytes)
     |
     +-- HKDF-SHA3-512 -> encKey (32B) + encIv (24B) + hmacKey (64B)
     |
-    +-- XChaCha20(encKey, encIv, userMasterKey) -> stored in Firestore
-    +-- HMAC-SHA3-512(hmacKey, salt || ciphertext) -> integrity tag
+    +-- XChaCha20(encKey, encIv, userMasterKey) -> encUserMasterKey stored in Firestore
+    +-- HMAC-SHA3-512(hmacKey, salt || encUserMasterKey) -> integrity tag
     |
-    +-- userMasterKey (64B, random, decrypted at login)
+    +-- User Master Key (64B, random per user, decrypted at login)
             |
             +-- per-entry doc key (64B, random per entry)
                     |
@@ -67,16 +67,16 @@ User Master Key (from config file, >=128 bytes)
 
 **First login (new user):**
 
-1. `decodeMasterKey()` validates the base64 key from the config file (must decode to >=128 bytes).
-2. A random 64-byte `userMasterKey` is generated and encrypted with HKDF + XChaCha20 + HMAC using the master key.
-3. The 192-byte blob (`salt || encryptedKey || mac`) is written to `users/{userId}/master_key` in Firestore.
-4. The in-memory `userMasterKey` is used for the rest of the session.
+1. `decodeMasterKey()` validates the base64 root master key from the config file (must decode to >=128 bytes).
+2. A random 64-byte User Master Key is generated, then encrypted with HKDF + XChaCha20 + HMAC using the root master key.
+3. The 192-byte blob (`salt || encUserMasterKey || mac`) is written to `users/{userId}/master_key` in Firestore.
+4. The plaintext User Master Key is kept in memory for the rest of the session.
 
 **Returning user:**
 
 1. The stored blob is fetched from Firestore.
-2. HMAC is verified (timing-safe comparison) against the derived key. A wrong master key fails here.
-3. `userMasterKey` is decrypted and used for the session.
+2. HMAC is verified (timing-safe comparison) using keys derived from the root master key. A wrong root master key fails here.
+3. The User Master Key is decrypted and kept in memory for the session.
 
 ### Entry encryption
 

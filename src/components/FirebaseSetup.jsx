@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { initFirebase, signIn, fetchUser, saveUserMasterKey, initUserDataCollection, setEntryMasterKey } from '../firebase';
+import { initFirebase, signIn, fetchUser, saveUserMasterKey, initUserDataCollection, setUserMasterKey } from '../firebase';
 import { decodeMasterKey, masterKeySetup, masterKeyVerify } from '../crypto';
 
 const REQUIRED_KEYS = ['apiKey', 'authDomain', 'databaseURL', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
@@ -44,18 +44,18 @@ function FirebaseSetup({ onReady }) {
     if (!username) throw new Error('Username is empty');
 
     const storedMasterKey = userData.master_key;
-    let entryKeyBytes;
+    let userMasterKey;
     if (!storedMasterKey) {
       setStatus('Setting up encryption...');
-      const { storedValue, userMasterKey } = masterKeySetup(masterKeyBytes);
+      const { storedValue, userMasterKey: generated } = masterKeySetup(masterKeyBytes);
       await saveUserMasterKey(userId, storedValue);
-      entryKeyBytes = userMasterKey;
+      userMasterKey = generated;
     } else {
       setStatus('Verifying master key...');
-      entryKeyBytes = masterKeyVerify(masterKeyBytes, storedMasterKey);
+      userMasterKey = masterKeyVerify(masterKeyBytes, storedMasterKey);
     }
 
-    setEntryMasterKey(entryKeyBytes);
+    setUserMasterKey(userMasterKey);
 
     setStatus('Loading data...');
     await initUserDataCollection(userId);

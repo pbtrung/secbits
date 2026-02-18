@@ -13,7 +13,7 @@ const ENC_IV_LEN = 24;
 const HMAC_KEY_LEN = 64;
 const HMAC_LEN = 64;
 const HKDF_OUT_LEN = ENC_KEY_LEN + ENC_IV_LEN + HMAC_KEY_LEN; // 120
-const MASTER_BLOB_LEN = SALT_LEN + USER_MASTER_KEY_LEN + 64; // 192 (salt + encEntryMasterKey + hmac)
+const MASTER_BLOB_LEN = SALT_LEN + USER_MASTER_KEY_LEN + 64; // 192 (salt + encUserMasterKey + hmac)
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 let brotliModulePromise = null;
@@ -81,18 +81,19 @@ export function decodeMasterKey(masterKeyB64) {
 }
 
 /**
- * First-time setup: generate salt, encrypt entry master key, return bytes blob to store.
- * Also returns entry master key for session use.
+ * First-time setup: generate random User Master Key (64 bytes), encrypt it with
+ * keys derived from the root master key, return the blob to store in Firestore.
+ * Also returns the plaintext User Master Key for session use.
  */
 export function masterKeySetup(masterKeyBytes) {
   const salt = randomBytes(SALT_LEN);
   const { encKey, encIv, hmacKey } = deriveKeys(masterKeyBytes, salt);
 
   const userMasterKey = randomBytes(USER_MASTER_KEY_LEN);
-  const encEntryMasterKey = xchacha20(encKey, encIv, userMasterKey);
+  const encUserMasterKey = xchacha20(encKey, encIv, userMasterKey);
 
-  const mac = computeHmac(hmacKey, concat(salt, encEntryMasterKey));
-  const blob = concat(salt, encEntryMasterKey, mac);
+  const mac = computeHmac(hmacKey, concat(salt, encUserMasterKey));
+  const blob = concat(salt, encUserMasterKey, mac);
 
   return {
     storedValue: blob,
@@ -101,8 +102,8 @@ export function masterKeySetup(masterKeyBytes) {
 }
 
 /**
- * Returning user: verify master key against stored blob.
- * Returns decrypted entry master key or throws on wrong key.
+ * Returning user: verify the root master key against the stored blob,
+ * decrypt and return the User Master Key or throw on wrong key.
  */
 export function masterKeyVerify(masterKeyBytes, storedBlob) {
   const blob = toBytes(storedBlob, 'stored master_key');
@@ -111,17 +112,17 @@ export function masterKeyVerify(masterKeyBytes, storedBlob) {
   }
 
   const salt = blob.slice(0, SALT_LEN);
-  const encEntryMasterKey = blob.slice(SALT_LEN, SALT_LEN + USER_MASTER_KEY_LEN);
+  const encUserMasterKey = blob.slice(SALT_LEN, SALT_LEN + USER_MASTER_KEY_LEN);
   const storedMac = blob.slice(SALT_LEN + USER_MASTER_KEY_LEN);
 
   const { encKey, encIv, hmacKey } = deriveKeys(masterKeyBytes, salt);
 
-  const mac = computeHmac(hmacKey, concat(salt, encEntryMasterKey));
+  const mac = computeHmac(hmacKey, concat(salt, encUserMasterKey));
   if (!timingSafeEqual(mac, storedMac)) {
     throw new Error('Wrong master key');
   }
 
-  const userMasterKey = xchacha20(encKey, encIv, encEntryMasterKey);
+  const userMasterKey = xchacha20(encKey, encIv, encUserMasterKey);
   return userMasterKey;
 }
 
