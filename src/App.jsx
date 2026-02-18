@@ -49,6 +49,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
   const [selectedEntryId, setSelectedEntryId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [settingsMode, setSettingsMode] = useState(false);
   const [settingsPage, setSettingsPage] = useState(null);
@@ -206,6 +207,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
 
   const handleDelete = useCallback(async (id) => {
     setSyncError('');
+    setDeleting(true);
 
     try {
       if (!isLocalEntryId(id)) {
@@ -217,6 +219,8 @@ function MainApp({ userId, initialUserName, onLogout }) {
       if (isMobile) setMobileView('entries');
     } catch {
       setSyncError('Failed to delete entry from Firebase.');
+    } finally {
+      setDeleting(false);
     }
   }, [isMobile, userId]);
 
@@ -283,6 +287,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
       onDelete={handleDelete}
       onCancel={handleCancelEdit}
       saving={saving}
+      deleting={deleting}
       onDirtyChange={handleDirtyChange}
     />
   ) : (
