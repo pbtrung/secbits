@@ -69,13 +69,13 @@ function timingSafeEqual(a, b) {
 }
 
 /**
- * Validate master_key from config: must be base64, decode to >= 128 bytes.
+ * Validate master_key from config: must be base64, decode to >= 256 bytes.
  * Returns decoded bytes or throws.
  */
 export function decodeMasterKey(masterKeyB64) {
   const bytes = b64ToBytes(masterKeyB64);
-  if (bytes.length < 128) {
-    throw new Error('master_key must be at least 128 bytes when decoded');
+  if (bytes.length < 256) {
+    throw new Error('master_key must be at least 256 bytes when decoded');
   }
   return bytes;
 }

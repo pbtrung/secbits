@@ -37,7 +37,7 @@ A self-hosted, end-to-end encrypted password manager. All data is encrypted on t
 ### Key hierarchy
 
 ```
-Root Master Key (from config file, >=128 bytes)
+Root Master Key (from config file, >=256 bytes)
     |
     +-- HKDF-SHA3-512 -> encKey (32B) + encIv (24B) + hmacKey (64B)
     |
@@ -67,7 +67,7 @@ Root Master Key (from config file, >=128 bytes)
 
 **First login (new user):**
 
-1. `decodeMasterKey()` validates the base64 root master key from the config file (must decode to >=128 bytes).
+1. `decodeMasterKey()` validates the base64 root master key from the config file (must decode to >=256 bytes).
 2. A random 64-byte User Master Key is generated, then encrypted with HKDF + XChaCha20 + HMAC using the root master key.
 3. The 192-byte blob (`salt || encUserMasterKey || mac`) is written to `users/{userId}/master_key` in Firestore.
 4. The plaintext User Master Key is kept in memory for the rest of the session.
@@ -134,7 +134,7 @@ In Firestore, manually create a document at `users/{your-chosen-user-id}` with a
 Run this in a browser console or Node.js to generate a strong random master key:
 
 ```js
-const bytes = crypto.getRandomValues(new Uint8Array(192));
+const bytes = crypto.getRandomValues(new Uint8Array(256));
 const b64 = btoa(String.fromCharCode(...bytes));
 console.log(b64);
 ```
@@ -149,7 +149,7 @@ Save the following as a `.json` file (e.g. `secbits-config.json`). **Keep this f
 {
   "user_id": "your-firestore-user-document-id",
   "db_name": "",
-  "master_key": "<base64-encoded key, >=128 bytes when decoded>",
+  "master_key": "<base64-encoded key, >=256 bytes when decoded>",
   "auth": {
     "apiKey": "...",
     "authDomain": "your-project.firebaseapp.com",
@@ -166,7 +166,7 @@ Save the following as a `.json` file (e.g. `secbits-config.json`). **Keep this f
 |---|---|---|
 | `user_id` | Yes | ID of your user document in the `users/` collection |
 | `db_name` | No | Named Firestore database (leave `""` for the default database) |
-| `master_key` | Yes | Base64-encoded random key, must decode to >=128 bytes |
+| `master_key` | Yes | Base64-encoded random key, must decode to >=256 bytes |
 | `auth` | Yes | Firebase web app config object from the Firebase console |
 
 ## Building and Deploying
