@@ -399,7 +399,8 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
     !draft.urls.some((u) => u.trim()) &&
     draft.totpSecrets.length === 0 &&
     draft.hiddenFields.length === 0 &&
-    !tagsInput.trim();
+    draft.tags.length === 0 &&
+    !tagCurrentInput.trim();
 
   const saveDisabled = hasInvalidFields || allFieldsEmpty;
 
