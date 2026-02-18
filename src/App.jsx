@@ -253,21 +253,22 @@ function MainApp({ userId, initialUserName, onLogout }) {
   }, []);
 
   const handleCancelEdit = useCallback(() => {
-    setEditingId((currentEditingId) => {
-      setEntries((prev) => {
-        const entry = prev.find((e) => e.id === currentEditingId);
-        if (entry && isLocalEntryId(currentEditingId)) {
-          const restoreId = prevSelectedIdRef.current ?? null;
-          prevSelectedIdRef.current = null;
-          setSelectedEntryId(restoreId);
-          if (isMobile) setMobileView(restoreId ? 'detail' : 'entries');
-          return prev.filter((e) => e.id !== currentEditingId);
-        }
-        return prev;
-      });
-      return null;
-    });
-  }, [isMobile]);
+    if (isLocalEntryId(editingId) && dirtyRef.current) {
+      if (!window.confirm('Discard changes to this new entry?')) {
+        return;
+      }
+    }
+
+    if (editingId && isLocalEntryId(editingId)) {
+      const restoreId = prevSelectedIdRef.current ?? null;
+      prevSelectedIdRef.current = null;
+      setEntries((prev) => prev.filter((e) => e.id !== editingId));
+      setSelectedEntryId(restoreId);
+      if (isMobile) setMobileView(restoreId ? 'detail' : 'entries');
+    }
+
+    setEditingId(null);
+  }, [isMobile, editingId]);
 
   const handleMobileBack = () => {
     if (mobileView === 'detail') setMobileView('entries');
