@@ -99,17 +99,22 @@ export async function fetchUserEntries(userId) {
   const colRef = collection(db, 'users', String(userId), 'data');
   const snap = await getDocs(colRef);
   const entries = [];
+  let failedCount = 0;
   for (const d of snap.docs) {
     const raw = d.data();
 
     if (raw._placeholder) continue;
 
-    const snapshots = await parseEntrySnapshots(raw.value, raw.enc_key);
-    if (snapshots.length === 0) continue;
-    const latest = snapshots[0];
-    entries.push({ id: d.id, ...normalizeEntryShape(latest), _snapshots: snapshots });
+    try {
+      const snapshots = await parseEntrySnapshots(raw.value, raw.enc_key);
+      if (snapshots.length === 0) continue;
+      const latest = snapshots[0];
+      entries.push({ id: d.id, ...normalizeEntryShape(latest), _snapshots: snapshots });
+    } catch {
+      failedCount++;
+    }
   }
-  return entries;
+  return { entries, failedCount };
 }
 
 function normalizeTags(tags) {

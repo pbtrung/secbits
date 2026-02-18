@@ -1,8 +1,9 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { initFirebase, signIn, fetchUser, saveUserMasterKey, initUserDataCollection, setEntryMasterKey } from '../firebase';
 import { decodeMasterKey, masterKeySetup, masterKeyVerify } from '../crypto';
 
 const REQUIRED_KEYS = ['apiKey', 'authDomain', 'databaseURL', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
+const SESSION_KEY = 'secbits_config';
 
 function FirebaseSetup({ onReady }) {
   const [error, setError] = useState(null);
@@ -19,6 +20,61 @@ function FirebaseSetup({ onReady }) {
     return null;
   };
 
+  const processConfigText = async (text) => {
+    const json = JSON.parse(text);
+    const config = json.auth || json;
+    const err = validate(config);
+    if (err) throw new Error(err);
+
+    const userId = json.user_id;
+    if (!userId) throw new Error('Missing required field: user_id');
+    if (!json.master_key) throw new Error('Missing required field: master_key');
+
+    const dbName = json.db_name || '';
+    const masterKeyBytes = decodeMasterKey(json.master_key);
+
+    setStatus('Authenticating...');
+    initFirebase(config, dbName);
+    await signIn();
+
+    setStatus('Fetching user...');
+    const userData = await fetchUser(userId);
+    if (!userData) throw new Error('User not found');
+    const username = userData.username;
+    if (!username) throw new Error('Username is empty');
+
+    const storedMasterKey = userData.master_key;
+    let entryKeyBytes;
+    if (!storedMasterKey) {
+      setStatus('Setting up encryption...');
+      const { storedValue, userMasterKey } = masterKeySetup(masterKeyBytes);
+      await saveUserMasterKey(userId, storedValue);
+      entryKeyBytes = userMasterKey;
+    } else {
+      setStatus('Verifying master key...');
+      entryKeyBytes = masterKeyVerify(masterKeyBytes, storedMasterKey);
+    }
+
+    setEntryMasterKey(entryKeyBytes);
+
+    setStatus('Loading data...');
+    await initUserDataCollection(userId);
+
+    return { userId, username };
+  };
+
+  useEffect(() => {
+    const cached = sessionStorage.getItem(SESSION_KEY);
+    if (!cached) return;
+    setLoading(true);
+    processConfigText(cached)
+      .then(({ userId, username }) => onReady(userId, username))
+      .catch(() => {
+        sessionStorage.removeItem(SESSION_KEY);
+        setLoading(false);
+      });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const processFile = (file) => {
     setError(null);
     if (!file) return;
@@ -28,85 +84,15 @@ function FirebaseSetup({ onReady }) {
     }
     const reader = new FileReader();
     reader.onload = async (e) => {
+      const text = e.target.result;
+      setLoading(true);
       try {
-        const json = JSON.parse(e.target.result);
-        const config = json.auth || json;
-        const err = validate(config);
-        if (err) {
-          setError(err);
-          return;
-        }
-        const userId = json.user_id;
-        if (!userId) {
-          setError('Missing required field: user_id');
-          return;
-        }
-        if (!json.master_key) {
-          setError('Missing required field: master_key');
-          return;
-        }
-        const dbName = json.db_name || '';
-
-        // Decode and validate master_key (base64, >= 128 bytes)
-        let masterKeyBytes;
-        try {
-          masterKeyBytes = decodeMasterKey(json.master_key);
-        } catch (mkErr) {
-          setError(mkErr.message);
-          return;
-        }
-
-        setLoading(true);
-
-        try {
-          // Init Firebase and authenticate
-          setStatus('Authenticating...');
-          initFirebase(config, dbName);
-          await signIn();
-
-          // Fetch user document
-          setStatus('Fetching user...');
-          const userData = await fetchUser(userId);
-          if (!userData) {
-            setError('User not found');
-            setLoading(false);
-            return;
-          }
-          const username = userData.username;
-          if (!username) {
-            setError('Username is empty');
-            setLoading(false);
-            return;
-          }
-
-          // Master key flow
-          const storedMasterKey = userData.master_key;
-          let entryKeyBytes;
-          if (!storedMasterKey) {
-            // First-time setup
-            setStatus('Setting up encryption...');
-            const { storedValue, userMasterKey } = masterKeySetup(masterKeyBytes);
-            await saveUserMasterKey(userId, storedValue);
-            entryKeyBytes = userMasterKey;
-          } else {
-            // Returning user — verify
-            setStatus('Verifying master key...');
-            entryKeyBytes = masterKeyVerify(masterKeyBytes, storedMasterKey);
-          }
-
-          setEntryMasterKey(entryKeyBytes);
-
-          // Ensure user data collection exists
-          setStatus('Loading data...');
-          await initUserDataCollection(userId);
-
-          onReady(userId, username);
-        } catch (connErr) {
-          setError(connErr.message);
-          setLoading(false);
-        }
-      } catch {
-        setError('Invalid JSON file');
+        const { userId, username } = await processConfigText(text);
+        sessionStorage.setItem(SESSION_KEY, text);
+        onReady(userId, username);
+      } catch (connErr) {
+        setError(connErr.message || 'Invalid configuration');
+        setLoading(false);
       }
     };
     reader.readAsText(file);

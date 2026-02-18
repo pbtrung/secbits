@@ -26,6 +26,7 @@ function App() {
   }, []);
 
   const handleLogout = useCallback(() => {
+    sessionStorage.removeItem('secbits_config');
     setSession(null);
   }, []);
 
@@ -73,7 +74,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
 
   useEffect(() => {
     fetchUserEntries(userId)
-      .then((data) => {
+      .then(({ entries: data, failedCount }) => {
         const filtered = data
           .map((e) => ({
             title: '',
@@ -87,6 +88,9 @@ function MainApp({ userId, initialUserName, onLogout }) {
             tags: Array.isArray(e.tags) ? e.tags : [],
           }));
         setEntries(filtered);
+        if (failedCount > 0) {
+          setSyncError(`${failedCount} entry(ies) could not be decrypted and were skipped. Check your master key.`);
+        }
         setLoading(false);
       })
       .catch(() => {
@@ -288,6 +292,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
       onCancel={handleCancelEdit}
       saving={saving}
       deleting={deleting}
+      allTags={allTags}
       onDirtyChange={handleDirtyChange}
     />
   ) : (
@@ -331,6 +336,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
                   placeholder="Search..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  maxLength={256}
                   disabled={settingsMode || editingId !== null}
                 />
                 {searchQuery && (

@@ -58,7 +58,7 @@ function TotpCode({ secret, onCopy, copiedLabel }) {
     return () => clearInterval(interval);
   }, [secret]);
 
-  if (!code) return null;
+  if (!code) return <span className="text-danger small ms-3">Invalid TOTP secret</span>;
 
   const formatted = code.slice(0, 3) + '\u2009' + code.slice(3);
   const progress = secondsLeft / 30;
@@ -96,11 +96,15 @@ function formatTimestamp(ts) {
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, saving, deleting, onDirtyChange }) {
+function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, saving, deleting, allTags = [], onDirtyChange }) {
   const [draft, setDraft] = useState(entry);
   const [visiblePasswords, setVisiblePasswords] = useState({});
   const [copied, setCopied] = useState(null);
   const [tagsInput, setTagsInput] = useState('');
+  const [tagSuggestions, setTagSuggestions] = useState([]);
+  const [showTagSuggestions, setShowTagSuggestions] = useState(false);
+  const [totpErrors, setTotpErrors] = useState({});
+  const [urlErrors, setUrlErrors] = useState({});
   const [selectedVersion, setSelectedVersion] = useState(0);
   const [notesVisible, setNotesVisible] = useState(false);
   const notesHideTimerRef = useRef(null);
@@ -119,6 +123,8 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
     setTagsInput(Array.isArray(entry.tags) ? entry.tags.join(', ') : '');
     setSelectedVersion(0);
     setNotesVisible(false);
+    setTotpErrors({});
+    setUrlErrors({});
   }, [entry]);
 
   useEffect(() => {
@@ -175,7 +181,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
     notesHideTimerRef.current = setTimeout(() => {
       setNotesVisible(false);
       notesHideTimerRef.current = null;
-    }, 30000);
+    }, 15000);
 
     return () => {
       if (notesHideTimerRef.current) {
@@ -193,6 +199,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
     navigator.clipboard.writeText(text);
     setCopied(label);
     setTimeout(() => setCopied(null), 1500);
+    setTimeout(() => navigator.clipboard.writeText(''), 30000);
   };
 
   const updateDraft = (field, value) => {
@@ -210,6 +217,15 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
   const removeUrl = (index) => {
     const urls = draft.urls.filter((_, i) => i !== index);
     setDraft({ ...draft, urls });
+    setUrlErrors((prev) => {
+      const next = {};
+      Object.entries(prev).forEach(([k, v]) => {
+        const ki = Number(k);
+        if (ki < index) next[ki] = v;
+        else if (ki > index) next[ki - 1] = v;
+      });
+      return next;
+    });
   };
 
   const addTotpSecret = () => setDraft({ ...draft, totpSecrets: [...draft.totpSecrets, ''] });
@@ -223,6 +239,13 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
   const removeTotpSecret = (index) => {
     const totpSecrets = draft.totpSecrets.filter((_, i) => i !== index);
     setDraft({ ...draft, totpSecrets });
+    setTotpErrors((prev) => { const next = { ...prev }; delete next[index]; return next; });
+  };
+
+  const validateTotpSecret = (index, value) => {
+    const cleaned = value.replace(/[\s=_-]+/g, '').toUpperCase();
+    const valid = cleaned.length === 0 || /^[A-Z2-7]+$/.test(cleaned);
+    setTotpErrors((prev) => ({ ...prev, [index]: valid ? null : 'Invalid base32 — only A–Z and 2–7' }));
   };
 
   const addHiddenField = () => {
@@ -255,8 +278,42 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
       .map((t) => t.trim().toLowerCase())
       .filter(Boolean);
 
+  const validateUrl = (index, value) => {
+    if (!value) {
+      setUrlErrors((prev) => { const next = { ...prev }; delete next[index]; return next; });
+      return;
+    }
+    try {
+      new URL(value);
+      setUrlErrors((prev) => { const next = { ...prev }; delete next[index]; return next; });
+    } catch {
+      setUrlErrors((prev) => ({ ...prev, [index]: 'Invalid URL — must start with https:// or http://' }));
+    }
+  };
+
   const updateTags = (value) => {
     setTagsInput(value);
+    const parts = value.split(',');
+    const currentWord = parts[parts.length - 1].trim().toLowerCase();
+    if (currentWord.length > 0) {
+      const existing = parts.slice(0, -1).map((t) => t.trim().toLowerCase()).filter(Boolean);
+      const suggestions = allTags.filter(
+        (t) => t.startsWith(currentWord) && !existing.includes(t) && t !== currentWord
+      );
+      setTagSuggestions(suggestions);
+      setShowTagSuggestions(suggestions.length > 0);
+    } else {
+      setTagSuggestions([]);
+      setShowTagSuggestions(false);
+    }
+  };
+
+  const selectTagSuggestion = (tag) => {
+    const parts = tagsInput.split(',');
+    parts[parts.length - 1] = ' ' + tag;
+    setTagsInput(parts.join(',') + ', ');
+    setTagSuggestions([]);
+    setShowTagSuggestions(false);
   };
 
   const handleSave = () => {
@@ -264,6 +321,9 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
   };
 
   const handleVersionChange = (index) => {
+    if (isEditing && index > 0 && !window.confirm('Load this older version into the editor? Unsaved changes will be replaced.')) {
+      return;
+    }
     setSelectedVersion(index);
     if (isEditing && snapshots.length > 1) {
       const snap = index > 0 ? snapshots[index] : entry;
@@ -380,27 +440,31 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
         {isEditing ? (
           <>
             {draft.totpSecrets.map((secret, i) => (
-              <div className="input-group mb-2" key={i}>
-                <input
-                  type={visiblePasswords[`totp-${i}`] ? 'text' : 'password'}
-                  className="form-control totp-secret-input"
-                  value={secret}
-                  onChange={(e) => updateTotpSecret(i, e.target.value)}
-                  placeholder="TOTP secret"
-                />
-                <button
-                  className="btn btn-outline-secondary"
-                  onClick={() => toggleVisibility(`totp-${i}`)}
-                >
-                  <i className={`bi ${visiblePasswords[`totp-${i}`] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-                </button>
-                <button
-                  className="btn btn-outline-danger"
-                  onClick={() => removeTotpSecret(i)}
-                  title="Remove TOTP Secret"
-                >
-                  <i className="bi bi-x-lg"></i>
-                </button>
+              <div key={i} className="mb-2">
+                <div className="input-group">
+                  <input
+                    type={visiblePasswords[`totp-${i}`] ? 'text' : 'password'}
+                    className={`form-control totp-secret-input${totpErrors[i] ? ' is-invalid' : ''}`}
+                    value={secret}
+                    onChange={(e) => updateTotpSecret(i, e.target.value)}
+                    onBlur={(e) => validateTotpSecret(i, e.target.value)}
+                    placeholder="TOTP secret"
+                  />
+                  <button
+                    className="btn btn-outline-secondary"
+                    onClick={() => toggleVisibility(`totp-${i}`)}
+                  >
+                    <i className={`bi ${visiblePasswords[`totp-${i}`] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
+                  </button>
+                  <button
+                    className="btn btn-outline-danger"
+                    onClick={() => removeTotpSecret(i)}
+                    title="Remove TOTP Secret"
+                  >
+                    <i className="bi bi-x-lg"></i>
+                  </button>
+                </div>
+                {totpErrors[i] && <div className="text-danger small mt-1">{totpErrors[i]}</div>}
               </div>
             ))}
             <div>
@@ -447,20 +511,24 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
         {isEditing ? (
           <>
             {draft.urls.map((url, i) => (
-              <div className="input-group mb-2" key={i}>
-                <input
-                  className="form-control"
-                  value={url}
-                  onChange={(e) => updateUrl(i, e.target.value)}
-                  placeholder="https://..."
-                />
-                <button
-                  className="btn btn-outline-danger"
-                  onClick={() => removeUrl(i)}
-                  title="Remove URL"
-                >
-                  <i className="bi bi-x-lg"></i>
-                </button>
+              <div key={i} className="mb-2">
+                <div className="input-group">
+                  <input
+                    className={`form-control${urlErrors[i] ? ' is-invalid' : ''}`}
+                    value={url}
+                    onChange={(e) => updateUrl(i, e.target.value)}
+                    onBlur={(e) => validateUrl(i, e.target.value)}
+                    placeholder="https://..."
+                  />
+                  <button
+                    className="btn btn-outline-danger"
+                    onClick={() => removeUrl(i)}
+                    title="Remove URL"
+                  >
+                    <i className="bi bi-x-lg"></i>
+                  </button>
+                </div>
+                {urlErrors[i] && <div className="text-danger small mt-1">{urlErrors[i]}</div>}
               </div>
             ))}
             <div>
@@ -482,10 +550,10 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
         )}
       </div>
 
-      {/* Extra Fields */}
+      {/* Custom Fields */}
       <div className="mb-3">
         <label className="form-label text-muted small fw-semibold">
-          <i className="bi bi-incognito me-1"></i> Extra Fields
+          <i className="bi bi-incognito me-1"></i> Custom Fields
         </label>
         {(isEditing ? draft.hiddenFields : data.hiddenFields).map((field) => (
           <div key={field.id} className="card card-body p-2 mb-2 bg-white">
@@ -546,7 +614,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
         {isEditing && (
           <div>
             <button className="btn btn-sm btn-outline-secondary" onClick={addHiddenField}>
-              <i className="bi bi-plus me-1"></i>Add Extra Field
+              <i className="bi bi-plus me-1"></i>Add Custom Field
             </button>
           </div>
         )}
@@ -562,20 +630,27 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
             <button
               className="btn btn-sm btn-outline-secondary"
               onClick={() => setNotesVisible((v) => !v)}
-              title={notesVisible ? 'Hide notes' : 'Reveal notes for 30 seconds'}
+              title={notesVisible ? 'Hide notes' : 'Reveal notes for 15 seconds'}
             >
               <i className={`bi ${notesVisible ? 'bi-eye-slash' : 'bi-eye'}`}></i>
             </button>
           )}
         </div>
         {isEditing ? (
-          <textarea
-            className="form-control"
-            rows={4}
-            value={draft.notes}
-            onChange={(e) => updateDraft('notes', e.target.value)}
-            placeholder="Add notes..."
-          />
+          <>
+            <textarea
+              className="form-control"
+              rows={4}
+              value={draft.notes}
+              onChange={(e) => updateDraft('notes', e.target.value)}
+              placeholder="Add notes..."
+            />
+            <div className="d-flex justify-content-end mt-1">
+              <span className={`small ${draft.notes.length > 50000 ? 'text-warning fw-semibold' : 'text-muted'}`}>
+                {draft.notes.length.toLocaleString()} chars{draft.notes.length > 50000 ? ' — getting large' : ''}
+              </span>
+            </div>
+          </>
         ) : (
           <div className="form-control bg-white" style={{ minHeight: 80, whiteSpace: 'pre-wrap' }}>
             {data.notes ? (
@@ -593,12 +668,30 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
           <i className="bi bi-tags me-1"></i> Tags
         </label>
         {isEditing ? (
-          <input
-            className="form-control"
-            value={tagsInput}
-            onChange={(e) => updateTags(e.target.value)}
-            placeholder="tag1, tag2, ..."
-          />
+          <div className="position-relative">
+            <input
+              className="form-control"
+              value={tagsInput}
+              onChange={(e) => updateTags(e.target.value)}
+              onBlur={() => setTimeout(() => setShowTagSuggestions(false), 150)}
+              placeholder="tag1, tag2, ..."
+            />
+            {showTagSuggestions && (
+              <ul className="dropdown-menu show position-absolute w-100 mt-1" style={{ zIndex: 1000, maxHeight: 200, overflowY: 'auto' }}>
+                {tagSuggestions.slice(0, 8).map((t) => (
+                  <li key={t}>
+                    <button
+                      className="dropdown-item"
+                      type="button"
+                      onMouseDown={(e) => { e.preventDefault(); selectTagSuggestion(t); }}
+                    >
+                      {t}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         ) : (
           <div>
             {data.tags.map((t) => (
