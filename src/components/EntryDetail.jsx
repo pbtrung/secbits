@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { hmac } from '@noble/hashes/hmac.js';
 import { sha1 } from '@noble/hashes/legacy.js';
 import { PasswordGenerator, PasswordStrengthBar } from './PasswordGenerator';
@@ -102,6 +102,8 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
   const [copied, setCopied] = useState(null);
   const [tagsInput, setTagsInput] = useState('');
   const [selectedVersion, setSelectedVersion] = useState(0);
+  const [notesVisible, setNotesVisible] = useState(false);
+  const notesHideTimerRef = useRef(null);
 
   const snapshots = entry._snapshots || [];
   const selectedSnapshot = snapshots.length > 1 && selectedVersion > 0
@@ -116,6 +118,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
     setVisiblePasswords({});
     setTagsInput(Array.isArray(entry.tags) ? entry.tags.join(', ') : '');
     setSelectedVersion(0);
+    setNotesVisible(false);
   }, [entry]);
 
   useEffect(() => {
@@ -143,6 +146,44 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
       tagsNow !== tagsOrig;
     onDirtyChange(dirty);
   }, [draft, tagsInput, entry, isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const hideNotes = () => setNotesVisible(false);
+    const onVisibilityChange = () => {
+      if (document.hidden) hideNotes();
+    };
+    window.addEventListener('blur', hideNotes);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('blur', hideNotes);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isEditing) setNotesVisible(false);
+  }, [isEditing]);
+
+  useEffect(() => {
+    if (!notesVisible) {
+      if (notesHideTimerRef.current) {
+        clearTimeout(notesHideTimerRef.current);
+        notesHideTimerRef.current = null;
+      }
+      return;
+    }
+    notesHideTimerRef.current = setTimeout(() => {
+      setNotesVisible(false);
+      notesHideTimerRef.current = null;
+    }, 30000);
+
+    return () => {
+      if (notesHideTimerRef.current) {
+        clearTimeout(notesHideTimerRef.current);
+        notesHideTimerRef.current = null;
+      }
+    };
+  }, [notesVisible]);
 
   const toggleVisibility = (key) => {
     setVisiblePasswords((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -513,9 +554,20 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
 
       {/* Notes */}
       <div className="mb-3">
-        <label className="form-label text-muted small fw-semibold">
-          <i className="bi bi-sticky me-1"></i> Notes
-        </label>
+        <div className="d-flex align-items-center justify-content-between mb-1">
+          <label className="form-label text-muted small fw-semibold mb-0">
+            <i className="bi bi-sticky me-1"></i> Notes
+          </label>
+          {!isEditing && (
+            <button
+              className="btn btn-sm btn-outline-secondary"
+              onClick={() => setNotesVisible((v) => !v)}
+              title={notesVisible ? 'Hide notes' : 'Reveal notes for 30 seconds'}
+            >
+              <i className={`bi ${notesVisible ? 'bi-eye-slash' : 'bi-eye'}`}></i>
+            </button>
+          )}
+        </div>
         {isEditing ? (
           <textarea
             className="form-control"
@@ -526,7 +578,11 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
           />
         ) : (
           <div className="form-control bg-white" style={{ minHeight: 80, whiteSpace: 'pre-wrap' }}>
-            {data.notes || <span className="text-muted">No notes</span>}
+            {data.notes ? (
+              notesVisible ? data.notes : <span className="text-muted">Hidden. Click eye to reveal.</span>
+            ) : (
+              <span className="text-muted">No notes</span>
+            )}
           </div>
         )}
       </div>

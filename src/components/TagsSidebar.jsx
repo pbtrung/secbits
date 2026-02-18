@@ -1,6 +1,17 @@
 import React from 'react';
 
-function TagsSidebar({ tags, selectedTag, onSelectTag, mobile, userName, onSettings, onLogout, settingsMode }) {
+function TagsSidebar({
+  tags,
+  allCount = 0,
+  tagCounts = {},
+  selectedTag,
+  onSelectTag,
+  mobile,
+  userName,
+  onSettings,
+  onLogout,
+  settingsMode,
+}) {
   return (
     <div
       className={`d-flex flex-column bg-white ${mobile ? 'h-100' : 'h-100 border-end'}`}
@@ -18,8 +29,8 @@ function TagsSidebar({ tags, selectedTag, onSelectTag, mobile, userName, onSetti
             }`}
             onClick={() => onSelectTag(null)}
           >
-            All
-            <i className="bi bi-collection"></i>
+            <span>All</span>
+            <span className="badge rounded-pill text-bg-light">{allCount}</span>
           </button>
           {tags.map((tag) => (
             <button
@@ -29,8 +40,8 @@ function TagsSidebar({ tags, selectedTag, onSelectTag, mobile, userName, onSetti
               }`}
               onClick={() => onSelectTag(tag)}
             >
-              {tag}
-              <i className="bi bi-tag"></i>
+              <span className="text-truncate me-2">{tag}</span>
+              <span className="badge rounded-pill text-bg-light">{tagCounts[tag] || 0}</span>
             </button>
           ))}
         </div>
