@@ -117,6 +117,16 @@ function MainApp({ userId, initialUserName, onLogout }) {
     return Array.from(tagSet).sort();
   }, [entries]);
 
+  const tagCounts = useMemo(() => {
+    const counts = {};
+    entries.forEach((entry) => {
+      entry.tags.forEach((tag) => {
+        counts[tag] = (counts[tag] || 0) + 1;
+      });
+    });
+    return counts;
+  }, [entries]);
+
   const filteredEntries = useMemo(() => {
     let result = entries;
     if (selectedTag) {
@@ -289,7 +299,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
       {/* Header */}
       <nav className="navbar navbar-dark bg-dark px-0 py-1 flex-nowrap justify-content-start" style={{ minHeight: 48 }}>
         {isMobile ? (
-          <div className="d-flex align-items-center w-100">
+          <div className="d-flex align-items-center w-100 px-2">
             {mobileView !== 'tags' && (
               <button
                 className="btn btn-outline-light btn-sm flex-shrink-0 me-2"
@@ -381,6 +391,8 @@ function MainApp({ userId, initialUserName, onLogout }) {
             {mobileView === 'tags' && (
               <TagsSidebar
                 tags={allTags}
+                allCount={entries.length}
+                tagCounts={tagCounts}
                 selectedTag={selectedTag}
                 onSelectTag={handleSelectTag}
                 userName={userName}
@@ -424,6 +436,8 @@ function MainApp({ userId, initialUserName, onLogout }) {
             <div className="d-flex flex-column bg-white" style={{ width: tagsWidth, flexShrink: 0 }}>
               <TagsSidebar
                 tags={allTags}
+                allCount={entries.length}
+                tagCounts={tagCounts}
                 selectedTag={selectedTag}
                 onSelectTag={handleSelectTag}
                 userName={userName}
