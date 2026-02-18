@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { fetchRawUserDocs, fetchUser, getEntryMasterKey } from '../firebase';
 import { unwrapEntryDocKey, decryptEntrySnapshotsWithDocKey, bytesToB64 } from '../crypto';
 

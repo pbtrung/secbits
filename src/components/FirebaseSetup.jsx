@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { initFirebase, signIn, fetchUser, saveUserMasterKey, initUserDataCollection, setEntryMasterKey } from '../firebase';
 import { decodeMasterKey, masterKeySetup, masterKeyVerify } from '../crypto';
 

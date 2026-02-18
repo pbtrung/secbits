@@ -1,5 +1,3 @@
-import React from 'react';
-
 function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, selectedTag, mobile }) {
   return (
     <div

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { hmac } from '@noble/hashes/hmac.js';
 import { sha1 } from '@noble/hashes/legacy.js';
 import { PasswordGenerator, PasswordStrengthBar } from './PasswordGenerator';

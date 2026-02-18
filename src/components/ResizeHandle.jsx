@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 function ResizeHandle({ onResize }) {
   const [dragging, setDragging] = useState(false);

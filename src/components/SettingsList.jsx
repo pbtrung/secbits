@@ -1,5 +1,3 @@
-import React from 'react';
-
 function SettingsList({ selectedPage, onSelectPage, mobile }) {
   const items = [
     { id: 'export', label: 'Export', icon: 'bi-download' },

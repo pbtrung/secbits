@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 export function evaluateStrength(password) {
   if (!password) return { entropy: 0, label: '', colorClass: '' };

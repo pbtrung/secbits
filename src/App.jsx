@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import FirebaseSetup from './components/FirebaseSetup';
 import TagsSidebar from './components/TagsSidebar';
 import EntryList from './components/EntryList';
