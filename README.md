@@ -12,7 +12,8 @@ A self-hosted, end-to-end encrypted password manager. All data is encrypted on t
 6. [Usage Guide](#usage-guide)
 7. [Security Notes](#security-notes)
 8. [Tech Stack](#tech-stack)
-9. [Project Structure](#project-structure)
+9. [Testing](#testing)
+10. [Project Structure](#project-structure)
 
 ## Features
 
@@ -314,6 +315,60 @@ Click the logout button (arrow icon) at the bottom of the tag sidebar. The `sess
 | Compression | brotli-wasm |
 | Database | Firebase Firestore |
 | Auth | Firebase Anonymous Auth |
+
+## Testing
+
+The project uses **Vitest** for unit tests.
+
+### How to run tests
+
+Run the full test suite:
+
+```bash
+npx vitest run
+```
+
+Run a specific test file:
+
+```bash
+npx vitest run src/crypto.test.js
+npx vitest run src/totp.test.js
+```
+
+Optional watch mode while developing:
+
+```bash
+npx vitest
+```
+
+### What is covered
+
+| Area | Tests | What is validated |
+|---|---|---|
+| `encryptBytesToBlob` / `decryptBlobBytes` | 3 tests | 128-byte random round-trip correctness, HMAC correctness, tamper rejection |
+| `generateTOTPForCounter` | 3 tests | RFC 6238 SHA-1 known vectors across normal and large counters |
+
+### Why these tests matter
+
+1. Encryption correctness: secrets must decrypt to the exact original bytes with no loss or mutation.
+2. Integrity enforcement: blob MAC checks must detect tampering before decryption.
+3. Interoperability: TOTP output must match standard RFC vectors so authenticator codes are reliable.
+
+### How the crypto tests work
+
+1. Generate random `keyBytes` and a random 128-byte plaintext.
+2. Encrypt plaintext to blob `c` with `encryptBytesToBlob`.
+3. Decrypt blob `c` to `d` with `decryptBlobBytes`.
+4. Compare plaintext and `d` byte-by-byte.
+5. Recompute HMAC-SHA3-512 over `salt || ciphertext` using HKDF-derived keys (same pattern as master key / `enc_key` / `value` encryption flow) and verify it equals the stored MAC.
+6. Tamper one byte of the blob and verify decrypt throws `Invalid encrypted value MAC`.
+
+### How the TOTP tests work
+
+1. Use the RFC 6238 SHA-1 shared secret (`12345678901234567890`, base32-encoded).
+2. Call `generateTOTPForCounter(secret, counter)` with fixed counters from RFC vectors.
+3. Assert the returned 6-digit code matches the expected values.
+4. Include larger counter cases to ensure correct 8-byte big-endian counter handling and dynamic truncation behavior.
 
 ## Project Structure
 
