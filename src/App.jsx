@@ -253,10 +253,12 @@ function MainApp({ userId, initialUserName, onLogout }) {
   }, []);
 
   const handleCancelEdit = useCallback(() => {
-    if (isLocalEntryId(editingId) && dirtyRef.current) {
-      if (!window.confirm('Discard changes to this new entry?')) {
+    if (isLocalEntryId(editingId)) {
+      if (dirtyRef.current && !window.confirm('Discard this new entry?')) {
         return;
       }
+    } else if (!confirmUnsavedChanges()) {
+      return;
     }
 
     if (editingId && isLocalEntryId(editingId)) {
@@ -268,7 +270,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
     }
 
     setEditingId(null);
-  }, [isMobile, editingId]);
+  }, [isMobile, editingId, confirmUnsavedChanges]);
 
   const handleMobileBack = () => {
     if (mobileView === 'detail') setMobileView('entries');
