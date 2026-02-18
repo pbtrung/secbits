@@ -100,7 +100,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
   const [draft, setDraft] = useState(entry);
   const [visiblePasswords, setVisiblePasswords] = useState({});
   const [copied, setCopied] = useState(null);
-  const [tagsInput, setTagsInput] = useState('');
+  const [tagCurrentInput, setTagCurrentInput] = useState('');
   const [tagSuggestions, setTagSuggestions] = useState([]);
   const [showTagSuggestions, setShowTagSuggestions] = useState(false);
   const [totpErrors, setTotpErrors] = useState({});
@@ -108,6 +108,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
   const [selectedVersion, setSelectedVersion] = useState(0);
   const [notesVisible, setNotesVisible] = useState(false);
   const notesHideTimerRef = useRef(null);
+  const tagInputRef = useRef(null);
 
   const snapshots = entry._snapshots || [];
   const selectedSnapshot = snapshots.length > 1 && selectedVersion > 0
@@ -120,7 +121,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
   useEffect(() => {
     setDraft(entry);
     setVisiblePasswords({});
-    setTagsInput(Array.isArray(entry.tags) ? entry.tags.join(', ') : '');
+    setTagCurrentInput('');
     setSelectedVersion(0);
     setNotesVisible(false);
     setTotpErrors({});
@@ -130,7 +131,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
   useEffect(() => {
     if (isEditing) {
       setDraft(viewEntry);
-      setTagsInput(Array.isArray(viewEntry.tags) ? viewEntry.tags.join(', ') : '');
+      setTagCurrentInput('');
     }
   }, [isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -139,8 +140,11 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
       onDirtyChange?.(false);
       return;
     }
-    const tagsNow = tagsInput.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean).join(',');
-    const tagsOrig = (Array.isArray(entry.tags) ? entry.tags : []).join(',');
+    const currentTagText = tagCurrentInput.trim().toLowerCase();
+    const tagsNow = (currentTagText && !(draft.tags || []).includes(currentTagText))
+      ? [...(draft.tags || []), currentTagText]
+      : (draft.tags || []);
+    const tagsOrig = Array.isArray(entry.tags) ? entry.tags : [];
     const dirty =
       draft.title !== entry.title ||
       draft.username !== entry.username ||
@@ -149,9 +153,9 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
       JSON.stringify(draft.urls) !== JSON.stringify(entry.urls) ||
       JSON.stringify(draft.totpSecrets) !== JSON.stringify(entry.totpSecrets) ||
       JSON.stringify(draft.hiddenFields) !== JSON.stringify(entry.hiddenFields) ||
-      tagsNow !== tagsOrig;
+      tagsNow.join(',') !== tagsOrig.join(',');
     onDirtyChange(dirty);
-  }, [draft, tagsInput, entry, isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [draft, tagCurrentInput, entry, isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const hideNotes = () => setNotesVisible(false);
@@ -272,11 +276,6 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
     });
   };
 
-  const parseTagsInput = (value) =>
-    value
-      .split(',')
-      .map((t) => t.trim().toLowerCase())
-      .filter(Boolean);
 
   const validateUrl = (index, value) => {
     if (!value) {
@@ -291,15 +290,36 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
     }
   };
 
-  const updateTags = (value) => {
-    setTagsInput(value);
-    const parts = value.split(',');
-    const currentWord = parts[parts.length - 1].trim().toLowerCase();
-    if (currentWord.length > 0) {
-      const existing = parts.slice(0, -1).map((t) => t.trim().toLowerCase()).filter(Boolean);
-      const suggestions = allTags.filter(
-        (t) => t.startsWith(currentWord) && !existing.includes(t) && t !== currentWord
-      );
+  const handleTagInputChange = (value) => {
+    if (value.includes(',')) {
+      const parts = value.split(',');
+      const toCommit = parts.slice(0, -1).map((p) => p.trim().toLowerCase()).filter(Boolean);
+      const remaining = parts[parts.length - 1];
+      if (toCommit.length > 0) {
+        setDraft((prev) => {
+          const existing = prev.tags || [];
+          const unique = toCommit.filter((t) => !existing.includes(t));
+          return { ...prev, tags: [...existing, ...unique] };
+        });
+      }
+      setTagCurrentInput(remaining);
+      const trimmed = remaining.trim().toLowerCase();
+      if (trimmed.length > 0) {
+        const existingAfter = [...(draft.tags || []), ...toCommit];
+        const suggestions = allTags.filter((t) => t.startsWith(trimmed) && !existingAfter.includes(t) && t !== trimmed);
+        setTagSuggestions(suggestions);
+        setShowTagSuggestions(suggestions.length > 0);
+      } else {
+        setTagSuggestions([]);
+        setShowTagSuggestions(false);
+      }
+      return;
+    }
+    setTagCurrentInput(value);
+    const trimmed = value.trim().toLowerCase();
+    if (trimmed.length > 0) {
+      const existing = draft.tags || [];
+      const suggestions = allTags.filter((t) => t.startsWith(trimmed) && !existing.includes(t) && t !== trimmed);
       setTagSuggestions(suggestions);
       setShowTagSuggestions(suggestions.length > 0);
     } else {
@@ -308,16 +328,45 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
     }
   };
 
+  const handleTagKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const trimmed = tagCurrentInput.trim().toLowerCase();
+      if (trimmed && !(draft.tags || []).includes(trimmed)) {
+        setDraft((prev) => ({ ...prev, tags: [...(prev.tags || []), trimmed] }));
+      }
+      setTagCurrentInput('');
+      setTagSuggestions([]);
+      setShowTagSuggestions(false);
+    } else if (e.key === 'Backspace' && tagCurrentInput === '') {
+      const tags = draft.tags || [];
+      if (tags.length > 0) {
+        setDraft((prev) => ({ ...prev, tags: prev.tags.slice(0, -1) }));
+      }
+    }
+  };
+
+  const removeTag = (tag) => {
+    setDraft((prev) => ({ ...prev, tags: (prev.tags || []).filter((t) => t !== tag) }));
+  };
+
   const selectTagSuggestion = (tag) => {
-    const parts = tagsInput.split(',');
-    parts[parts.length - 1] = ' ' + tag;
-    setTagsInput(parts.join(',') + ', ');
+    if (!(draft.tags || []).includes(tag)) {
+      setDraft((prev) => ({ ...prev, tags: [...(prev.tags || []), tag] }));
+    }
+    setTagCurrentInput('');
     setTagSuggestions([]);
     setShowTagSuggestions(false);
+    tagInputRef.current?.focus();
   };
 
   const handleSave = () => {
-    onSave({ ...draft, tags: parseTagsInput(tagsInput) });
+    const finalTags = [...(draft.tags || [])];
+    const current = tagCurrentInput.trim().toLowerCase();
+    if (current && !finalTags.includes(current)) {
+      finalTags.push(current);
+    }
+    onSave({ ...draft, tags: finalTags });
   };
 
   const handleVersionChange = (index) => {
@@ -328,7 +377,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
     if (isEditing && snapshots.length > 1) {
       const snap = index > 0 ? snapshots[index] : entry;
       setDraft({ ...snap, id: entry.id, _snapshots: entry._snapshots });
-      setTagsInput(Array.isArray(snap.tags) ? snap.tags.join(', ') : '');
+      setTagCurrentInput('');
     }
   };
 
@@ -685,13 +734,33 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
         </label>
         {isEditing ? (
           <div className="position-relative">
-            <input
-              className="form-control"
-              value={tagsInput}
-              onChange={(e) => updateTags(e.target.value)}
-              onBlur={() => setTimeout(() => setShowTagSuggestions(false), 150)}
-              placeholder="tag1, tag2, ..."
-            />
+            <div
+              className="form-control d-flex flex-wrap gap-1 align-items-center"
+              style={{ height: 'auto', minHeight: '38px', cursor: 'text', padding: '4px 8px' }}
+              onClick={() => tagInputRef.current?.focus()}
+            >
+              {(draft.tags || []).map((t) => (
+                <span key={t} className="badge bg-primary d-inline-flex align-items-center gap-1">
+                  {t}
+                  <button
+                    type="button"
+                    className="btn p-0 border-0 bg-transparent text-white lh-1"
+                    aria-label={`Remove ${t}`}
+                    onMouseDown={(e) => { e.preventDefault(); removeTag(t); }}
+                  ><i className="bi bi-x" /></button>
+                </span>
+              ))}
+              <input
+                ref={tagInputRef}
+                type="text"
+                value={tagCurrentInput}
+                onChange={(e) => handleTagInputChange(e.target.value)}
+                onKeyDown={handleTagKeyDown}
+                onBlur={() => setTimeout(() => setShowTagSuggestions(false), 150)}
+                placeholder={(draft.tags || []).length === 0 ? 'Add tags...' : ''}
+                style={{ border: 'none', outline: 'none', flex: '1', minWidth: '80px', padding: '0', background: 'transparent' }}
+              />
+            </div>
             {showTagSuggestions && (
               <ul className="dropdown-menu show position-absolute w-100 mt-1" style={{ zIndex: 1000, maxHeight: 200, overflowY: 'auto' }}>
                 {tagSuggestions.slice(0, 8).map((t) => (
