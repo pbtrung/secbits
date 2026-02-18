@@ -62,6 +62,9 @@ function MainApp({ userId, initialUserName, onLogout }) {
 
   const isMobile = useIsMobile();
   const dirtyRef = useRef(false);
+  const selectedEntryIdRef = useRef(null);
+  const prevSelectedIdRef = useRef(null);
+  useEffect(() => { selectedEntryIdRef.current = selectedEntryId; }, [selectedEntryId]);
 
   const handleDirtyChange = useCallback((dirty) => {
     dirtyRef.current = dirty;
@@ -169,6 +172,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
   }, [isMobile, confirmUnsavedChanges]);
 
   const handleNewEntry = useCallback(() => {
+    prevSelectedIdRef.current = selectedEntryIdRef.current;
     const newEntry = {
       id: `local-${getNextId()}`,
       _isNew: true,
@@ -252,9 +256,11 @@ function MainApp({ userId, initialUserName, onLogout }) {
     setEditingId((currentEditingId) => {
       setEntries((prev) => {
         const entry = prev.find((e) => e.id === currentEditingId);
-        if (entry && !entry.title && !entry.username) {
-          setSelectedEntryId(null);
-          if (isMobile) setMobileView('entries');
+        if (entry && isLocalEntryId(currentEditingId)) {
+          const restoreId = prevSelectedIdRef.current ?? null;
+          prevSelectedIdRef.current = null;
+          setSelectedEntryId(restoreId);
+          if (isMobile) setMobileView(restoreId ? 'detail' : 'entries');
           return prev.filter((e) => e.id !== currentEditingId);
         }
         return prev;

@@ -744,13 +744,15 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
             <i className="bi bi-pencil me-1"></i>Edit
           </button>
         )}
-        <button className="btn btn-outline-danger ms-auto" onClick={handleDelete}>
-          {deleting ? (
-            <><span className="spinner-border spinner-border-sm me-1"></span>Deleting...</>
-          ) : (
-            <><i className="bi bi-trash me-1"></i>Delete</>
-          )}
-        </button>
+        {!entry._isNew && (
+          <button className="btn btn-outline-danger ms-auto" onClick={handleDelete}>
+            {deleting ? (
+              <><span className="spinner-border spinner-border-sm me-1"></span>Deleting...</>
+            ) : (
+              <><i className="bi bi-trash me-1"></i>Delete</>
+            )}
+          </button>
+        )}
       </div>
     </fieldset>
   );
