@@ -287,7 +287,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
   return (
     <div className="d-flex flex-column vh-100">
       {/* Header */}
-      <nav className="navbar navbar-dark bg-dark px-2 py-1 flex-nowrap justify-content-start" style={{ minHeight: 48 }}>
+      <nav className="navbar navbar-dark bg-dark px-0 py-1 flex-nowrap justify-content-start" style={{ minHeight: 48 }}>
         {isMobile ? (
           <div className="d-flex align-items-center w-100">
             {mobileView !== 'tags' && (
@@ -337,8 +337,8 @@ function MainApp({ userId, initialUserName, onLogout }) {
               <span className="text-light fw-bold ms-2 me-2">SecBits</span>
             </div>
             <div style={{ width: RESIZE_HANDLE_WIDTH, flexShrink: 0 }}></div>
-            <div className="d-flex align-items-center" style={{ width: entriesWidth, flexShrink: 0, paddingRight: 8 }}>
-              <form className="w-100" onSubmit={(e) => e.preventDefault()}>
+            <div className="d-flex align-items-center" style={{ width: entriesWidth, flexShrink: 0 }}>
+              <form className="w-100 m-0" onSubmit={(e) => e.preventDefault()}>
                 <div className="input-group input-group-sm">
                   <span className="input-group-text bg-secondary border-secondary text-light">
                     <i className="bi bi-search"></i>
@@ -363,6 +363,7 @@ function MainApp({ userId, initialUserName, onLogout }) {
                 </div>
               </form>
             </div>
+            <div style={{ width: RESIZE_HANDLE_WIDTH, flexShrink: 0 }}></div>
           </>
         )}
       </nav>
