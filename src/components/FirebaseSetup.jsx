@@ -169,7 +169,7 @@ function FirebaseSetup({ onReady }) {
 {`{
   "user_id": "xxx",
   "db_name": "xxx",
-  "master_key": "<base64, >=128 bytes>",
+  "master_key": "<base64, >=256 bytes>",
   "auth": {
     "apiKey": "",
     "authDomain": "",
