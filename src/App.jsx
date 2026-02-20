@@ -21,8 +21,33 @@ function useIsMobile() {
 function App() {
   const [session, setSession] = useState(null);
 
-  const handleReady = useCallback((userId, userName) => {
-    setSession({ userId, userName });
+  const handleReady = useCallback(async (userId, userName) => {
+    try {
+      const { entries: data, failedCount } = await fetchUserEntries(userId);
+      const filtered = data
+        .map((e) => ({
+          title: '',
+          username: '',
+          password: '',
+          notes: '',
+          ...e,
+          urls: Array.isArray(e.urls) ? e.urls : [],
+          totpSecrets: Array.isArray(e.totpSecrets) ? e.totpSecrets : [],
+          hiddenFields: Array.isArray(e.hiddenFields) ? e.hiddenFields : [],
+          tags: Array.isArray(e.tags) ? e.tags : [],
+        }));
+      const initialSyncError = failedCount > 0
+        ? `${failedCount} entry(ies) could not be decrypted and were skipped. Check your master key.`
+        : '';
+      setSession({ userId, userName, initialEntries: filtered, initialSyncError });
+    } catch {
+      setSession({
+        userId,
+        userName,
+        initialEntries: [],
+        initialSyncError: 'Failed to load entries from Firebase.',
+      });
+    }
   }, []);
 
   const handleLogout = useCallback(() => {
@@ -34,18 +59,25 @@ function App() {
     return <FirebaseSetup onReady={handleReady} />;
   }
 
-  return <MainApp userId={session.userId} initialUserName={session.userName} onLogout={handleLogout} />;
+  return (
+    <MainApp
+      userId={session.userId}
+      initialUserName={session.userName}
+      initialEntries={session.initialEntries}
+      initialSyncError={session.initialSyncError}
+      onLogout={handleLogout}
+    />
+  );
 }
 
 let nextLocalId = 1;
 const getNextId = () => String(nextLocalId++);
 const isLocalEntryId = (id) => String(id).startsWith('local-');
 
-function MainApp({ userId, initialUserName, onLogout }) {
+function MainApp({ userId, initialUserName, initialEntries, initialSyncError, onLogout }) {
   const RESIZE_HANDLE_WIDTH = 5;
-  const [entries, setEntries] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [syncError, setSyncError] = useState('');
+  const [entries, setEntries] = useState(initialEntries || []);
+  const [syncError, setSyncError] = useState(initialSyncError || '');
   const [selectedTag, setSelectedTag] = useState(null);
   const [selectedEntryId, setSelectedEntryId] = useState(null);
   const [editingId, setEditingId] = useState(null);
@@ -74,33 +106,6 @@ function MainApp({ userId, initialUserName, onLogout }) {
     if (!dirtyRef.current) return true;
     return window.confirm('You have unsaved changes. Discard and leave?');
   }, []);
-
-  useEffect(() => {
-    fetchUserEntries(userId)
-      .then(({ entries: data, failedCount }) => {
-        const filtered = data
-          .map((e) => ({
-            title: '',
-            username: '',
-            password: '',
-            notes: '',
-            ...e,
-            urls: Array.isArray(e.urls) ? e.urls : [],
-            totpSecrets: Array.isArray(e.totpSecrets) ? e.totpSecrets : [],
-            hiddenFields: Array.isArray(e.hiddenFields) ? e.hiddenFields : [],
-            tags: Array.isArray(e.tags) ? e.tags : [],
-          }));
-        setEntries(filtered);
-        if (failedCount > 0) {
-          setSyncError(`${failedCount} entry(ies) could not be decrypted and were skipped. Check your master key.`);
-        }
-        setLoading(false);
-      })
-      .catch(() => {
-        setSyncError('Failed to load entries from Firebase.');
-        setLoading(false);
-      });
-  }, [userId]);
 
   useEffect(() => {
     if (!editingId) return;
@@ -281,14 +286,6 @@ function MainApp({ userId, initialUserName, onLogout }) {
     if (!confirmUnsavedChanges()) return;
     onLogout();
   }, [onLogout, confirmUnsavedChanges]);
-
-  if (loading) {
-    return (
-      <div className="d-flex align-items-center justify-content-center vh-100 text-muted">
-        Loading entries...
-      </div>
-    );
-  }
 
   const detailPane = selectedEntry ? (
     <EntryDetail

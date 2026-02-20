@@ -68,7 +68,10 @@ function FirebaseSetup({ onReady }) {
     if (!cached) return;
     setLoading(true);
     processConfigText(cached)
-      .then(({ userId, username }) => onReady(userId, username))
+      .then(async ({ userId, username }) => {
+        setStatus('Loading entries...');
+        await onReady(userId, username);
+      })
       .catch(() => {
         sessionStorage.removeItem(SESSION_KEY);
         setLoading(false);
@@ -88,8 +91,9 @@ function FirebaseSetup({ onReady }) {
       setLoading(true);
       try {
         const { userId, username } = await processConfigText(text);
+        setStatus('Loading entries...');
+        await onReady(userId, username);
         sessionStorage.setItem(SESSION_KEY, text);
-        onReady(userId, username);
       } catch (connErr) {
         setError(connErr.message || 'Invalid configuration');
         setLoading(false);
