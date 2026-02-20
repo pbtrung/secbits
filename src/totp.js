@@ -7,7 +7,7 @@ export function base32Decode(str) {
   let bits = '';
   for (const c of str) {
     const val = alphabet.indexOf(c);
-    if (val === -1) continue;
+    if (val === -1) return null;
     bits += val.toString(2).padStart(5, '0');
   }
   const bytes = new Uint8Array(Math.floor(bits.length / 8));
@@ -20,7 +20,8 @@ export function base32Decode(str) {
 export function generateTOTPForCounter(secret, counter) {
   try {
     const key = base32Decode(secret);
-    if (key.length === 0) return null;
+    if (!Number.isFinite(counter) || counter < 0) return null;
+    if (!key || key.length === 0) return null;
     const counterBytes = new Uint8Array(8);
     let tmp = counter;
     for (let i = 7; i >= 0; i--) {

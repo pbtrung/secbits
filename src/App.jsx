@@ -6,7 +6,7 @@ import EntryDetail from './components/EntryDetail';
 import ResizeHandle from './components/ResizeHandle';
 import SettingsList from './components/SettingsList';
 import SettingsPanel from './components/SettingsPanel';
-import { fetchUserEntries, createUserEntry, updateUserEntry, deleteUserEntry } from './firebase';
+import { clearUserMasterKey, fetchUserEntries, createUserEntry, updateUserEntry, deleteUserEntry } from './firebase';
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -51,6 +51,7 @@ function App() {
   }, []);
 
   const handleLogout = useCallback(() => {
+    clearUserMasterKey();
     sessionStorage.removeItem('secbits_config');
     setSession(null);
   }, []);

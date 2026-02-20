@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { initFirebase, signIn, fetchUser, saveUserMasterKey, initUserDataCollection, setUserMasterKey } from '../firebase';
+import { initFirebase, signIn, fetchUser, saveUserMasterKey, initUserDataCollection, setUserMasterKey, clearUserMasterKey } from '../firebase';
 import { decodeMasterKey, masterKeySetup, masterKeyVerify } from '../crypto';
 
 const REQUIRED_KEYS = ['apiKey', 'authDomain', 'databaseURL', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
@@ -21,6 +21,7 @@ function FirebaseSetup({ onReady }) {
   };
 
   const processConfigText = async (text) => {
+    clearUserMasterKey();
     const json = JSON.parse(text);
     const config = json.auth || json;
     const err = validate(config);
@@ -56,6 +57,7 @@ function FirebaseSetup({ onReady }) {
     }
 
     setUserMasterKey(userMasterKey);
+    userMasterKey.fill(0);
 
     setStatus('Loading data...');
     await initUserDataCollection(userId);
@@ -73,6 +75,7 @@ function FirebaseSetup({ onReady }) {
         await onReady(userId, username);
       })
       .catch(() => {
+        clearUserMasterKey();
         sessionStorage.removeItem(SESSION_KEY);
         setLoading(false);
       });
@@ -95,6 +98,7 @@ function FirebaseSetup({ onReady }) {
         await onReady(userId, username);
         sessionStorage.setItem(SESSION_KEY, text);
       } catch (connErr) {
+        clearUserMasterKey();
         setError(connErr.message || 'Invalid configuration');
         setLoading(false);
       }

@@ -63,12 +63,28 @@ export async function signIn() {
   await signInAnonymously(auth);
 }
 
+function zeroizeBytes(bytes) {
+  if (bytes instanceof Uint8Array) {
+    bytes.fill(0);
+  }
+}
+
 export function setUserMasterKey(keyBytes) {
-  userMasterKeyBytes = keyBytes;
+  if (!(keyBytes instanceof Uint8Array)) {
+    throw new Error('User master key must be bytes');
+  }
+  zeroizeBytes(userMasterKeyBytes);
+  // Keep an internal copy so callers can clear their local buffer.
+  userMasterKeyBytes = keyBytes.slice();
 }
 
 export function getUserMasterKey() {
   return userMasterKeyBytes;
+}
+
+export function clearUserMasterKey() {
+  zeroizeBytes(userMasterKeyBytes);
+  userMasterKeyBytes = null;
 }
 
 export async function fetchUser(userId) {

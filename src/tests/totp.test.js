@@ -19,4 +19,9 @@ describe('generateTOTPForCounter', () => {
     expect(generateTOTPForCounter(SECRET_BASE32, 66666666)).toBe('279037');
     expect(generateTOTPForCounter(SECRET_BASE32, 666666666)).toBe('353130');
   });
+
+  it('rejects secrets containing invalid base32 characters', () => {
+    expect(generateTOTPForCounter(`${SECRET_BASE32}!`, 1)).toBeNull();
+    expect(generateTOTPForCounter('NOT-BASE32*', 1)).toBeNull();
+  });
 });

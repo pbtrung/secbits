@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { PasswordGenerator, PasswordStrengthBar } from './PasswordGenerator';
 import { generateTOTP } from '../totp.js';
+import { isHttpUrl } from '../validation.js';
 
 function TotpCode({ secret, onCopy, copiedLabel }) {
   const [code, setCode] = useState(null);
@@ -249,10 +250,9 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
       setUrlErrors((prev) => { const next = { ...prev }; delete next[index]; return next; });
       return;
     }
-    try {
-      new URL(value);
+    if (isHttpUrl(value)) {
       setUrlErrors((prev) => { const next = { ...prev }; delete next[index]; return next; });
-    } catch {
+    } else {
       setUrlErrors((prev) => ({ ...prev, [index]: 'Invalid URL — must start with https:// or http://' }));
     }
   };
@@ -575,9 +575,13 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
           <div>
             {data.urls.filter(Boolean).map((url, i) => (
               <div key={i} className="mb-1">
-                <a href={url} target="_blank" rel="noopener noreferrer">
-                  {url}
-                </a>
+                {isHttpUrl(url) ? (
+                  <a href={url} target="_blank" rel="noopener noreferrer">
+                    {url}
+                  </a>
+                ) : (
+                  <span className="text-muted">{url}</span>
+                )}
               </div>
             ))}
           </div>

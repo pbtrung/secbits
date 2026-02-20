@@ -23,6 +23,17 @@ function valueByteLength(value) {
   return new Blob([JSON.stringify(value ?? null)]).size;
 }
 
+export function buildExportData({ userId, userData, userMasterKey, decryptedDocs }) {
+  const storedMasterKeyBlob = valueToBytes(userData?.master_key);
+  return {
+    user_id: userId,
+    username: userData?.username || null,
+    user_master_key_b64: userMasterKey ? bytesToB64(userMasterKey) : null,
+    stored_user_master_key_blob_b64: storedMasterKeyBlob ? bytesToB64(storedMasterKeyBlob) : null,
+    data: decryptedDocs,
+  };
+}
+
 function ExportPage({ userId }) {
   const [exporting, setExporting] = useState(false);
 
@@ -53,13 +64,7 @@ function ExportPage({ userId }) {
         }
         decryptedDocs.push(entry);
       }
-      const storedMasterKey = valueToBytes(userData?.master_key);
-      const exportData = {
-        user_id: userId,
-        master_key: userMasterKey ? bytesToB64(userMasterKey) : (storedMasterKey ? bytesToB64(storedMasterKey) : null),
-        username: userData?.username || null,
-        data: decryptedDocs,
-      };
+      const exportData = buildExportData({ userId, userData, userMasterKey, decryptedDocs });
       const json = JSON.stringify(exportData, null, 2);
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
