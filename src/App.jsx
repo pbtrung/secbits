@@ -249,10 +249,11 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
         setSelectedEntryId(null);
         setEditingId(null);
         setSettingsPage(null);
+        if (isMobile) setMobileView('entries');
       }
       return !prev;
     });
-  }, [confirmUnsavedChanges]);
+  }, [confirmUnsavedChanges, isMobile]);
 
   const handleSelectSetting = useCallback((page) => {
     setSettingsPage(page);
