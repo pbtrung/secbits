@@ -45,10 +45,38 @@ function concat(...arrays) {
 }
 
 let lcPromise = null;
+
+let lcScriptPromise = null;
+async function ensureLeancryptoScript() {
+  if (typeof globalThis.leancrypto === 'function') return;
+  if (!lcScriptPromise) {
+    lcScriptPromise = new Promise((resolve, reject) => {
+      const existing = document.querySelector('script[data-leancrypto="1"]');
+      if (existing) {
+        existing.addEventListener('load', () => resolve(), { once: true });
+        existing.addEventListener('error', () => reject(new Error('Failed to load leancrypto script')), { once: true });
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = '/leancrypto/leancrypto.js';
+      script.async = true;
+      script.dataset.leancrypto = '1';
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('Failed to load leancrypto script'));
+      document.head.appendChild(script);
+    });
+  }
+  await lcScriptPromise;
+  if (typeof globalThis.leancrypto !== 'function') {
+    throw new Error('leancrypto global loader not available');
+  }
+}
+
 async function getLc() {
   if (!lcPromise) {
-    lcPromise = import(/* @vite-ignore */ '/leancrypto/leancrypto.js')
-      .then(m => m.default())
+    lcPromise = ensureLeancryptoScript()
+      .then(() => globalThis.leancrypto())
       .then(lib => { lib._lc_init(); return lib; });
   }
   return lcPromise;
