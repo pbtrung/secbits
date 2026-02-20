@@ -30,6 +30,7 @@ A self-hosted, end-to-end encrypted password manager. All data is encrypted on t
 | Export | Download a decrypted JSON backup at any time |
 | Responsive layout | Three-column resizable desktop view; stacked mobile navigation |
 | Session persistence | Config cached in `sessionStorage` for the tab lifetime (cleared on close/logout) |
+| Unified startup flow | Auth screen keeps the spinner/status visible through entry preload (no separate post-auth loading screen) |
 | Clipboard auto-clear | Clipboard is overwritten 30 seconds after any copy |
 | Notes auto-hide | Revealed notes are hidden after 15 seconds or on window blur |
 
@@ -241,7 +242,7 @@ Copy the contents of `dist/` to your web root. Configure the server to serve `in
 
 1. Open the app in your browser.
 2. Drag and drop (or click to browse) your config `.json` file onto the upload area.
-3. The app verifies your master key against Firestore and decrypts your data. On first login a new encryption key pair is generated and stored.
+3. The app verifies your master key against Firestore, then loads your entries before leaving the auth screen. On first login a new encryption key pair is generated and stored.
 4. The config is cached in `sessionStorage` for the lifetime of the browser tab. You will not be asked to upload it again unless you close the tab or log out.
 
 ### Creating an entry
@@ -384,7 +385,7 @@ npx vitest
 
 ### How the leancrypto WASM tests work
 
-The test file runs standalone (`node src/tests/leancrypto.test.js`) or inside Vitest (via a dual-mode runner that wraps `main()` in a `test()` call when `globalThis.test` is defined). It exercises the WASM library directly through its C API:
+The test runner lives in `src/tests/leancrypto.test.js` and can run standalone (`node src/tests/leancrypto.test.js`) or inside Vitest (via a dual-mode wrapper that calls `main()` in `test()` when `globalThis.test` is defined). SPHINCS fixture data is separated into `src/tests/leancrypto.sphincs-vectors.js`. The suite exercises the WASM library directly through its C API:
 
 - **Ascon-Keccak AEAD**: encrypt/decrypt with known vectors; verifies out-of-place and in-place modes, and that tampered ciphertext is rejected with the correct error code.
 - **HMAC-SHA3-224**: one-shot MAC against a known vector.
@@ -413,7 +414,8 @@ secbits/
     ├── tests/
     │   ├── crypto.test.js       # Encryption/decryption tests
     │   ├── totp.test.js         # RFC 6238 TOTP tests
-    │   └── leancrypto.test.js   # WASM vector tests (Vitest + standalone Node)
+    │   ├── leancrypto.test.js   # WASM vector tests (Vitest + standalone Node)
+    │   └── leancrypto.sphincs-vectors.js # SPHINCS+ fixture vectors for leancrypto tests
     └── components/
         ├── FirebaseSetup.jsx    # Config upload, auth, key verification
         ├── EntryDetail.jsx      # View and edit a single entry
