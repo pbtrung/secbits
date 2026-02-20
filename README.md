@@ -19,7 +19,7 @@ A self-hosted, end-to-end encrypted password manager. All data is encrypted on t
 
 | Feature | Description |
 |---|---|
-| End-to-end encryption | XChaCha20 + HMAC-SHA3-512; Firebase stores only ciphertext |
+| End-to-end encryption | Ascon-Keccak-512 AEAD; Firebase stores only ciphertext |
 | Per-entry document keys | Each entry uses its own randomly generated key |
 | Version history | Up to 5 snapshots per entry for auditing and recovery |
 | TOTP generation | Live 6-digit codes with countdown timer |
@@ -40,44 +40,53 @@ A self-hosted, end-to-end encrypted password manager. All data is encrypted on t
 ```
 Root Master Key (from config file, >=256 bytes)
     |
-    +-- HKDF-SHA3-512 -> encKey (32B) + encIv (24B) + hmacKey (64B)
+    +-- HKDF-SHA3-512 -> encKey (64B) + encIv (64B)
     |
-    +-- XChaCha20(encKey, encIv, userMasterKey) -> encUserMasterKey stored in Firestore
-    +-- HMAC-SHA3-512(hmacKey, salt || encUserMasterKey) -> integrity tag
+    +-- Ascon-Keccak-512(encKey, encIv, userMasterKey) -> encUserMasterKey + AEAD tag (64B)
     |
     +-- User Master Key (64B, random per user, decrypted at login)
             |
             +-- per-entry doc key (64B, random per entry)
                     |
-                    +-- HKDF-SHA3-512 -> encKey + encIv + hmacKey
-                    +-- JSON -> Brotli compress -> XChaCha20 encrypt
-                    +-- HMAC-SHA3-512 -> integrity tag
+                    +-- HKDF-SHA3-512 -> encKey (64B) + encIv (64B)
+                    +-- JSON -> Brotli compress -> Ascon-Keccak-512 encrypt + AEAD tag
+                    +-- stored as Firestore Bytes in value field
 ```
 
 ### Algorithms
 
 | Algorithm | Role | Notes |
 |---|---|---|
-| XChaCha20 | Stream cipher | 256-bit key, 192-bit nonce |
-| HKDF-SHA3-512 | Key derivation | Fresh 64-byte salt per encryption |
-| HMAC-SHA3-512 | Authentication | Verified before decryption |
+| Ascon-Keccak-512 AEAD | Authenticated encryption | 512-bit key, 512-bit nonce, 512-bit tag; via leancrypto WASM |
+| HKDF-SHA3-512 | Key derivation | Fresh 64-byte salt per encryption; derives 128 bytes (encKey \|\| encIv) |
 | Brotli (WASM) | Compression | Applied before encryption |
 | TOTP-SHA1 | 2FA code generation | RFC 6238, 30-second window |
+
+### Blob format
+
+Every encrypted value has the same layout:
+
+```
+salt (64B) || ciphertext (N B) || AEAD tag (64B)
+```
+
+Total overhead per blob: 128 bytes. The master key blob is always 192 bytes (`salt || encUserMasterKey || tag`).
 
 ### Master key flow
 
 **First login (new user):**
 
 1. `decodeMasterKey()` validates the base64 root master key from the config file (must decode to >=256 bytes).
-2. A random 64-byte User Master Key is generated, then encrypted with HKDF + XChaCha20 + HMAC using the root master key.
-3. The 192-byte blob (`salt || encUserMasterKey || mac`) is written to `users/{userId}/master_key` in Firestore.
+2. A random 64-byte User Master Key is generated, then AEAD-encrypted using keys derived via HKDF-SHA3-512 from the root master key.
+3. The 192-byte blob (`salt || encUserMasterKey || tag`) is written to `users/{userId}/master_key` in Firestore.
 4. The plaintext User Master Key is kept in memory for the rest of the session.
 
 **Returning user:**
 
-1. The stored blob is fetched from Firestore.
-2. HMAC is verified (timing-safe comparison) using keys derived from the root master key. A wrong root master key fails here.
-3. The User Master Key is decrypted and kept in memory for the session.
+1. The stored 192-byte blob is fetched from Firestore.
+2. HKDF-SHA3-512 re-derives encKey and encIv from the root master key and the stored salt.
+3. Ascon-Keccak-512 AEAD decryption verifies the tag and recovers the User Master Key. A wrong root master key causes authentication failure here.
+4. The User Master Key is kept in memory for the session.
 
 ### Entry encryption
 
@@ -85,12 +94,12 @@ Each entry stores an array of up to 5 snapshots (version history). On every save
 
 ```
 snapshots[]  ->  JSON.stringify  ->  Brotli compress
-    ->  XChaCha20 encrypt (with entry's doc key)
-    ->  HMAC tag appended
+    ->  Ascon-Keccak-512 AEAD encrypt (with entry's doc key)
+    ->  AEAD tag appended
     ->  stored as Firestore Bytes in value field
 ```
 
-The entry's doc key is itself wrapped (encrypted and MAC'd) using the `userMasterKey` and stored in the `enc_key` field of the same Firestore document.
+The entry's doc key is itself AEAD-encrypted using the `userMasterKey` and stored in the `enc_key` field of the same Firestore document.
 
 ## Firebase Setup
 
@@ -292,9 +301,9 @@ Click the logout button (arrow icon) at the bottom of the tag sidebar. The `sess
 
 **Per-entry keys.** Each entry is encrypted with its own randomly generated document key. Compromise of one entry's key does not affect others.
 
-**HMAC integrity.** Every encrypted value is authenticated with HMAC-SHA3-512. Tampered ciphertext is detected before decryption.
+**AEAD integrity.** Every encrypted value is authenticated by the Ascon-Keccak-512 AEAD tag. Tampered ciphertext or tag causes decryption to fail before any plaintext is returned.
 
-**Timing-safe MAC verification.** The HMAC comparison uses a constant-time function to prevent timing side-channels.
+**No separate MAC step.** Authentication is built into the AEAD cipher; there is no HMAC post-processing step. The tag covers both the ciphertext and the associated key material.
 
 **Anonymous auth.** Firebase Anonymous Authentication is used to satisfy Firestore security rules. No account creation or password is required.
 
@@ -310,8 +319,8 @@ Click the logout button (arrow icon) at the bottom of the tag sidebar. The `sess
 | Build tool | Vite 6 |
 | CSS | Bootstrap 5 |
 | Icons | Bootstrap Icons |
-| Cipher | @noble/ciphers (XChaCha20) |
-| Hash / KDF | @noble/hashes (SHA3, HKDF, HMAC) |
+| AEAD cipher + KDF | leancrypto WASM (Ascon-Keccak-512, HKDF-SHA3-512) |
+| TOTP HMAC | @noble/hashes (HMAC-SHA1) |
 | Compression | brotli-wasm |
 | Database | Firebase Firestore |
 | Auth | Firebase Anonymous Auth |
@@ -333,6 +342,7 @@ Run a specific test file:
 ```bash
 npx vitest run src/crypto.test.js
 npx vitest run src/totp.test.js
+npx vitest run public/leancrypto/leancrypto.test.js
 ```
 
 Optional watch mode while developing:
@@ -343,25 +353,27 @@ npx vitest
 
 ### What is covered
 
-| Area | Tests | What is validated |
-|---|---|---|
-| `encryptBytesToBlob` / `decryptBlobBytes` | 3 tests | 128-byte random round-trip correctness, HMAC correctness, tamper rejection |
-| `generateTOTPForCounter` | 3 tests | RFC 6238 SHA-1 known vectors across normal and large counters |
+| Area | File | Tests | What is validated |
+|---|---|---|---|
+| `encryptBytesToBlob` / `decryptBlobBytes` | `src/crypto.test.js` | 3 | Round-trip correctness, AEAD tag structure, tamper rejection |
+| `generateTOTPForCounter` | `src/totp.test.js` | 3 | RFC 6238 SHA-1 known vectors across normal and large counters |
+| leancrypto WASM primitives | `public/leancrypto/leancrypto.test.js` | 1 (suite) | Ascon-Keccak AEAD, HMAC-SHA3-224, SHA3-512, HKDF-SHA256, SPHINCS+ vectors |
 
 ### Why these tests matter
 
 1. Encryption correctness: secrets must decrypt to the exact original bytes with no loss or mutation.
-2. Integrity enforcement: blob MAC checks must detect tampering before decryption.
+2. Integrity enforcement: AEAD authentication must reject any tampered blob before returning plaintext.
 3. Interoperability: TOTP output must match standard RFC vectors so authenticator codes are reliable.
+4. WASM correctness: leancrypto primitives are verified against known test vectors before any application code relies on them.
 
 ### How the crypto tests work
 
-1. Generate random `keyBytes` and a random 128-byte plaintext.
-2. Encrypt plaintext to blob `c` with `encryptBytesToBlob`.
-3. Decrypt blob `c` to `d` with `decryptBlobBytes`.
+1. Generate random `keyBytes` and a random 128-byte plaintext using `crypto.getRandomValues`.
+2. Encrypt plaintext to blob `c` with `encryptBytesToBlob` (async).
+3. Decrypt blob `c` to `d` with `decryptBlobBytes` (async).
 4. Compare plaintext and `d` byte-by-byte.
-5. Recompute HMAC-SHA3-512 over `salt || ciphertext` using HKDF-derived keys (same pattern as master key / `enc_key` / `value` encryption flow) and verify it equals the stored MAC.
-6. Tamper one byte of the blob and verify decrypt throws `Invalid encrypted value MAC`.
+5. Verify blob length equals `SALT_LEN(64) + plaintext.length + TAG_LEN(64)` and that the tag bytes are non-zero.
+6. Tamper one byte of the tag and verify `decryptBlobBytes` rejects the blob.
 
 ### How the TOTP tests work
 
@@ -370,17 +382,33 @@ npx vitest
 3. Assert the returned 6-digit code matches the expected values.
 4. Include larger counter cases to ensure correct 8-byte big-endian counter handling and dynamic truncation behavior.
 
+### How the leancrypto WASM tests work
+
+The test file runs standalone (`node public/leancrypto/leancrypto.test.js`) or inside Vitest (via a dual-mode runner that wraps `main()` in a `test()` call when `globalThis.test` is defined). It exercises the WASM library directly through its C API:
+
+- **Ascon-Keccak AEAD**: encrypt/decrypt with known vectors; verifies out-of-place and in-place modes, and that tampered ciphertext is rejected with the correct error code.
+- **HMAC-SHA3-224**: one-shot MAC against a known vector.
+- **SHA3-512**: oneshot and streaming hash against known vectors.
+- **HKDF-SHA256**: oneshot and streaming extract+expand against known vectors.
+- **SPHINCS+**: key generation, sign, and verify for all six SHAKE parameter sets.
+
 ## Project Structure
 
 ```
 secbits/
 ├── index.html                   # HTML shell with CSP meta tag
-├── vite.config.js               # Vite + React + WASM plugins
+├── vite.config.js               # Vite + React + WASM plugins; test config
 ├── package.json
+├── public/
+│   └── leancrypto/
+│       ├── leancrypto.js        # Emscripten UMD bundle (browser + Node)
+│       ├── leancrypto.wasm      # Compiled leancrypto WASM binary
+│       └── leancrypto.test.js   # WASM vector tests (Vitest + standalone Node)
 └── src/
     ├── main.jsx                 # Entry point, mounts React root
     ├── App.jsx                  # Root component, state management
-    ├── crypto.js                # All cryptographic operations
+    ├── crypto.js                # All cryptographic operations (leancrypto WASM)
+    ├── totp.js                  # TOTP generation (RFC 6238, HMAC-SHA1)
     ├── firebase.js              # Firestore read/write operations
     ├── index.css                # Global styles
     └── components/
