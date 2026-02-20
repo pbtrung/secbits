@@ -47,12 +47,12 @@ function FirebaseSetup({ onReady }) {
     let userMasterKey;
     if (!storedMasterKey) {
       setStatus('Setting up encryption...');
-      const { storedValue, userMasterKey: generated } = masterKeySetup(masterKeyBytes);
+      const { storedValue, userMasterKey: generated } = await masterKeySetup(masterKeyBytes);
       await saveUserMasterKey(userId, storedValue);
       userMasterKey = generated;
     } else {
       setStatus('Verifying master key...');
-      userMasterKey = masterKeyVerify(masterKeyBytes, storedMasterKey);
+      userMasterKey = await masterKeyVerify(masterKeyBytes, storedMasterKey);
     }
 
     setUserMasterKey(userMasterKey);

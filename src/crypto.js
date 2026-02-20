@@ -1,18 +1,11 @@
-import { xchacha20 } from '@noble/ciphers/chacha.js';
-import { randomBytes } from '@noble/ciphers/utils.js';
-import { hkdf } from '@noble/hashes/hkdf.js';
-import { sha3_512 } from '@noble/hashes/sha3.js';
-import { hmac } from '@noble/hashes/hmac.js';
-
 const SALT_LEN = 64;
 const USER_MASTER_KEY_LEN = 64;
 const DOC_KEY_LEN = 64;
-const ENC_KEY_LEN = 32;
-const ENC_IV_LEN = 24;
-const HMAC_KEY_LEN = 64;
-const HMAC_LEN = 64;
-const HKDF_OUT_LEN = ENC_KEY_LEN + ENC_IV_LEN + HMAC_KEY_LEN; // 120
-const MASTER_BLOB_LEN = SALT_LEN + USER_MASTER_KEY_LEN + 64; // 192 (salt + encUserMasterKey + hmac)
+const ENC_KEY_LEN = 64;
+const ENC_IV_LEN = 64;
+const TAG_LEN = 64;
+const HKDF_OUT_LEN = ENC_KEY_LEN + ENC_IV_LEN; // 128
+const MASTER_BLOB_LEN = SALT_LEN + USER_MASTER_KEY_LEN + TAG_LEN; // 192
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 let brotliModulePromise = null;
@@ -36,17 +29,8 @@ function toBytes(value, label = 'value') {
   throw new Error(`${label} must be bytes`);
 }
 
-function deriveKeys(masterKeyBytes, salt) {
-  const derived = hkdf(sha3_512, masterKeyBytes, salt, new Uint8Array(), HKDF_OUT_LEN);
-  return {
-    encKey: derived.slice(0, ENC_KEY_LEN),
-    encIv: derived.slice(ENC_KEY_LEN, ENC_KEY_LEN + ENC_IV_LEN),
-    hmacKey: derived.slice(ENC_KEY_LEN + ENC_IV_LEN),
-  };
-}
-
-function computeHmac(hmacKey, data) {
-  return hmac(sha3_512, hmacKey, data);
+function getRandomBytes(n) {
+  return crypto.getRandomValues(new Uint8Array(n));
 }
 
 function concat(...arrays) {
@@ -60,11 +44,110 @@ function concat(...arrays) {
   return out;
 }
 
-function timingSafeEqual(a, b) {
-  const maxLen = Math.max(a.length, b.length);
-  let diff = a.length ^ b.length;
-  for (let i = 0; i < maxLen; i++) diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
-  return diff === 0;
+let lcPromise = null;
+async function getLc() {
+  if (!lcPromise) {
+    lcPromise = import(/* @vite-ignore */ '/leancrypto/leancrypto.js')
+      .then(m => m.default())
+      .then(lib => { lib._lc_init(); return lib; });
+  }
+  return lcPromise;
+}
+
+function resolveHashPtr(lib, sym) { return lib.HEAPU32[sym >> 2]; }
+function writeBytes(lib, data)    { const p = lib._malloc(data.length); lib.HEAPU8.set(data, p); return p; }
+function readBytes(lib, ptr, len) { return lib.HEAPU8.slice(ptr, ptr + len); }
+
+function hkdfSync(lib, keyBytes, salt) {
+  const sha3_512_ptr = resolveHashPtr(lib, lib._lc_sha3_512);
+  const ikmPtr = writeBytes(lib, keyBytes);
+  const saltPtr = writeBytes(lib, salt);
+  const okmPtr = lib._malloc(HKDF_OUT_LEN);
+  try {
+    const rc = lib._lc_hkdf(sha3_512_ptr, ikmPtr, keyBytes.length, saltPtr, salt.length, 0, 0, okmPtr, HKDF_OUT_LEN);
+    if (rc !== 0) throw new Error(`hkdf failed: rc=${rc}`);
+    const okm = readBytes(lib, okmPtr, HKDF_OUT_LEN);
+    return {
+      encKey: okm.slice(0, ENC_KEY_LEN),
+      encIv: okm.slice(ENC_KEY_LEN),
+    };
+  } finally {
+    lib._free(ikmPtr);
+    lib._free(saltPtr);
+    lib._free(okmPtr);
+  }
+}
+
+function akEncrypt(lib, encKey, encIv, plainBytes) {
+  const sha3_512_ptr = resolveHashPtr(lib, lib._lc_sha3_512);
+  const ctxPtrPtr = lib._malloc(4);
+  let ctx = 0;
+  try {
+    const rc = lib._lc_ak_alloc_taglen(sha3_512_ptr, TAG_LEN, ctxPtrPtr);
+    if (rc !== 0) throw new Error(`lc_ak_alloc_taglen failed: rc=${rc}`);
+    ctx = lib.HEAP32[ctxPtrPtr >> 2];
+  } finally {
+    lib._free(ctxPtrPtr);
+  }
+
+  const keyPtr = writeBytes(lib, encKey);
+  const ivPtr = writeBytes(lib, encIv);
+  const ptPtr = writeBytes(lib, plainBytes);
+  const ctPtr = lib._malloc(plainBytes.length);
+  const tagPtr = lib._malloc(TAG_LEN);
+  try {
+    let rc = lib._lc_aead_setkey(ctx, keyPtr, encKey.length, ivPtr, encIv.length);
+    if (rc !== 0) throw new Error(`lc_aead_setkey failed: rc=${rc}`);
+
+    rc = lib._lc_aead_encrypt(ctx, ptPtr, ctPtr, plainBytes.length, 0, 0, tagPtr, TAG_LEN);
+    if (rc !== 0) throw new Error(`lc_aead_encrypt failed: rc=${rc}`);
+
+    const ciphertext = readBytes(lib, ctPtr, plainBytes.length);
+    const tag = readBytes(lib, tagPtr, TAG_LEN);
+    return { ciphertext, tag };
+  } finally {
+    lib._free(keyPtr);
+    lib._free(ivPtr);
+    lib._free(ptPtr);
+    lib._free(ctPtr);
+    lib._free(tagPtr);
+    lib._lc_aead_zero_free(ctx);
+  }
+}
+
+function akDecrypt(lib, encKey, encIv, ciphertext, tag) {
+  const sha3_512_ptr = resolveHashPtr(lib, lib._lc_sha3_512);
+  const ctxPtrPtr = lib._malloc(4);
+  let ctx = 0;
+  try {
+    const rc = lib._lc_ak_alloc_taglen(sha3_512_ptr, TAG_LEN, ctxPtrPtr);
+    if (rc !== 0) throw new Error(`lc_ak_alloc_taglen failed: rc=${rc}`);
+    ctx = lib.HEAP32[ctxPtrPtr >> 2];
+  } finally {
+    lib._free(ctxPtrPtr);
+  }
+
+  const keyPtr = writeBytes(lib, encKey);
+  const ivPtr = writeBytes(lib, encIv);
+  const ctPtr = writeBytes(lib, ciphertext);
+  const ptPtr = lib._malloc(ciphertext.length);
+  const tagPtr = writeBytes(lib, tag);
+  try {
+    let rc = lib._lc_aead_setkey(ctx, keyPtr, encKey.length, ivPtr, encIv.length);
+    if (rc !== 0) throw new Error(`lc_aead_setkey failed: rc=${rc}`);
+
+    rc = lib._lc_aead_decrypt(ctx, ctPtr, ptPtr, ciphertext.length, 0, 0, tagPtr, TAG_LEN);
+    if (rc !== 0) throw new Error('Invalid encrypted value: authentication failed');
+
+    return readBytes(lib, ptPtr, ciphertext.length);
+  } finally {
+    lib._free(keyPtr);
+    lib._free(ivPtr);
+    lib._free(ctPtr);
+    lib._free(ptPtr);
+    lib._free(tagPtr);
+    lib._lc_aead_zero_free(ctx);
+  }
 }
 
 /**
@@ -84,16 +167,15 @@ export function decodeMasterKey(masterKeyB64) {
  * keys derived from the root master key, return the blob to store in Firestore.
  * Also returns the plaintext User Master Key for session use.
  */
-export function masterKeySetup(masterKeyBytes) {
-  const salt = randomBytes(SALT_LEN);
-  const { encKey, encIv, hmacKey } = deriveKeys(masterKeyBytes, salt);
+export async function masterKeySetup(masterKeyBytes) {
+  const lib = await getLc();
+  const salt = getRandomBytes(SALT_LEN);
+  const { encKey, encIv } = hkdfSync(lib, masterKeyBytes, salt);
 
-  const userMasterKey = randomBytes(USER_MASTER_KEY_LEN);
-  const encUserMasterKey = xchacha20(encKey, encIv, userMasterKey);
+  const userMasterKey = getRandomBytes(USER_MASTER_KEY_LEN);
+  const { ciphertext: encUserMasterKey, tag } = akEncrypt(lib, encKey, encIv, userMasterKey);
 
-  const mac = computeHmac(hmacKey, concat(salt, encUserMasterKey));
-  const blob = concat(salt, encUserMasterKey, mac);
-
+  const blob = concat(salt, encUserMasterKey, tag);
   return {
     storedValue: blob,
     userMasterKey,
@@ -104,7 +186,7 @@ export function masterKeySetup(masterKeyBytes) {
  * Returning user: verify the root master key against the stored blob,
  * decrypt and return the User Master Key or throw on wrong key.
  */
-export function masterKeyVerify(masterKeyBytes, storedBlob) {
+export async function masterKeyVerify(masterKeyBytes, storedBlob) {
   const blob = toBytes(storedBlob, 'stored master_key');
   if (blob.length !== MASTER_BLOB_LEN) {
     throw new Error('Invalid stored master_key data');
@@ -112,43 +194,38 @@ export function masterKeyVerify(masterKeyBytes, storedBlob) {
 
   const salt = blob.slice(0, SALT_LEN);
   const encUserMasterKey = blob.slice(SALT_LEN, SALT_LEN + USER_MASTER_KEY_LEN);
-  const storedMac = blob.slice(SALT_LEN + USER_MASTER_KEY_LEN);
+  const tag = blob.slice(SALT_LEN + USER_MASTER_KEY_LEN);
 
-  const { encKey, encIv, hmacKey } = deriveKeys(masterKeyBytes, salt);
+  const lib = await getLc();
+  const { encKey, encIv } = hkdfSync(lib, masterKeyBytes, salt);
 
-  const mac = computeHmac(hmacKey, concat(salt, encUserMasterKey));
-  if (!timingSafeEqual(mac, storedMac)) {
+  try {
+    return akDecrypt(lib, encKey, encIv, encUserMasterKey, tag);
+  } catch {
     throw new Error('Wrong master key');
   }
-
-  const userMasterKey = xchacha20(encKey, encIv, encUserMasterKey);
-  return userMasterKey;
 }
 
-export function encryptBytesToBlob(keyBytes, plainBytes) {
-  const salt = randomBytes(SALT_LEN);
-  const { encKey, encIv, hmacKey } = deriveKeys(keyBytes, salt);
-  const ciphertext = xchacha20(encKey, encIv, plainBytes);
-  const mac = computeHmac(hmacKey, concat(salt, ciphertext));
-  return concat(salt, ciphertext, mac);
+export async function encryptBytesToBlob(keyBytes, plainBytes) {
+  const lib = await getLc();
+  const salt = getRandomBytes(SALT_LEN);
+  const { encKey, encIv } = hkdfSync(lib, keyBytes, salt);
+  const { ciphertext, tag } = akEncrypt(lib, encKey, encIv, plainBytes);
+  return concat(salt, ciphertext, tag);
 }
 
-export function decryptBlobBytes(keyBytes, blob) {
-  if (blob.length < SALT_LEN + HMAC_LEN) {
+export async function decryptBlobBytes(keyBytes, blob) {
+  if (blob.length < SALT_LEN + TAG_LEN) {
     throw new Error('Invalid encrypted value');
   }
 
   const salt = blob.slice(0, SALT_LEN);
-  const ciphertext = blob.slice(SALT_LEN, blob.length - HMAC_LEN);
-  const storedMac = blob.slice(blob.length - HMAC_LEN);
-  const { encKey, encIv, hmacKey } = deriveKeys(keyBytes, salt);
-  const mac = computeHmac(hmacKey, concat(salt, ciphertext));
+  const ciphertext = blob.slice(SALT_LEN, blob.length - TAG_LEN);
+  const tag = blob.slice(blob.length - TAG_LEN);
 
-  if (!timingSafeEqual(mac, storedMac)) {
-    throw new Error('Invalid encrypted value MAC');
-  }
-
-  return xchacha20(encKey, encIv, ciphertext);
+  const lib = await getLc();
+  const { encKey, encIv } = hkdfSync(lib, keyBytes, salt);
+  return akDecrypt(lib, encKey, encIv, ciphertext, tag);
 }
 
 async function getBrotli() {
@@ -159,18 +236,18 @@ async function getBrotli() {
 }
 
 export function generateEntryDocKey() {
-  return randomBytes(DOC_KEY_LEN);
+  return getRandomBytes(DOC_KEY_LEN);
 }
 
-export function wrapEntryDocKey(userMasterKey, docKeyBytes) {
+export async function wrapEntryDocKey(userMasterKey, docKeyBytes) {
   if (!(docKeyBytes instanceof Uint8Array) || docKeyBytes.length !== DOC_KEY_LEN) {
     throw new Error('docKeyBytes must be 64 bytes');
   }
   return encryptBytesToBlob(userMasterKey, docKeyBytes);
 }
 
-export function unwrapEntryDocKey(userMasterKey, encKeyBlob) {
-  const docKeyBytes = decryptBlobBytes(userMasterKey, toBytes(encKeyBlob, 'enc_key'));
+export async function unwrapEntryDocKey(userMasterKey, encKeyBlob) {
+  const docKeyBytes = await decryptBlobBytes(userMasterKey, toBytes(encKeyBlob, 'enc_key'));
   if (docKeyBytes.length !== DOC_KEY_LEN) {
     throw new Error('Invalid decrypted doc key length');
   }
@@ -186,7 +263,7 @@ export async function encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots) {
 
 export async function decryptEntrySnapshotsWithDocKey(docKeyBytes, encryptedValue) {
   const brotli = await getBrotli();
-  const compressed = decryptBlobBytes(docKeyBytes, toBytes(encryptedValue, 'value'));
+  const compressed = await decryptBlobBytes(docKeyBytes, toBytes(encryptedValue, 'value'));
   const plain = brotli.decompress(compressed);
   const text = decoder.decode(plain);
   const parsed = JSON.parse(text);

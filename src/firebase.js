@@ -182,7 +182,7 @@ async function parseEntrySnapshots(value, encKeyBlob) {
     throw new Error('Entry master key is not initialized');
   }
 
-  const docKeyBytes = unwrapEntryDocKey(userMasterKeyBytes, encKeyBytes);
+  const docKeyBytes = await unwrapEntryDocKey(userMasterKeyBytes, encKeyBytes);
   const decrypted = await decryptEntrySnapshotsWithDocKey(docKeyBytes, valueBytes);
   return decrypted
     .filter((item) => item && typeof item === 'object')
@@ -203,7 +203,7 @@ async function toSnapshotsJson(existingValue, existingEncKey, nextPayload) {
 
   const existingEncKeyBytes = toUint8Array(existingEncKey);
   if (existingEncKeyBytes) {
-    const docKeyBytes = unwrapEntryDocKey(userMasterKeyBytes, existingEncKeyBytes);
+    const docKeyBytes = await unwrapEntryDocKey(userMasterKeyBytes, existingEncKeyBytes);
     return {
       enc_key: toFirestoreBytes(existingEncKeyBytes),
       value: toFirestoreBytes(await encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots)),
@@ -212,7 +212,7 @@ async function toSnapshotsJson(existingValue, existingEncKey, nextPayload) {
 
   const docKeyBytes = generateEntryDocKey();
   return {
-    enc_key: toFirestoreBytes(wrapEntryDocKey(userMasterKeyBytes, docKeyBytes)),
+    enc_key: toFirestoreBytes(await wrapEntryDocKey(userMasterKeyBytes, docKeyBytes)),
     value: toFirestoreBytes(await encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots)),
   };
 }
@@ -224,7 +224,7 @@ export async function createUserEntry(userId, entry) {
     throw new Error('Entry master key is not initialized');
   }
   const docKeyBytes = generateEntryDocKey();
-  const enc_key = toFirestoreBytes(wrapEntryDocKey(userMasterKeyBytes, docKeyBytes));
+  const enc_key = toFirestoreBytes(await wrapEntryDocKey(userMasterKeyBytes, docKeyBytes));
   const encryptedValue = await encryptEntrySnapshotsWithDocKey(docKeyBytes, [payload]);
   const value = toFirestoreBytes(encryptedValue);
   checkValueSize(value);

@@ -39,7 +39,7 @@ function ExportPage({ userId }) {
         const entry = { id: d.id };
         const encKeyBytes = valueToBytes(d.enc_key);
         if (encKeyBytes && userMasterKey) {
-          const docKeyBytes = unwrapEntryDocKey(userMasterKey, encKeyBytes);
+          const docKeyBytes = await unwrapEntryDocKey(userMasterKey, encKeyBytes);
           entry.enc_key = bytesToB64(docKeyBytes);
           if (valueToBytes(d.value)) {
             const snapshots = await decryptEntrySnapshotsWithDocKey(docKeyBytes, d.value);
