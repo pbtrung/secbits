@@ -43,7 +43,6 @@ export default defineConfig(({ mode }) => ({
     globals: true,
     include: [
       'src/**/*.test.{js,ts}',
-      'public/leancrypto/leancrypto.test.js',
     ],
     alias: {
       '/leancrypto/leancrypto.js': path.resolve(__dirname, 'public/leancrypto/leancrypto.js'),

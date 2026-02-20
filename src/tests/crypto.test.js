@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest';
-import { decryptBlobBytes, encryptBytesToBlob } from './crypto.js';
+import { beforeAll, describe, expect, it } from 'vitest';
+import leancrypto from '../../public/leancrypto/leancrypto.js';
+import { decryptBlobBytes, encryptBytesToBlob } from '../crypto.js';
 
 const SALT_LEN = 64;
 const TAG_LEN = 64;
+
+beforeAll(() => {
+  globalThis.leancrypto = leancrypto;
+});
 
 describe('encryptBytesToBlob / decryptBlobBytes', () => {
   it('round-trips 128 random bytes byte-by-byte', async () => {

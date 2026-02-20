@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateTOTPForCounter } from './totp.js';
+import { generateTOTPForCounter } from '../totp.js';
 
 // RFC 6238 test secret for SHA-1: ASCII "12345678901234567890"
 const SECRET_BASE32 = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';

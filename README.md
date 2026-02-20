@@ -340,9 +340,9 @@ npx vitest run
 Run a specific test file:
 
 ```bash
-npx vitest run src/crypto.test.js
-npx vitest run src/totp.test.js
-npx vitest run public/leancrypto/leancrypto.test.js
+npx vitest run src/tests/crypto.test.js
+npx vitest run src/tests/totp.test.js
+npx vitest run src/tests/leancrypto.test.js
 ```
 
 Optional watch mode while developing:
@@ -355,9 +355,9 @@ npx vitest
 
 | Area | File | Tests | What is validated |
 |---|---|---|---|
-| `encryptBytesToBlob` / `decryptBlobBytes` | `src/crypto.test.js` | 3 | Round-trip correctness, AEAD tag structure, tamper rejection |
-| `generateTOTPForCounter` | `src/totp.test.js` | 3 | RFC 6238 SHA-1 known vectors across normal and large counters |
-| leancrypto WASM primitives | `public/leancrypto/leancrypto.test.js` | 1 (suite) | Ascon-Keccak AEAD, HMAC-SHA3-224, SHA3-512, HKDF-SHA256, SPHINCS+ vectors |
+| `encryptBytesToBlob` / `decryptBlobBytes` | `src/tests/crypto.test.js` | 3 | Round-trip correctness, AEAD tag structure, tamper rejection |
+| `generateTOTPForCounter` | `src/tests/totp.test.js` | 3 | RFC 6238 SHA-1 known vectors across normal and large counters |
+| leancrypto WASM primitives | `src/tests/leancrypto.test.js` | 1 (suite) | Ascon-Keccak AEAD, HMAC-SHA3-224, SHA3-512, HKDF-SHA256, SPHINCS+ vectors |
 
 ### Why these tests matter
 
@@ -384,7 +384,7 @@ npx vitest
 
 ### How the leancrypto WASM tests work
 
-The test file runs standalone (`node public/leancrypto/leancrypto.test.js`) or inside Vitest (via a dual-mode runner that wraps `main()` in a `test()` call when `globalThis.test` is defined). It exercises the WASM library directly through its C API:
+The test file runs standalone (`node src/tests/leancrypto.test.js`) or inside Vitest (via a dual-mode runner that wraps `main()` in a `test()` call when `globalThis.test` is defined). It exercises the WASM library directly through its C API:
 
 - **Ascon-Keccak AEAD**: encrypt/decrypt with known vectors; verifies out-of-place and in-place modes, and that tampered ciphertext is rejected with the correct error code.
 - **HMAC-SHA3-224**: one-shot MAC against a known vector.
@@ -403,7 +403,6 @@ secbits/
 │   └── leancrypto/
 │       ├── leancrypto.js        # Emscripten UMD bundle (browser + Node)
 │       ├── leancrypto.wasm      # Compiled leancrypto WASM binary
-│       └── leancrypto.test.js   # WASM vector tests (Vitest + standalone Node)
 └── src/
     ├── main.jsx                 # Entry point, mounts React root
     ├── App.jsx                  # Root component, state management
@@ -411,6 +410,10 @@ secbits/
     ├── totp.js                  # TOTP generation (RFC 6238, HMAC-SHA1)
     ├── firebase.js              # Firestore read/write operations
     ├── index.css                # Global styles
+    ├── tests/
+    │   ├── crypto.test.js       # Encryption/decryption tests
+    │   ├── totp.test.js         # RFC 6238 TOTP tests
+    │   └── leancrypto.test.js   # WASM vector tests (Vitest + standalone Node)
     └── components/
         ├── FirebaseSetup.jsx    # Config upload, auth, key verification
         ├── EntryDetail.jsx      # View and edit a single entry

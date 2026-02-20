@@ -48,6 +48,10 @@ let lcPromise = null;
 
 let lcScriptPromise = null;
 async function ensureLeancryptoScript() {
+  if (typeof document === 'undefined') {
+    if (typeof globalThis.leancrypto === 'function') return;
+    throw new Error('leancrypto global loader not available');
+  }
   if (typeof globalThis.leancrypto === 'function') return;
   if (!lcScriptPromise) {
     lcScriptPromise = new Promise((resolve, reject) => {
