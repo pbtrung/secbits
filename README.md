@@ -21,10 +21,10 @@ A self-hosted, end-to-end encrypted password manager. All data is encrypted on t
 |---|---|
 | End-to-end encryption | Ascon-Keccak-512 AEAD; Firebase stores only ciphertext |
 | Per-entry document keys | Each entry uses its own randomly generated key |
-| Version history | Git-like commit chain per entry: content-addressed commits, changed-field annotations, one-click restore |
+| Version history | Git-like commit chain per entry: content-addressed commits, changed-field annotations, modal diff viewer, one-click restore |
 | TOTP generation | Live 6-digit codes with countdown timer |
 | Password generator | Configurable charset, length 8 to 128, entropy display |
-| Custom fields | Arbitrary hidden key/value pairs per entry |
+| Custom fields | Arbitrary key/value pairs per entry |
 | Tags | Organize entries with comma-separated tags; sidebar filter with counts |
 | Full-text search | Searches title, username, and URLs in real time |
 | Export | Download a decrypted JSON backup at any time |
@@ -315,18 +315,23 @@ If a TOTP secret is valid base32, a live 6-digit code with a countdown circle is
 
 ### Version history
 
-Each save appends a new commit to the entry's history (up to 10). Saving without any content change is a no-op — no duplicate commit is created.
+Each save appends a new commit to the entry's history (up to 10). Saving without any content change is a no-op, so duplicate commits are not created.
 
-The **History** panel in the detail view shows a git-log style list. Each row displays:
+Use the **N commits** button in the detail action bar to open the history modal.
+
+- Desktop: two-pane diff modal (commit list on the left, field-level diff on the right)
+- Mobile: progressive flow (commit list first, then selected commit diff)
+
+Each commit row shows:
 
 - A 12-character content hash (e.g. `a1b2c3d4e5f6`)
 - A **HEAD** badge on the latest commit
-- The fields that changed in that commit (`password`, `notes`, etc.)
-- The save timestamp
+- Changed-field badges (`password`, `notes`, `customFields`, etc.)
+- Save timestamp
 
-Click any row to view the entry as it looked at that point in time. While editing, clicking an older row loads it into the editor (with a confirmation prompt if there are unsaved changes).
+Selecting any commit opens a diff against its parent commit. Notes use line-based diffing with context, scalar fields show remove/add pairs, and array fields show added/removed items.
 
-To non-destructively roll back, select an old commit in view mode and click **Restore this version**. This creates a new HEAD commit with the old content; the full history is preserved.
+To non-destructively roll back, select an older commit and click **Restore this version**. This writes a new HEAD commit with the restored snapshot; prior history remains intact.
 
 ### Password generator
 

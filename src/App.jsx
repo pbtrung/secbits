@@ -33,7 +33,7 @@ function App() {
           ...e,
           urls: Array.isArray(e.urls) ? e.urls : [],
           totpSecrets: Array.isArray(e.totpSecrets) ? e.totpSecrets : [],
-          hiddenFields: Array.isArray(e.hiddenFields) ? e.hiddenFields : [],
+          customFields: Array.isArray(e.customFields) ? e.customFields : (Array.isArray(e.hiddenFields) ? e.hiddenFields : []),
           tags: Array.isArray(e.tags) ? e.tags : [],
         }));
       const initialSyncError = failedCount > 0
@@ -187,7 +187,7 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
       password: '',
       urls: [''],
       totpSecrets: [],
-      hiddenFields: [],
+      customFields: [],
       notes: '',
       tags: selectedTag ? [selectedTag] : [],
     };
@@ -232,7 +232,7 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
         ...restored,
         urls: Array.isArray(restored.urls) ? restored.urls : [],
         totpSecrets: Array.isArray(restored.totpSecrets) ? restored.totpSecrets : [],
-        hiddenFields: Array.isArray(restored.hiddenFields) ? restored.hiddenFields : [],
+        customFields: Array.isArray(restored.customFields) ? restored.customFields : (Array.isArray(restored.hiddenFields) ? restored.hiddenFields : []),
         tags: Array.isArray(restored.tags) ? restored.tags : [],
       } : e)));
     } catch (err) {
@@ -326,6 +326,7 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
       allTags={allTags}
       onDirtyChange={handleDirtyChange}
       onRestore={handleRestore}
+      isMobile={isMobile}
     />
   ) : (
     <div className="d-flex align-items-center justify-content-center h-100 text-muted">

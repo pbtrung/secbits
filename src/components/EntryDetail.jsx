@@ -5,8 +5,8 @@ import { isHttpUrl } from '../validation.js';
 import {
   TITLE_MAX, USERNAME_MAX, PASSWORD_MAX, NOTES_MAX,
   URL_MAX, TOTP_SECRET_MAX,
-  HIDDEN_FIELD_LABEL_MAX, HIDDEN_FIELD_VALUE_MAX,
-  TAG_MAX, MAX_URLS, MAX_TOTP_SECRETS, MAX_HIDDEN_FIELDS, MAX_TAGS,
+  CUSTOM_FIELD_LABEL_MAX, CUSTOM_FIELD_VALUE_MAX,
+  TAG_MAX, MAX_URLS, MAX_TOTP_SECRETS, MAX_CUSTOM_FIELDS, MAX_TAGS,
 } from '../limits.js';
 
 function TotpCode({ secret, onCopy, copiedLabel }) {
@@ -79,9 +79,20 @@ function hasDraftChanges(draft, entry, tagCurrentInput) {
     normalizeText(draft?.notes) !== normalizeText(entry?.notes) ||
     JSON.stringify(normalizeArray(draft?.urls)) !== JSON.stringify(normalizeArray(entry?.urls)) ||
     JSON.stringify(normalizeArray(draft?.totpSecrets)) !== JSON.stringify(normalizeArray(entry?.totpSecrets)) ||
-    JSON.stringify(normalizeArray(draft?.hiddenFields)) !== JSON.stringify(normalizeArray(entry?.hiddenFields)) ||
+    JSON.stringify(normalizeArray(draft?.customFields)) !== JSON.stringify(normalizeArray(entry?.customFields)) ||
     tagsNow.join(',') !== tagsOrig.join(',')
   );
+}
+
+function normalizeEntryForDraft(entry) {
+  const safe = entry && typeof entry === 'object' ? entry : {};
+  return {
+    ...safe,
+    urls: Array.isArray(safe.urls) ? safe.urls : [],
+    totpSecrets: Array.isArray(safe.totpSecrets) ? safe.totpSecrets : [],
+    customFields: Array.isArray(safe.customFields) ? safe.customFields : (Array.isArray(safe.hiddenFields) ? safe.hiddenFields : []),
+    tags: Array.isArray(safe.tags) ? safe.tags : [],
+  };
 }
 
 // ─── Diff helpers ─────────────────────────────────────────────────────────────
@@ -134,7 +145,7 @@ function withContext(lines) {
   return out;
 }
 
-const DIFF_FIELD_ORDER = ['title', 'username', 'password', 'notes', 'urls', 'totpSecrets', 'tags', 'hiddenFields'];
+const DIFF_FIELD_ORDER = ['title', 'username', 'password', 'notes', 'urls', 'totpSecrets', 'tags', 'customFields'];
 const SCALAR_FIELDS = new Set(['title', 'username', 'password']);
 const ARRAY_STR_FIELDS = new Set(['urls', 'totpSecrets', 'tags']);
 
@@ -175,7 +186,7 @@ function buildDiffSections(fromSnap, toSnap, changedFields) {
       return lines.length ? [{ field, lines }] : [];
     }
 
-    if (field === 'hiddenFields') {
+    if (field === 'customFields' || field === 'hiddenFields') {
       const a = Array.isArray(oldVal) ? oldVal : [];
       const b = Array.isArray(newVal) ? newVal : [];
       const lines = [];
@@ -259,22 +270,30 @@ function CommitDiff({ commits, idx }) {
 
 // ─── HistoryModal ─────────────────────────────────────────────────────────────
 
-function HistoryModal({ commits, idx, onIdxChange, onRestore, onClose, saving }) {
+function HistoryModal({ commits, idx, onIdxChange, onRestore, onClose, saving, isMobile }) {
   const selectedCommit = commits[idx];
+  const [mobileStep, setMobileStep] = useState(isMobile ? 'list' : 'diff');
+
+  useEffect(() => {
+    setMobileStep(isMobile ? 'list' : 'diff');
+  }, [isMobile, commits.length]);
+
+  const showList = !isMobile || mobileStep === 'list';
+  const showDiff = !isMobile || mobileStep === 'diff';
 
   return (
     <div
-      className="modal d-block"
+      className="modal d-block history-modal"
       tabIndex="-1"
       style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1055 }}
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
-        className="modal-dialog modal-xl modal-dialog-scrollable"
+        className={`modal-dialog modal-dialog-scrollable ${isMobile ? 'modal-fullscreen-sm-down' : 'modal-xl'}`}
         style={{ maxHeight: '90vh' }}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="modal-content" style={{ height: '85vh' }}>
+        <div className="modal-content" style={{ height: isMobile ? '100vh' : '85vh' }}>
 
           {/* Header */}
           <div className="modal-header py-2">
@@ -282,22 +301,35 @@ function HistoryModal({ commits, idx, onIdxChange, onRestore, onClose, saving })
               <i className="bi bi-git me-2"></i>
               History — {commits.length} commit{commits.length !== 1 ? 's' : ''}
             </h6>
+            {isMobile && mobileStep === 'diff' && (
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-secondary me-2"
+                onClick={() => setMobileStep('list')}
+              >
+                <i className="bi bi-chevron-left me-1"></i>Commits
+              </button>
+            )}
             <button type="button" className="btn-close" onClick={onClose} />
           </div>
 
           {/* Body: two-panel */}
-          <div className="modal-body p-0 d-flex overflow-hidden" style={{ flex: 1, minHeight: 0 }}>
+          <div className={`modal-body p-0 overflow-hidden ${isMobile ? '' : 'd-flex'}`} style={{ flex: 1, minHeight: 0 }}>
 
             {/* Left: commit list */}
-            <div
-              className="border-end bg-light"
-              style={{ width: 260, flexShrink: 0, overflowY: 'auto' }}
-            >
+            {showList && (
+              <div
+                className={`bg-light ${isMobile ? '' : 'border-end'}`}
+                style={{ width: isMobile ? '100%' : 260, flexShrink: 0, overflowY: 'auto', height: '100%' }}
+              >
               {commits.map((c, i) => (
                 <button
                   key={c.hash}
                   type="button"
-                  onClick={() => onIdxChange(i)}
+                  onClick={() => {
+                    onIdxChange(i);
+                    if (isMobile) setMobileStep('diff');
+                  }}
                   className={`w-100 text-start border-0 border-bottom px-3 py-2${i === idx ? ' bg-primary-subtle' : ' bg-transparent'}`}
                   style={{ cursor: 'pointer' }}
                 >
@@ -321,10 +353,12 @@ function HistoryModal({ commits, idx, onIdxChange, onRestore, onClose, saving })
                   </div>
                 </button>
               ))}
-            </div>
+              </div>
+            )}
 
             {/* Right: diff view */}
-            <div className="flex-grow-1 overflow-auto p-3">
+            {showDiff && (
+              <div className="flex-grow-1 overflow-auto p-3" style={{ height: '100%' }}>
               {selectedCommit && (
                 <>
                   <div className="d-flex align-items-center gap-2 mb-3 pb-2 border-bottom">
@@ -337,12 +371,13 @@ function HistoryModal({ commits, idx, onIdxChange, onRestore, onClose, saving })
                   <CommitDiff commits={commits} idx={idx} />
                 </>
               )}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* Footer */}
           <div className="modal-footer py-2">
-            {idx > 0 && (
+            {idx > 0 && showDiff && (
               <button
                 type="button"
                 className="btn btn-sm btn-outline-warning me-auto"
@@ -368,8 +403,8 @@ function HistoryModal({ commits, idx, onIdxChange, onRestore, onClose, saving })
 
 // ─── EntryDetail ──────────────────────────────────────────────────────────────
 
-function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onRestore, saving, deleting, allTags = [], onDirtyChange }) {
-  const [draft, setDraft] = useState(entry);
+function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onRestore, saving, deleting, allTags = [], onDirtyChange, isMobile = false }) {
+  const [draft, setDraft] = useState(() => normalizeEntryForDraft(entry));
   const [visiblePasswords, setVisiblePasswords] = useState({});
   const [copied, setCopied] = useState(null);
   const [tagCurrentInput, setTagCurrentInput] = useState('');
@@ -387,7 +422,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
   const commits = entry._commits || [];
 
   useEffect(() => {
-    setDraft(entry);
+    setDraft(normalizeEntryForDraft(entry));
     setVisiblePasswords({});
     setTagCurrentInput('');
     setNotesVisible(false);
@@ -399,7 +434,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
 
   useEffect(() => {
     if (isEditing) {
-      setDraft(entry);
+      setDraft(normalizeEntryForDraft(entry));
       setTagCurrentInput('');
     }
   }, [isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -520,17 +555,17 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
   };
 
   const addHiddenField = () => {
-    const maxId = draft.hiddenFields.reduce((max, f) => Math.max(max, f.id), 0);
+    const maxId = draft.customFields.reduce((max, f) => Math.max(max, f.id), 0);
     setDraft({
       ...draft,
-      hiddenFields: [...draft.hiddenFields, { id: maxId + 1, label: '', value: '' }],
+      customFields: [...draft.customFields, { id: maxId + 1, label: '', value: '' }],
     });
   };
 
   const updateHiddenField = (id, key, value) => {
     setDraft({
       ...draft,
-      hiddenFields: draft.hiddenFields.map((f) =>
+      customFields: draft.customFields.map((f) =>
         f.id === id ? { ...f, [key]: value } : f
       ),
     });
@@ -539,7 +574,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
   const removeHiddenField = (id) => {
     setDraft({
       ...draft,
-      hiddenFields: draft.hiddenFields.filter((f) => f.id !== id),
+      customFields: draft.customFields.filter((f) => f.id !== id),
     });
   };
 
@@ -674,7 +709,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
     draft.notes.length > NOTES_MAX ||
     draft.urls.some((u) => u.length > URL_MAX) ||
     draft.totpSecrets.some((s) => s.length > TOTP_SECRET_MAX) ||
-    draft.hiddenFields.some((f) => f.label.length > HIDDEN_FIELD_LABEL_MAX || f.value.length > HIDDEN_FIELD_VALUE_MAX) ||
+    draft.customFields.some((f) => f.label.length > CUSTOM_FIELD_LABEL_MAX || f.value.length > CUSTOM_FIELD_VALUE_MAX) ||
     draft.tags.some((t) => t.length > TAG_MAX);
 
   const allFieldsEmpty =
@@ -684,7 +719,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
     !draft.notes.trim() &&
     !draft.urls.some((u) => u.trim()) &&
     draft.totpSecrets.length === 0 &&
-    draft.hiddenFields.length === 0 &&
+    draft.customFields.length === 0 &&
     draft.tags.length === 0 &&
     !tagCurrentInput.trim();
 
@@ -937,7 +972,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
         <label className="form-label text-muted small fw-semibold">
           <i className="bi bi-incognito me-1"></i> Custom Fields
         </label>
-        {(isEditing ? draft.hiddenFields : data.hiddenFields).map((field) => (
+        {(isEditing ? draft.customFields : data.customFields).map((field) => (
           <div key={field.id} className="card card-body p-2 mb-2 bg-white">
             {isEditing ? (
               <div className="d-flex gap-2 align-items-center">
@@ -946,7 +981,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
                   value={field.label}
                   onChange={(e) => updateHiddenField(field.id, 'label', e.target.value)}
                   placeholder="Label"
-                  maxLength={HIDDEN_FIELD_LABEL_MAX}
+                  maxLength={CUSTOM_FIELD_LABEL_MAX}
                   style={{ maxWidth: 180 }}
                 />
                 <div className="input-group input-group-sm flex-grow-1">
@@ -955,7 +990,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
                     className="form-control"
                     value={field.value}
                     onChange={(e) => updateHiddenField(field.id, 'value', e.target.value)}
-                    maxLength={HIDDEN_FIELD_VALUE_MAX}
+                    maxLength={CUSTOM_FIELD_VALUE_MAX}
                   />
                   <button
                     className="btn btn-outline-secondary"
@@ -1000,14 +1035,14 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
             <button
               className="btn btn-sm btn-outline-secondary"
               onClick={addHiddenField}
-              disabled={draft.hiddenFields.length >= MAX_HIDDEN_FIELDS}
-              title={draft.hiddenFields.length >= MAX_HIDDEN_FIELDS ? `Maximum ${MAX_HIDDEN_FIELDS} custom fields allowed` : undefined}
+              disabled={draft.customFields.length >= MAX_CUSTOM_FIELDS}
+              title={draft.customFields.length >= MAX_CUSTOM_FIELDS ? `Maximum ${MAX_CUSTOM_FIELDS} custom fields allowed` : undefined}
             >
               <i className="bi bi-plus me-1"></i>Add Custom Field
             </button>
-            {draft.hiddenFields.length > 0 && (
-              <span className={`small ${draft.hiddenFields.length >= MAX_HIDDEN_FIELDS ? 'text-danger' : 'text-muted'}`}>
-                {draft.hiddenFields.length} / {MAX_HIDDEN_FIELDS}
+            {draft.customFields.length > 0 && (
+              <span className={`small ${draft.customFields.length >= MAX_CUSTOM_FIELDS ? 'text-danger' : 'text-muted'}`}>
+                {draft.customFields.length} / {MAX_CUSTOM_FIELDS}
               </span>
             )}
           </div>
@@ -1193,6 +1228,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
         onRestore={handleRestoreFromModal}
         onClose={() => setShowHistory(false)}
         saving={saving}
+        isMobile={isMobile}
       />
     )}
     </>

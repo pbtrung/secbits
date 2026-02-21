@@ -147,9 +147,9 @@ function normalizeTags(tags) {
   return [];
 }
 
-function normalizeHiddenFields(hiddenFields) {
-  if (!Array.isArray(hiddenFields)) return [];
-  return hiddenFields.map((field, index) => ({
+function normalizeCustomFields(customFields) {
+  if (!Array.isArray(customFields)) return [];
+  return customFields.map((field, index) => ({
     id: typeof field?.id === 'number' ? field.id : index + 1,
     label: typeof field?.label === 'string' ? field.label : '',
     value: typeof field?.value === 'string' ? field.value : '',
@@ -163,12 +163,16 @@ function normalizeTotpSecrets(totpSecrets) {
 
 function normalizeEntryShape(entry) {
   const safe = entry && typeof entry === 'object' ? entry : {};
+  const customFields = normalizeCustomFields(
+    Array.isArray(safe.customFields) ? safe.customFields : safe.hiddenFields
+  );
+  const { hiddenFields, ...rest } = safe;
   return {
-    ...safe,
+    ...rest,
     timestamp: normalizeTimestamp(safe.timestamp),
     tags: normalizeTags(safe.tags),
     totpSecrets: normalizeTotpSecrets(safe.totpSecrets),
-    hiddenFields: normalizeHiddenFields(safe.hiddenFields),
+    customFields,
   };
 }
 
@@ -204,7 +208,7 @@ async function contentHash(obj) {
     .slice(0, 12);
 }
 
-const TRACKED_FIELDS = ['title', 'username', 'password', 'notes', 'urls', 'totpSecrets', 'hiddenFields', 'tags'];
+const TRACKED_FIELDS = ['title', 'username', 'password', 'notes', 'urls', 'totpSecrets', 'customFields', 'tags'];
 
 function diffFields(prevSnapshot, nextSnapshot) {
   return TRACKED_FIELDS.filter(
@@ -217,7 +221,13 @@ function parseHistoryJson(parsed) {
   if (parsed && typeof parsed === 'object' && Array.isArray(parsed.commits)) {
     const commits = parsed.commits
       .filter((c) => c && typeof c === 'object')
-      .map((c) => ({ ...c, snapshot: normalizeEntryShape(c.snapshot) }))
+      .map((c) => ({
+        ...c,
+        changed: Array.isArray(c.changed)
+          ? c.changed.map((f) => (f === 'hiddenFields' ? 'customFields' : f))
+          : [],
+        snapshot: normalizeEntryShape(c.snapshot),
+      }))
       .slice(0, MAX_COMMITS);
     return { head: parsed.head, commits };
   }
