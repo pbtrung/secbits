@@ -94,7 +94,7 @@ Total overhead per blob: 128 bytes. The master key blob is always 192 bytes (`sa
 Each entry stores a commit chain (up to 10 commits). On every save the history object is serialised, compressed, and encrypted:
 
 ```
-{ head, commits[] }  ->  JSON.stringify  ->  Brotli compress
+{ head, head_snapshot, commits[] }  ->  JSON.stringify  ->  Brotli compress
     ->  Ascon-Keccak-512 AEAD encrypt (with entry's doc key)
     ->  AEAD tag appended
     ->  stored as Firestore Bytes in value field
@@ -111,8 +111,7 @@ Each commit object inside the history has the following shape:
   "hash":      "a1b2c3d4e5f6",
   "parent":    "f7e8d9c0b1a2",
   "timestamp": "2025-06-01T14:32:00Z",
-  "changed":   ["password"],
-  "snapshot":  { "title": "…", "username": "…", "password": "…", … }
+  "changed":   ["password"]
 }
 ```
 
@@ -122,9 +121,29 @@ Each commit object inside the history has the following shape:
 | `parent` | Hash of the preceding commit; `null` for the initial commit |
 | `timestamp` | ISO-8601 wall-clock time of the save |
 | `changed` | Fields that differ from the previous commit (`title`, `password`, `notes`, etc.) |
-| `snapshot` | Full plaintext entry at the time of the save |
 
 The `head` field at the top of the history object always points to the most recent commit hash.
+
+### Compact history storage format
+
+To reduce Firestore payload size, only the latest snapshot is stored in full:
+
+```json
+{
+  "head": "a1b2c3d4e5f6",
+  "head_snapshot": { "title": "…", "username": "…", "password": "…", "notes": "…", "...": "..." },
+  "commits": [
+    { "hash": "a1b2c3d4e5f6", "parent": "f7e8d9c0b1a2", "timestamp": "2025-06-01T14:32:00Z", "changed": ["password"] },
+    { "hash": "f7e8d9c0b1a2", "parent": null, "timestamp": "2025-05-31T10:00:00Z", "changed": [], "delta": { "set": { "password": "old" }, "unset": [] } }
+  ]
+}
+```
+
+- `head_snapshot` stores the full plaintext snapshot for HEAD.
+- `commits[0]` stores HEAD commit metadata.
+- Older commits store `delta` (`set`/`unset`) relative to the newer snapshot above them.
+- Snapshots are reconstructed in memory at read time for diff and restore.
+- Only this compact format is supported.
 
 **Deduplication.** Before appending a new commit, the hash of the incoming content (fields only, no timestamp) is compared to the current `head` hash. If they match the save is a no-op and no commit is written.
 
@@ -343,7 +362,12 @@ Select a tag in the left sidebar to filter entries. Use the search bar to search
 
 ### Export
 
-Go to **Settings > Export**. A JSON file containing all your decrypted entry data is downloaded. Keep this file secure. It contains your plaintext secrets along with the master key.
+Go to **Settings > Export**. A JSON file containing all your decrypted entry data is downloaded. Keep this file secure. It contains your plaintext secrets along with `user_master_key_b64`.
+
+Export JSON includes `user_id`, `username`, `user_master_key_b64`, and decrypted `data`.
+Each exported entry in `data` includes `entry_key_b64` (decrypted per-entry doc key) and `value`.
+
+Export JSON does **not** include `stored_user_master_key_blob_b64`.
 
 ### Logging out
 
@@ -477,6 +501,7 @@ secbits/
     │   ├── leancrypto.test.js        # WASM primitive tests (Vitest + standalone Node)
     │   ├── leancrypto.sphincs-vectors.js # SPHINCS+ fixture vectors
     │   ├── export-data.test.js       # buildExportData shape and field tests
+    │   ├── firebase-history-format.test.js # Compact history format tests
     │   ├── firebase-key-lifecycle.test.js # User master key store/clear/replace tests
     │   └── validation.test.js        # URL validation tests
     └── components/

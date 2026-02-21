@@ -49,14 +49,14 @@ function ExportPage({ userId }) {
         const entryKeyBytes = valueToBytes(d.entry_key);
         if (entryKeyBytes && userMasterKey) {
           const docKeyBytes = await unwrapEntryKey(userMasterKey, entryKeyBytes);
-          entry.entry_key = bytesToB64(docKeyBytes);
+          entry.entry_key_b64 = bytesToB64(docKeyBytes);
           if (valueToBytes(d.value)) {
             entry.value = await decryptEntryHistoryWithDocKey(docKeyBytes, d.value);
           } else {
             entry.value = d.value;
           }
         } else {
-          entry.entry_key = entryKeyBytes ? bytesToB64(entryKeyBytes) : d.entry_key;
+          entry.entry_key_b64 = entryKeyBytes ? bytesToB64(entryKeyBytes) : d.entry_key;
           entry.value = d.value;
         }
         decryptedDocs.push(entry);
