@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /users/{userId} {
+      function isOwner() {
+        return request.auth != null
+            && request.auth.uid == userId;
+      }
+
+      allow read, update, delete: if isOwner();
+
+      // Only allow creating the profile with the expected fields
+      allow create: if isOwner()
+                    && request.resource.data.keys().hasOnly(['username', 'user_master_key']);
+
+      // ─── Password entries subcollection ──────────────────────────────
+      match /data/{docId} {
+        allow read, delete: if isOwner();
+
+        // Normal entry: must have exactly entry_key + value and stay under 1 MB.
+        // Init placeholder: only the _placeholder sentinel field is allowed.
+        allow create: if isOwner()
+                      && (
+                        (request.resource.data.keys().hasOnly(['entry_key', 'value'])
+                          && request.resource.data.value.size() < 1000000)
+                        || request.resource.data.keys().hasOnly(['_placeholder'])
+                      );
+
+        allow update: if isOwner()
+                      && request.resource.data.keys().hasOnly(['entry_key', 'value'])
+                      && request.resource.data.value.size() < 1000000;
+      }
+    }
+
+    // ─── Admin collection (optional, for future use) ──────────────────
+    match /admin/{docId} {
+      allow read, write: if request.auth != null
+                         && request.auth.token.admin == true;
+    }
+
+    // ─── Deny everything else ─────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

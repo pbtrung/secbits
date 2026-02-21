@@ -116,23 +116,9 @@ In Project Settings > General > Your apps > Add app (Web). Copy the `firebaseCon
 
 ### 3. Set Firestore security rules
 
-Go to Firestore > Rules and replace the default rules with:
+The repository includes `firestore.rules` with the production-ready rules for this app. Copy its contents into **Firestore > Rules** in the Firebase Console and publish.
 
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /users/{userId} {
-      allow read, write: if request.auth.uid == userId;
-      match /data/{docId} {
-        allow read, write, delete: if request.auth.uid == userId;
-      }
-    }
-  }
-}
-```
-
-This ensures each user can only read and write their own data.
+The rules restrict every path to the authenticated owner (matched by Firebase Auth UID). For the user profile document they enforce that only the expected fields (`username`, `user_master_key`) can be written on create. For password entry documents they require exactly the two encrypted fields (`entry_key`, `value`) plus a 1 MB size cap, with a narrow exception for the internal init placeholder document.
 
 ### 4. Create a Firebase Auth user and Firestore document
 
