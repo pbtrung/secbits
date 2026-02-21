@@ -2,6 +2,12 @@ import { useState, useEffect, useRef } from 'react';
 import { PasswordGenerator, PasswordStrengthBar } from './PasswordGenerator';
 import { generateTOTP } from '../totp.js';
 import { isHttpUrl } from '../validation.js';
+import {
+  TITLE_MAX, USERNAME_MAX, PASSWORD_MAX, NOTES_MAX,
+  URL_MAX, TOTP_SECRET_MAX,
+  HIDDEN_FIELD_LABEL_MAX, HIDDEN_FIELD_VALUE_MAX,
+  TAG_MAX, MAX_URLS, MAX_TOTP_SECRETS, MAX_HIDDEN_FIELDS, MAX_TAGS,
+} from '../limits.js';
 
 function TotpCode({ secret, onCopy, copiedLabel }) {
   const [code, setCode] = useState(null);
@@ -87,6 +93,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
   const [showTagSuggestions, setShowTagSuggestions] = useState(false);
   const [totpErrors, setTotpErrors] = useState({});
   const [urlErrors, setUrlErrors] = useState({});
+  const [tagError, setTagError] = useState('');
   const [selectedVersion, setSelectedVersion] = useState(0);
   const [notesVisible, setNotesVisible] = useState(false);
   const notesHideTimerRef = useRef(null);
@@ -215,6 +222,10 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
   };
 
   const validateTotpSecret = (index, value) => {
+    if (value.length > TOTP_SECRET_MAX) {
+      setTotpErrors((prev) => ({ ...prev, [index]: `TOTP secret must be ${TOTP_SECRET_MAX} characters or fewer` }));
+      return;
+    }
     const cleaned = value.replace(/[\s=_-]+/g, '').toUpperCase();
     const valid = cleaned.length === 0 || /^[A-Z2-7]+$/.test(cleaned);
     setTotpErrors((prev) => ({ ...prev, [index]: valid ? null : 'Invalid base32 — only A–Z and 2–7' }));
@@ -250,6 +261,10 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
       setUrlErrors((prev) => { const next = { ...prev }; delete next[index]; return next; });
       return;
     }
+    if (value.length > URL_MAX) {
+      setUrlErrors((prev) => ({ ...prev, [index]: `URL must be ${URL_MAX} characters or fewer` }));
+      return;
+    }
     if (isHttpUrl(value)) {
       setUrlErrors((prev) => { const next = { ...prev }; delete next[index]; return next; });
     } else {
@@ -265,7 +280,11 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
       if (toCommit.length > 0) {
         setDraft((prev) => {
           const existing = prev.tags || [];
-          const unique = toCommit.filter((t) => !existing.includes(t));
+          const slots = MAX_TAGS - existing.length;
+          if (slots <= 0) { setTagError(`Maximum ${MAX_TAGS} tags allowed`); return prev; }
+          const unique = toCommit.filter((t) => !existing.includes(t)).slice(0, slots);
+          if (existing.length + unique.length >= MAX_TAGS) setTagError(`Maximum ${MAX_TAGS} tags allowed`);
+          else setTagError('');
           return { ...prev, tags: [...existing, ...unique] };
         });
       }
@@ -300,7 +319,12 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
       e.preventDefault();
       const trimmed = tagCurrentInput.trim().toLowerCase();
       if (trimmed && !(draft.tags || []).includes(trimmed)) {
-        setDraft((prev) => ({ ...prev, tags: [...(prev.tags || []), trimmed] }));
+        if ((draft.tags || []).length >= MAX_TAGS) {
+          setTagError(`Maximum ${MAX_TAGS} tags allowed`);
+        } else {
+          setDraft((prev) => ({ ...prev, tags: [...(prev.tags || []), trimmed] }));
+          setTagError('');
+        }
       }
       setTagCurrentInput('');
       setTagSuggestions([]);
@@ -315,11 +339,17 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
 
   const removeTag = (tag) => {
     setDraft((prev) => ({ ...prev, tags: (prev.tags || []).filter((t) => t !== tag) }));
+    setTagError('');
   };
 
   const selectTagSuggestion = (tag) => {
     if (!(draft.tags || []).includes(tag)) {
+      if ((draft.tags || []).length >= MAX_TAGS) {
+        setTagError(`Maximum ${MAX_TAGS} tags allowed`);
+        return;
+      }
       setDraft((prev) => ({ ...prev, tags: [...(prev.tags || []), tag] }));
+      setTagError('');
     }
     setTagCurrentInput('');
     setTagSuggestions([]);
@@ -357,7 +387,16 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
 
   const hasInvalidFields =
     Object.values(totpErrors).some(Boolean) ||
-    Object.values(urlErrors).some(Boolean);
+    Object.values(urlErrors).some(Boolean) ||
+    !!tagError ||
+    draft.title.length > TITLE_MAX ||
+    draft.username.length > USERNAME_MAX ||
+    draft.password.length > PASSWORD_MAX ||
+    draft.notes.length > NOTES_MAX ||
+    draft.urls.some((u) => u.length > URL_MAX) ||
+    draft.totpSecrets.some((s) => s.length > TOTP_SECRET_MAX) ||
+    draft.hiddenFields.some((f) => f.label.length > HIDDEN_FIELD_LABEL_MAX || f.value.length > HIDDEN_FIELD_VALUE_MAX) ||
+    draft.tags.some((t) => t.length > TAG_MAX);
 
   const allFieldsEmpty =
     !draft.title.trim() &&
@@ -394,6 +433,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
             value={draft.title}
             onChange={(e) => updateDraft('title', e.target.value)}
             placeholder="Entry Title"
+            maxLength={TITLE_MAX}
             autoFocus
           />
         ) : (
@@ -411,6 +451,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
             className="form-control"
             value={draft.username}
             onChange={(e) => updateDraft('username', e.target.value)}
+            maxLength={USERNAME_MAX}
           />
         ) : (
           <div className="input-group">
@@ -433,6 +474,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
                 className="form-control"
                 value={draft.password}
                 onChange={(e) => updateDraft('password', e.target.value)}
+                maxLength={PASSWORD_MAX}
               />
               <button
                 className="btn btn-outline-secondary"
@@ -483,6 +525,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
                     onChange={(e) => updateTotpSecret(i, e.target.value)}
                     onBlur={(e) => validateTotpSecret(i, e.target.value)}
                     placeholder="TOTP secret"
+                    maxLength={TOTP_SECRET_MAX}
                   />
                   <button
                     className="btn btn-outline-secondary"
@@ -501,10 +544,20 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
                 {totpErrors[i] && <div className="text-danger small mt-1">{totpErrors[i]}</div>}
               </div>
             ))}
-            <div>
-              <button className="btn btn-sm btn-outline-secondary" onClick={addTotpSecret}>
+            <div className="d-flex align-items-center gap-3">
+              <button
+                className="btn btn-sm btn-outline-secondary"
+                onClick={addTotpSecret}
+                disabled={draft.totpSecrets.length >= MAX_TOTP_SECRETS}
+                title={draft.totpSecrets.length >= MAX_TOTP_SECRETS ? `Maximum ${MAX_TOTP_SECRETS} TOTP secrets allowed` : undefined}
+              >
                 <i className="bi bi-plus me-1"></i>Add TOTP Secret
               </button>
+              {draft.totpSecrets.length > 0 && (
+                <span className={`small ${draft.totpSecrets.length >= MAX_TOTP_SECRETS ? 'text-danger' : 'text-muted'}`}>
+                  {draft.totpSecrets.length} / {MAX_TOTP_SECRETS}
+                </span>
+              )}
             </div>
           </>
         ) : (
@@ -553,6 +606,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
                     onChange={(e) => updateUrl(i, e.target.value)}
                     onBlur={(e) => validateUrl(i, e.target.value)}
                     placeholder="https://..."
+                    maxLength={URL_MAX}
                   />
                   <button
                     className="btn btn-outline-danger"
@@ -565,10 +619,20 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
                 {urlErrors[i] && <div className="text-danger small mt-1">{urlErrors[i]}</div>}
               </div>
             ))}
-            <div>
-              <button className="btn btn-sm btn-outline-secondary" onClick={addUrl}>
+            <div className="d-flex align-items-center gap-3">
+              <button
+                className="btn btn-sm btn-outline-secondary"
+                onClick={addUrl}
+                disabled={draft.urls.length >= MAX_URLS}
+                title={draft.urls.length >= MAX_URLS ? `Maximum ${MAX_URLS} URLs allowed` : undefined}
+              >
                 <i className="bi bi-plus me-1"></i>Add URL
               </button>
+              {draft.urls.length > 0 && (
+                <span className={`small ${draft.urls.length >= MAX_URLS ? 'text-danger' : 'text-muted'}`}>
+                  {draft.urls.length} / {MAX_URLS}
+                </span>
+              )}
             </div>
           </>
         ) : (
@@ -601,7 +665,8 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
                   className="form-control form-control-sm"
                   value={field.label}
                   onChange={(e) => updateHiddenField(field.id, 'label', e.target.value)}
-                  placeholder="Label (e.g. TOTP Secret)"
+                  placeholder="Label"
+                  maxLength={HIDDEN_FIELD_LABEL_MAX}
                   style={{ maxWidth: 180 }}
                 />
                 <div className="input-group input-group-sm flex-grow-1">
@@ -610,6 +675,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
                     className="form-control"
                     value={field.value}
                     onChange={(e) => updateHiddenField(field.id, 'value', e.target.value)}
+                    maxLength={HIDDEN_FIELD_VALUE_MAX}
                   />
                   <button
                     className="btn btn-outline-secondary"
@@ -650,10 +716,20 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
           </div>
         ))}
         {isEditing && (
-          <div>
-            <button className="btn btn-sm btn-outline-secondary" onClick={addHiddenField}>
+          <div className="d-flex align-items-center gap-3">
+            <button
+              className="btn btn-sm btn-outline-secondary"
+              onClick={addHiddenField}
+              disabled={draft.hiddenFields.length >= MAX_HIDDEN_FIELDS}
+              title={draft.hiddenFields.length >= MAX_HIDDEN_FIELDS ? `Maximum ${MAX_HIDDEN_FIELDS} custom fields allowed` : undefined}
+            >
               <i className="bi bi-plus me-1"></i>Add Custom Field
             </button>
+            {draft.hiddenFields.length > 0 && (
+              <span className={`small ${draft.hiddenFields.length >= MAX_HIDDEN_FIELDS ? 'text-danger' : 'text-muted'}`}>
+                {draft.hiddenFields.length} / {MAX_HIDDEN_FIELDS}
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -677,17 +753,28 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
         {isEditing ? (
           <>
             <textarea
-              className="form-control"
+              className={`form-control${draft.notes.length >= NOTES_MAX ? ' is-invalid' : ''}`}
               rows={4}
               value={draft.notes}
               onChange={(e) => updateDraft('notes', e.target.value)}
               placeholder="Add notes..."
+              maxLength={NOTES_MAX}
             />
             <div className="d-flex justify-content-end mt-1">
-              <span className={`small ${draft.notes.length > 50000 ? 'text-warning fw-semibold' : 'text-muted'}`}>
-                {draft.notes.length.toLocaleString()} chars{draft.notes.length > 50000 ? ' — getting large' : ''}
+              <span className={`small ${
+                draft.notes.length >= NOTES_MAX ? 'text-danger fw-semibold' :
+                draft.notes.length > NOTES_MAX * 0.9 ? 'text-warning fw-semibold' : 'text-muted'
+              }`}>
+                {draft.notes.length.toLocaleString()} / {NOTES_MAX.toLocaleString()} chars
+                {draft.notes.length >= NOTES_MAX ? ' — limit reached' :
+                 draft.notes.length > NOTES_MAX * 0.9 ? ' — nearing limit' : ''}
               </span>
             </div>
+            {draft.notes.length >= NOTES_MAX && (
+              <div className="text-danger small mt-1">
+                Notes cannot exceed {NOTES_MAX.toLocaleString()} characters
+              </div>
+            )}
           </>
         ) : (
           <div className="form-control bg-white" style={{ minHeight: 80, whiteSpace: 'pre-wrap' }}>
@@ -731,6 +818,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
                 onKeyDown={handleTagKeyDown}
                 onBlur={() => setTimeout(() => setShowTagSuggestions(false), 150)}
                 placeholder={(draft.tags || []).length === 0 ? 'Add tags...' : ''}
+                maxLength={TAG_MAX}
                 style={{ border: 'none', outline: 'none', flex: '1', minWidth: '80px', padding: '0', background: 'transparent' }}
               />
             </div>
@@ -748,6 +836,16 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
                   </li>
                 ))}
               </ul>
+            )}
+          </div>
+          <div className="d-flex justify-content-between mt-1">
+            {tagError
+              ? <span className="text-danger small">{tagError}</span>
+              : <span />}
+            {(draft.tags || []).length > 0 && (
+              <span className={`small ${(draft.tags || []).length >= MAX_TAGS ? 'text-danger' : 'text-muted'}`}>
+                {(draft.tags || []).length} / {MAX_TAGS} tags
+              </span>
             )}
           </div>
         ) : (

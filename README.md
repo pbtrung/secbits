@@ -268,6 +268,28 @@ If you cancel while there are unsaved edits, you will be asked to confirm before
 | Notes | Free-text notes, hidden by default, reveals for 15 seconds |
 | Tags | Comma-separated; case-insensitive; autocomplete from existing tags |
 
+### Field limits
+
+Every field has a hard character limit enforced in the UI. The limits exist because each entry stores up to 5 encrypted snapshots (version history) in a single Firestore `value` field. That field must stay under **999,999 bytes** after Brotli compression and Ascon-Keccak-512 encryption. Keeping individual fields bounded ensures the combined payload of all snapshots fits comfortably within that ceiling.
+
+| Field | Limit | Reason |
+|---|---|---|
+| Title | 200 chars | Display name; longer values add negligible value |
+| Username | 200 chars | Covers email addresses and long login names |
+| Password | 1,000 chars | Generous for generated passwords; above typical generator output |
+| Notes | 100,000 chars | Largest field; single largest contributor to snapshot size |
+| URL (each) | 2,048 chars | De-facto browser/server URL length limit |
+| TOTP secret (each) | 256 chars | Base32 seeds are typically 16–64 chars; 256 is generous |
+| Custom field label | 100 chars | Field name only |
+| Custom field value | 1,000 chars | Covers API keys, recovery codes, and similar secrets |
+| Tag (each) | 50 chars | Tag labels are short by convention |
+| URLs per entry | 20 | Structural limit to cap total payload size |
+| TOTP secrets per entry | 10 | Structural limit |
+| Custom fields per entry | 20 | Structural limit |
+| Tags per entry | 20 | Structural limit |
+
+The UI enforces every limit via `maxLength` on inputs, disabled **Add** buttons when the collection cap is reached, and inline error messages. The Save button is disabled whenever any limit is exceeded.
+
 ### Copying values
 
 Every sensitive field (password, TOTP code, custom field value) has a copy button. The clipboard is automatically cleared 30 seconds after any copy.
