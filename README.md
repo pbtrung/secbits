@@ -407,32 +407,40 @@ The test runner lives in `src/tests/leancrypto.test.js` and can run standalone (
 
 ```
 secbits/
-├── index.html                   # HTML shell with CSP meta tag
-├── vite.config.js               # Vite + React + WASM plugins; test config
+├── index.html                        # HTML shell with CSP meta tag
+├── vite.config.js                    # Vite + React + WASM plugins; test config
 ├── package.json
+├── firestore.rules                   # Firestore security rules (copy into Firebase Console)
 ├── public/
+│   ├── firebase-config-template.json # Example config file for users
 │   └── leancrypto/
-│       ├── leancrypto.js        # Emscripten UMD bundle (browser + Node)
-│       ├── leancrypto.wasm      # Compiled leancrypto WASM binary
+│       ├── leancrypto.js             # Emscripten UMD bundle (browser + Node)
+│       ├── leancrypto.js.md          # Build notes for the leancrypto WASM bundle
+│       └── leancrypto.wasm           # Compiled leancrypto WASM binary
 └── src/
-    ├── main.jsx                 # Entry point, mounts React root
-    ├── App.jsx                  # Root component, state management
-    ├── crypto.js                # All cryptographic operations (leancrypto WASM)
-    ├── totp.js                  # TOTP generation (RFC 6238, HMAC-SHA1)
-    ├── firebase.js              # Firestore read/write operations
-    ├── index.css                # Global styles
+    ├── main.jsx                      # Entry point, mounts React root
+    ├── App.jsx                       # Root component, state management
+    ├── crypto.js                     # All cryptographic operations (leancrypto WASM)
+    ├── firebase.js                   # Firestore read/write and Firebase Auth
+    ├── totp.js                       # TOTP generation (RFC 6238, HMAC-SHA1)
+    ├── validation.js                 # URL validation helper
+    ├── limits.js                     # Per-field character and collection limits
+    ├── index.css                     # Global styles
     ├── tests/
-    │   ├── crypto.test.js       # Encryption/decryption tests
-    │   ├── totp.test.js         # RFC 6238 TOTP tests
-    │   ├── leancrypto.test.js   # WASM vector tests (Vitest + standalone Node)
-    │   └── leancrypto.sphincs-vectors.js # SPHINCS+ fixture vectors for leancrypto tests
+    │   ├── crypto.test.js            # Encryption/decryption round-trip tests
+    │   ├── totp.test.js              # RFC 6238 TOTP known-vector tests
+    │   ├── leancrypto.test.js        # WASM primitive tests (Vitest + standalone Node)
+    │   ├── leancrypto.sphincs-vectors.js # SPHINCS+ fixture vectors
+    │   ├── export-data.test.js       # buildExportData shape and field tests
+    │   ├── firebase-key-lifecycle.test.js # User master key store/clear/replace tests
+    │   └── validation.test.js        # URL validation tests
     └── components/
-        ├── FirebaseSetup.jsx    # Config upload, auth, key verification
-        ├── EntryDetail.jsx      # View and edit a single entry
-        ├── EntryList.jsx        # Scrollable list of entries
-        ├── TagsSidebar.jsx      # Tag filter sidebar + user controls
-        ├── SettingsList.jsx     # Settings navigation
-        ├── SettingsPanel.jsx    # Export and About pages
-        ├── PasswordGenerator.jsx# Password generator + strength bar
-        └── ResizeHandle.jsx     # Draggable column divider
+        ├── FirebaseSetup.jsx         # Config upload, email/password auth, key setup
+        ├── EntryDetail.jsx           # View and edit a single entry
+        ├── EntryList.jsx             # Scrollable list of entries
+        ├── TagsSidebar.jsx           # Tag filter sidebar + user controls
+        ├── SettingsList.jsx          # Settings navigation
+        ├── SettingsPanel.jsx         # Export and About pages
+        ├── PasswordGenerator.jsx     # Password generator + strength bar
+        └── ResizeHandle.jsx          # Draggable column divider
 ```
