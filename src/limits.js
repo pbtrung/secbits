@@ -19,3 +19,4 @@ export const MAX_URLS                = 20;
 export const MAX_TOTP_SECRETS        = 10;
 export const MAX_HIDDEN_FIELDS       = 20;
 export const MAX_TAGS                = 20;
+export const MAX_COMMITS             = 10;

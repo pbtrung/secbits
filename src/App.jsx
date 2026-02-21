@@ -6,7 +6,7 @@ import EntryDetail from './components/EntryDetail';
 import ResizeHandle from './components/ResizeHandle';
 import SettingsList from './components/SettingsList';
 import SettingsPanel from './components/SettingsPanel';
-import { clearUserMasterKey, fetchUserEntries, createUserEntry, updateUserEntry, deleteUserEntry } from './firebase';
+import { clearUserMasterKey, fetchUserEntries, createUserEntry, updateUserEntry, deleteUserEntry, restoreEntryVersion } from './firebase';
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -219,6 +219,29 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
     }
   }, [userId]);
 
+  const handleRestore = useCallback(async (entryId, commitHash) => {
+    setSyncError('');
+    setSaving(true);
+    try {
+      const restored = await restoreEntryVersion(userId, entryId, commitHash);
+      setEntries((prev) => prev.map((e) => (e.id === entryId ? {
+        title: '',
+        username: '',
+        password: '',
+        notes: '',
+        ...restored,
+        urls: Array.isArray(restored.urls) ? restored.urls : [],
+        totpSecrets: Array.isArray(restored.totpSecrets) ? restored.totpSecrets : [],
+        hiddenFields: Array.isArray(restored.hiddenFields) ? restored.hiddenFields : [],
+        tags: Array.isArray(restored.tags) ? restored.tags : [],
+      } : e)));
+    } catch (err) {
+      setSyncError(err?.message || 'Failed to restore entry.');
+    } finally {
+      setSaving(false);
+    }
+  }, [userId]);
+
   const handleDelete = useCallback(async (id) => {
     setSyncError('');
     setDeleting(true);
@@ -302,6 +325,7 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
       deleting={deleting}
       allTags={allTags}
       onDirtyChange={handleDirtyChange}
+      onRestore={handleRestore}
     />
   ) : (
     <div className="d-flex align-items-center justify-content-center h-100 text-muted">

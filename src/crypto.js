@@ -286,21 +286,17 @@ export async function unwrapEntryKey(userMasterKey, entryKeyBlob) {
   return docKeyBytes;
 }
 
-export async function encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots) {
+export async function encryptEntryHistoryWithDocKey(docKeyBytes, history) {
   const brotli = await getBrotli();
-  const plain = encoder.encode(JSON.stringify(snapshots));
+  const plain = encoder.encode(JSON.stringify(history));
   const compressed = brotli.compress(plain);
   return encryptBytesToBlob(docKeyBytes, compressed);
 }
 
-export async function decryptEntrySnapshotsWithDocKey(docKeyBytes, encryptedValue) {
+export async function decryptEntryHistoryWithDocKey(docKeyBytes, encryptedValue) {
   const brotli = await getBrotli();
   const compressed = await decryptBlobBytes(docKeyBytes, toBytes(encryptedValue, 'value'));
   const plain = brotli.decompress(compressed);
   const text = decoder.decode(plain);
-  const parsed = JSON.parse(text);
-  if (!Array.isArray(parsed)) {
-    throw new Error('Decrypted value is not a JSON array');
-  }
-  return parsed;
+  return JSON.parse(text);
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchRawUserDocs, fetchUser, getUserMasterKey } from '../firebase';
-import { unwrapEntryKey, decryptEntrySnapshotsWithDocKey, bytesToB64 } from '../crypto';
+import { unwrapEntryKey, decryptEntryHistoryWithDocKey, bytesToB64 } from '../crypto';
 
 function formatBytes(bytes) {
   if (bytes === 0) return '0 B';
@@ -53,8 +53,7 @@ function ExportPage({ userId }) {
           const docKeyBytes = await unwrapEntryKey(userMasterKey, entryKeyBytes);
           entry.entry_key = bytesToB64(docKeyBytes);
           if (valueToBytes(d.value)) {
-            const snapshots = await decryptEntrySnapshotsWithDocKey(docKeyBytes, d.value);
-            entry.value = snapshots.map(({ _snapshots, ...rest }) => rest);
+            entry.value = await decryptEntryHistoryWithDocKey(docKeyBytes, d.value);
           } else {
             entry.value = d.value;
           }

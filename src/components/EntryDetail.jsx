@@ -84,7 +84,7 @@ function hasDraftChanges(draft, entry, tagCurrentInput) {
   );
 }
 
-function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, saving, deleting, allTags = [], onDirtyChange }) {
+function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onRestore, saving, deleting, allTags = [], onDirtyChange }) {
   const [draft, setDraft] = useState(entry);
   const [visiblePasswords, setVisiblePasswords] = useState({});
   const [copied, setCopied] = useState(null);
@@ -99,12 +99,12 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
   const notesHideTimerRef = useRef(null);
   const tagInputRef = useRef(null);
 
-  const snapshots = entry._snapshots || [];
-  const selectedSnapshot = snapshots.length > 1 && selectedVersion > 0
-    ? snapshots[selectedVersion]
+  const commits = entry._commits || [];
+  const selectedCommit = commits.length > 1 && selectedVersion > 0
+    ? commits[selectedVersion]
     : null;
-  const viewEntry = selectedSnapshot
-    ? { ...entry, ...selectedSnapshot, id: entry.id, _snapshots: entry._snapshots }
+  const viewEntry = selectedCommit
+    ? { ...entry, ...selectedCommit.snapshot, id: entry.id, _commits: entry._commits }
     : entry;
 
   useEffect(() => {
@@ -372,11 +372,18 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
       return;
     }
     setSelectedVersion(index);
-    if (isEditing && snapshots.length > 1) {
-      const snap = index > 0 ? snapshots[index] : entry;
-      setDraft({ ...snap, id: entry.id, _snapshots: entry._snapshots });
+    if (isEditing && commits.length > 1) {
+      const snap = index > 0 ? commits[index].snapshot : entry;
+      setDraft({ ...snap, id: entry.id, _commits: entry._commits });
       setTagCurrentInput('');
     }
+  };
+
+  const handleRestore = (commitHash) => {
+    const commit = commits.find((c) => c.hash === commitHash);
+    if (!commit) return;
+    if (!window.confirm(`Restore the version from ${formatTimestamp(commit.timestamp)}?\nA new commit will be created at the top of history.`)) return;
+    onRestore(entry.id, commitHash);
   };
 
   const handleDelete = () => {
@@ -861,24 +868,53 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
         )}
       </div>
 
-      {/* Versions */}
-      {snapshots.length >= 2 && (
+      {/* History */}
+      {commits.length >= 1 && (
         <div className="mb-4">
           <label className="form-label text-muted small fw-semibold">
-            <i className="bi bi-journal-text me-1"></i> Versions
+            <i className="bi bi-git me-1"></i> History
+            <span className="fw-normal ms-2">{commits.length} commit{commits.length !== 1 ? 's' : ''}</span>
           </label>
-          <select
-            className="form-select form-select-sm"
-            style={{ width: 'auto' }}
-            value={selectedVersion}
-            onChange={(e) => handleVersionChange(Number(e.target.value))}
-          >
-            {snapshots.map((s, i) => (
-              <option key={i} value={i}>
-                {formatTimestamp(s.timestamp)}{i === 0 ? ' (latest)' : ''}
-              </option>
+          <div className="list-group list-group-flush border rounded small">
+            {commits.map((c, i) => (
+              <button
+                key={c.hash}
+                type="button"
+                className={`list-group-item list-group-item-action py-2 px-3${i === selectedVersion ? ' list-group-item-primary' : ''}`}
+                onClick={() => handleVersionChange(i)}
+              >
+                <div className="d-flex align-items-center gap-2 flex-wrap">
+                  <code className="text-body-secondary" style={{ fontSize: '0.75em' }}>{c.hash}</code>
+                  {i === 0 && <span className="badge bg-success" style={{ fontSize: '0.65em' }}>HEAD</span>}
+                  <span className="ms-auto text-muted" style={{ fontSize: '0.8em', whiteSpace: 'nowrap' }}>
+                    {formatTimestamp(c.timestamp)}
+                  </span>
+                </div>
+                {c.changed && c.changed.length > 0 && (
+                  <div className="mt-1 d-flex flex-wrap gap-1">
+                    {c.changed.map((f) => (
+                      <span key={f} className="badge bg-secondary" style={{ fontSize: '0.65em' }}>{f}</span>
+                    ))}
+                  </div>
+                )}
+                {(!c.changed || c.changed.length === 0) && i === commits.length - 1 && (
+                  <div className="text-muted mt-1" style={{ fontSize: '0.8em' }}>initial commit</div>
+                )}
+              </button>
             ))}
-          </select>
+          </div>
+          {selectedVersion > 0 && !isEditing && (
+            <button
+              className="btn btn-sm btn-outline-warning mt-2"
+              onClick={() => handleRestore(commits[selectedVersion].hash)}
+              disabled={saving}
+            >
+              {saving
+                ? <><span className="spinner-border spinner-border-sm me-1"></span>Restoring...</>
+                : <><i className="bi bi-arrow-counterclockwise me-1"></i>Restore this version</>
+              }
+            </button>
+          )}
         </div>
       )}
 

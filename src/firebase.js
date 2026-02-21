@@ -13,8 +13,8 @@ import {
 } from 'firebase/firestore';
 import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 import {
-  decryptEntrySnapshotsWithDocKey,
-  encryptEntrySnapshotsWithDocKey,
+  decryptEntryHistoryWithDocKey,
+  encryptEntryHistoryWithDocKey,
   generateEntryDocKey,
   unwrapEntryKey,
   wrapEntryKey,
@@ -24,7 +24,7 @@ let app = null;
 let db = null;
 let auth = null;
 let userMasterKeyBytes = null;
-const MAX_ENTRY_HISTORY = 5;
+const MAX_COMMITS = 10;
 const MAX_VALUE_BYTES = 999999;
 
 function checkValueSize(value) {
@@ -123,10 +123,10 @@ export async function fetchUserEntries(userId) {
     if (raw._placeholder) continue;
 
     try {
-      const snapshots = await parseEntrySnapshots(raw.value, raw.entry_key);
-      if (snapshots.length === 0) continue;
-      const latest = snapshots[0];
-      entries.push({ id: d.id, ...normalizeEntryShape(latest), _snapshots: snapshots });
+      const history = await parseEntryHistory(raw.value, raw.entry_key);
+      if (history.commits.length === 0) continue;
+      const latest = history.commits[0].snapshot;
+      entries.push({ id: d.id, ...normalizeEntryShape(latest), _commits: history.commits });
     } catch {
       failedCount++;
     }
@@ -151,7 +151,6 @@ function normalizeHiddenFields(hiddenFields) {
   if (!Array.isArray(hiddenFields)) return [];
   return hiddenFields.map((field, index) => ({
     id: typeof field?.id === 'number' ? field.id : index + 1,
-    // Keep secret label/value explicitly in JSON value payload.
     label: typeof field?.label === 'string' ? field.label : '',
     value: typeof field?.value === 'string' ? field.value : '',
   }));
@@ -184,85 +183,209 @@ function normalizeTimestamp(timestamp) {
 }
 
 function toEntryPayload(entry) {
-  const { id, _placeholder, _isNew, _snapshots, ...payload } = entry || {};
+  const { id, _placeholder, _isNew, _snapshots, _commits, ...payload } = entry || {};
   return {
     ...normalizeEntryShape(payload),
     timestamp: new Date().toISOString(),
   };
 }
 
-async function parseEntrySnapshots(value, entryKeyBlob) {
+// ─── Commit-chain helpers ─────────────────────────────────────────────────────
+
+// Stable SHA-256 hash of an object; top-level keys sorted for determinism.
+async function contentHash(obj) {
+  const stable = {};
+  for (const k of Object.keys(obj).sort()) stable[k] = obj[k];
+  const data = new TextEncoder().encode(JSON.stringify(stable));
+  const buf = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 12);
+}
+
+const TRACKED_FIELDS = ['title', 'username', 'password', 'notes', 'urls', 'totpSecrets', 'hiddenFields', 'tags'];
+
+function diffFields(prevSnapshot, nextSnapshot) {
+  return TRACKED_FIELDS.filter(
+    (f) => JSON.stringify(prevSnapshot?.[f]) !== JSON.stringify(nextSnapshot?.[f])
+  );
+}
+
+// Convert legacy flat-array format into a commit chain.
+// Uses the full snapshot (including timestamp) as the hash basis so that
+// each historical save gets a unique identity even if content was the same.
+async function migrateHistory(snapshots) {
+  const oldestFirst = [...snapshots].reverse();
+  const commits = [];
+  for (let i = 0; i < oldestFirst.length; i++) {
+    const snap = oldestFirst[i];
+    const hash = await contentHash(snap); // full snapshot → unique per save
+    commits.push({
+      hash,
+      parent: i > 0 ? commits[i - 1].hash : null,
+      timestamp: snap.timestamp,
+      changed: i === 0 ? [] : diffFields(oldestFirst[i - 1], snap),
+      snapshot: snap,
+    });
+  }
+  commits.reverse(); // newest-first
+  return { head: commits[0]?.hash ?? null, commits };
+}
+
+// Normalise raw decrypted JSON into a { head, commits } history object.
+// Handles both the old array format (migrated) and the new object format.
+async function parseHistoryJson(parsed) {
+  if (Array.isArray(parsed)) {
+    const normalized = parsed
+      .filter((item) => item && typeof item === 'object')
+      .map((item) => normalizeEntryShape(item))
+      .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
+      .slice(0, MAX_COMMITS);
+    return migrateHistory(normalized);
+  }
+  if (parsed && typeof parsed === 'object' && Array.isArray(parsed.commits)) {
+    const commits = parsed.commits
+      .filter((c) => c && typeof c === 'object')
+      .map((c) => ({ ...c, snapshot: normalizeEntryShape(c.snapshot) }))
+      .slice(0, MAX_COMMITS);
+    return { head: parsed.head, commits };
+  }
+  return { head: null, commits: [] };
+}
+
+async function decryptAndParseHistory(docKeyBytes, valueBytes) {
+  const parsed = await decryptEntryHistoryWithDocKey(docKeyBytes, valueBytes);
+  return parseHistoryJson(parsed);
+}
+
+async function parseEntryHistory(value, entryKeyBlob) {
   const valueBytes = toUint8Array(value);
   const entryKeyBytes = toUint8Array(entryKeyBlob);
-  if (!valueBytes || !entryKeyBytes) return [];
+  if (!valueBytes || !entryKeyBytes) return { head: null, commits: [] };
   if (!userMasterKeyBytes) {
     throw new Error('Entry master key is not initialized');
   }
-
   const docKeyBytes = await unwrapEntryKey(userMasterKeyBytes, entryKeyBytes);
-  const decrypted = await decryptEntrySnapshotsWithDocKey(docKeyBytes, valueBytes);
-  return decrypted
-    .filter((item) => item && typeof item === 'object')
-    .map((item) => normalizeEntryShape(item))
-    .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
-    .slice(0, MAX_ENTRY_HISTORY);
+  return decryptAndParseHistory(docKeyBytes, valueBytes);
 }
 
-async function toSnapshotsJson(existingValue, existingEntryKey, nextPayload) {
-  const existing = await parseEntrySnapshots(existingValue, existingEntryKey);
-  const snapshots = [nextPayload, ...existing]
-    .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
-    .slice(0, MAX_ENTRY_HISTORY);
+// Append a new commit to the history.
+// Returns the same history object unchanged if the content didn't change
+// (deduplication: hash of content without timestamp vs HEAD hash).
+async function buildNextHistory(existingHistory, payload) {
+  const headCommit = existingHistory.commits[0] ?? null;
 
-  if (!userMasterKeyBytes) {
-    throw new Error('Entry master key is not initialized');
+  // Content hash excludes timestamp so saves with unchanged data are ignored.
+  const { timestamp, ...content } = payload;
+  const hash = await contentHash(content);
+
+  if (headCommit && headCommit.hash === hash) {
+    return existingHistory; // nothing changed — no new commit
   }
 
-  const existingEntryKeyBytes = toUint8Array(existingEntryKey);
-  if (existingEntryKeyBytes) {
-    const docKeyBytes = await unwrapEntryKey(userMasterKeyBytes, existingEntryKeyBytes);
-    return {
-      entry_key: toFirestoreBytes(existingEntryKeyBytes),
-      value: toFirestoreBytes(await encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots)),
-    };
-  }
-
-  const docKeyBytes = generateEntryDocKey();
-  return {
-    entry_key: toFirestoreBytes(await wrapEntryKey(userMasterKeyBytes, docKeyBytes)),
-    value: toFirestoreBytes(await encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots)),
+  const newCommit = {
+    hash,
+    parent: headCommit?.hash ?? null,
+    timestamp: new Date().toISOString(),
+    changed: headCommit ? diffFields(headCommit.snapshot, payload) : [],
+    snapshot: payload,
   };
+
+  const commits = [newCommit, ...existingHistory.commits].slice(0, MAX_COMMITS);
+  return { head: hash, commits };
 }
+
+// ─── Public CRUD ─────────────────────────────────────────────────────────────
 
 export async function createUserEntry(userId, entry) {
   const payload = toEntryPayload(entry);
-  const colRef = collection(db, 'users', String(userId), 'data');
   if (!userMasterKeyBytes) {
     throw new Error('Entry master key is not initialized');
   }
+
   const docKeyBytes = generateEntryDocKey();
   const entry_key = toFirestoreBytes(await wrapEntryKey(userMasterKeyBytes, docKeyBytes));
-  const encryptedValue = await encryptEntrySnapshotsWithDocKey(docKeyBytes, [payload]);
-  const value = toFirestoreBytes(encryptedValue);
+  const history = await buildNextHistory({ head: null, commits: [] }, payload);
+  const value = toFirestoreBytes(await encryptEntryHistoryWithDocKey(docKeyBytes, history));
   checkValueSize(value);
+
+  const colRef = collection(db, 'users', String(userId), 'data');
   const created = await addDoc(colRef, { entry_key, value });
-  return { id: created.id, ...payload, _snapshots: [payload] };
+  return { id: created.id, ...history.commits[0].snapshot, _commits: history.commits };
 }
 
 export async function updateUserEntry(userId, entryId, entry) {
   const payload = toEntryPayload(entry);
+  if (!userMasterKeyBytes) {
+    throw new Error('Entry master key is not initialized');
+  }
+
   const docRef = doc(db, 'users', String(userId), 'data', String(entryId));
   const snap = await getDoc(docRef);
-  const existingValue = snap.exists() ? snap.data()?.value : null;
-  const existingEntryKey = snap.exists() ? snap.data()?.entry_key : null;
-  const existing = await parseEntrySnapshots(existingValue, existingEntryKey);
-  const allSnapshots = [payload, ...existing]
-    .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
-    .slice(0, MAX_ENTRY_HISTORY);
-  const nextData = await toSnapshotsJson(existingValue, existingEntryKey, payload);
-  checkValueSize(nextData.value);
-  await updateDoc(docRef, nextData);
-  return { id: String(entryId), ...payload, _snapshots: allSnapshots };
+  const existingEntryKeyRaw = snap.exists() ? snap.data()?.entry_key : null;
+  const existingValueRaw = snap.exists() ? snap.data()?.value : null;
+
+  // Unwrap the doc key once; reuse for both decryption and encryption.
+  const existingEntryKeyBytes = toUint8Array(existingEntryKeyRaw);
+  const docKeyBytes = existingEntryKeyBytes
+    ? await unwrapEntryKey(userMasterKeyBytes, existingEntryKeyBytes)
+    : generateEntryDocKey();
+
+  const existingValueBytes = toUint8Array(existingValueRaw);
+  const existingHistory =
+    existingEntryKeyBytes && existingValueBytes
+      ? await decryptAndParseHistory(docKeyBytes, existingValueBytes)
+      : { head: null, commits: [] };
+
+  const history = await buildNextHistory(existingHistory, payload);
+
+  const entry_key = existingEntryKeyBytes
+    ? toFirestoreBytes(existingEntryKeyBytes)
+    : toFirestoreBytes(await wrapEntryKey(userMasterKeyBytes, docKeyBytes));
+
+  const value = toFirestoreBytes(await encryptEntryHistoryWithDocKey(docKeyBytes, history));
+  checkValueSize(value);
+  await updateDoc(docRef, { entry_key, value });
+
+  const latestSnapshot = history.commits[0]?.snapshot ?? payload;
+  return { id: String(entryId), ...latestSnapshot, _commits: history.commits };
+}
+
+// Restore an old commit by creating a new HEAD commit with its content.
+// Non-destructive: history is extended, not overwritten.
+export async function restoreEntryVersion(userId, entryId, commitHash) {
+  if (!userMasterKeyBytes) {
+    throw new Error('Entry master key is not initialized');
+  }
+
+  const docRef = doc(db, 'users', String(userId), 'data', String(entryId));
+  const snap = await getDoc(docRef);
+  if (!snap.exists()) throw new Error('Entry not found');
+
+  const existingEntryKeyBytes = toUint8Array(snap.data()?.entry_key);
+  if (!existingEntryKeyBytes) throw new Error('No entry key found');
+
+  const docKeyBytes = await unwrapEntryKey(userMasterKeyBytes, existingEntryKeyBytes);
+  const existingValueBytes = toUint8Array(snap.data()?.value);
+  const existingHistory = existingValueBytes
+    ? await decryptAndParseHistory(docKeyBytes, existingValueBytes)
+    : { head: null, commits: [] };
+
+  const targetCommit = existingHistory.commits.find((c) => c.hash === commitHash);
+  if (!targetCommit) throw new Error(`Commit ${commitHash} not found`);
+
+  // Re-save old content as a new commit (timestamp updates, everything else identical).
+  const restoredPayload = { ...targetCommit.snapshot, timestamp: new Date().toISOString() };
+  const history = await buildNextHistory(existingHistory, restoredPayload);
+
+  const entry_key = toFirestoreBytes(existingEntryKeyBytes);
+  const value = toFirestoreBytes(await encryptEntryHistoryWithDocKey(docKeyBytes, history));
+  checkValueSize(value);
+  await updateDoc(docRef, { entry_key, value });
+
+  const latestSnapshot = history.commits[0]?.snapshot ?? restoredPayload;
+  return { id: String(entryId), ...latestSnapshot, _commits: history.commits };
 }
 
 export async function deleteUserEntry(userId, entryId) {

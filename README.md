@@ -21,7 +21,7 @@ A self-hosted, end-to-end encrypted password manager. All data is encrypted on t
 |---|---|
 | End-to-end encryption | Ascon-Keccak-512 AEAD; Firebase stores only ciphertext |
 | Per-entry document keys | Each entry uses its own randomly generated key |
-| Version history | Up to 5 snapshots per entry for auditing and recovery |
+| Version history | Git-like commit chain per entry: content-addressed commits, changed-field annotations, one-click restore |
 | TOTP generation | Live 6-digit codes with countdown timer |
 | Password generator | Configurable charset, length 8 to 128, entropy display |
 | Custom fields | Arbitrary hidden key/value pairs per entry |
@@ -91,16 +91,46 @@ Total overhead per blob: 128 bytes. The master key blob is always 192 bytes (`sa
 
 ### Entry encryption
 
-Each entry stores an array of up to 5 snapshots (version history). On every save:
+Each entry stores a commit chain (up to 10 commits). On every save the history object is serialised, compressed, and encrypted:
 
 ```
-snapshots[]  ->  JSON.stringify  ->  Brotli compress
+{ head, commits[] }  ->  JSON.stringify  ->  Brotli compress
     ->  Ascon-Keccak-512 AEAD encrypt (with entry's doc key)
     ->  AEAD tag appended
     ->  stored as Firestore Bytes in value field
 ```
 
 The entry's doc key is itself AEAD-encrypted using the `userMasterKey` and stored in the `entry_key` field of the same Firestore document.
+
+### Commit structure
+
+Each commit object inside the history has the following shape:
+
+```json
+{
+  "hash":      "a1b2c3d4e5f6",
+  "parent":    "f7e8d9c0b1a2",
+  "timestamp": "2025-06-01T14:32:00Z",
+  "changed":   ["password"],
+  "snapshot":  { "title": "…", "username": "…", "password": "…", … }
+}
+```
+
+| Field | Description |
+|---|---|
+| `hash` | SHA-256 of the snapshot content (timestamp excluded), truncated to 12 hex chars |
+| `parent` | Hash of the preceding commit; `null` for the initial commit |
+| `timestamp` | ISO-8601 wall-clock time of the save |
+| `changed` | Fields that differ from the previous commit (`title`, `password`, `notes`, etc.) |
+| `snapshot` | Full plaintext entry at the time of the save |
+
+The `head` field at the top of the history object always points to the most recent commit hash.
+
+**Deduplication.** Before appending a new commit, the hash of the incoming content (fields only, no timestamp) is compared to the current `head` hash. If they match the save is a no-op and no commit is written.
+
+**Restore.** Restoring an old commit creates a new HEAD commit whose snapshot is the old snapshot with a fresh timestamp. History is extended, never overwritten.
+
+**Migration.** Entries saved in the legacy flat-array format are automatically converted to the commit-chain format on next read. Each old snapshot becomes a commit; its hash is derived from the full snapshot (timestamp included) to preserve uniqueness across identical-content saves.
 
 ## Firebase Setup
 
@@ -256,7 +286,7 @@ If you cancel while there are unsaved edits, you will be asked to confirm before
 
 ### Field limits
 
-Every field has a hard character limit enforced in the UI. The limits exist because each entry stores up to 5 encrypted snapshots (version history) in a single Firestore `value` field. That field must stay under **999,999 bytes** after Brotli compression and Ascon-Keccak-512 encryption. Keeping individual fields bounded ensures the combined payload of all snapshots fits comfortably within that ceiling.
+Every field has a hard character limit enforced in the UI. The limits exist because each entry stores up to 10 commits (version history) in a single Firestore `value` field. That field must stay under **999,999 bytes** after Brotli compression and Ascon-Keccak-512 encryption. Keeping individual fields bounded ensures the combined payload of all commits fits comfortably within that ceiling.
 
 | Field | Limit | Reason |
 |---|---|---|
@@ -273,6 +303,7 @@ Every field has a hard character limit enforced in the UI. The limits exist beca
 | TOTP secrets per entry | 10 | Structural limit |
 | Custom fields per entry | 20 | Structural limit |
 | Tags per entry | 20 | Structural limit |
+| Commits per entry | 10 | Oldest commit is dropped when the chain exceeds this length |
 
 The UI enforces every limit via `maxLength` on inputs, disabled **Add** buttons when the collection cap is reached, and inline error messages. The Save button is disabled whenever any limit is exceeded.
 
@@ -286,7 +317,18 @@ If a TOTP secret is valid base32, a live 6-digit code with a countdown circle is
 
 ### Version history
 
-Each save creates a new snapshot (up to 5). Use the **Versions** dropdown in view or edit mode to inspect older snapshots. Loading an older version into the editor requires confirmation.
+Each save appends a new commit to the entry's history (up to 10). Saving without any content change is a no-op — no duplicate commit is created.
+
+The **History** panel in the detail view shows a git-log style list. Each row displays:
+
+- A 12-character content hash (e.g. `a1b2c3d4e5f6`)
+- A **HEAD** badge on the latest commit
+- The fields that changed in that commit (`password`, `notes`, etc.)
+- The save timestamp
+
+Click any row to view the entry as it looked at that point in time. While editing, clicking an older row loads it into the editor (with a confirmation prompt if there are unsaved changes).
+
+To non-destructively roll back, select an old commit in view mode and click **Restore this version**. This creates a new HEAD commit with the old content; the full history is preserved.
 
 ### Password generator
 
