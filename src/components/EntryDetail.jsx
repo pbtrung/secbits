@@ -793,6 +793,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
           <i className="bi bi-tags me-1"></i> Tags
         </label>
         {isEditing ? (
+          <>
           <div className="position-relative">
             <div
               className="form-control d-flex flex-wrap gap-1 align-items-center"
@@ -848,6 +849,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, sav
               </span>
             )}
           </div>
+          </>
         ) : (
           <div>
             {data.tags.map((t) => (
