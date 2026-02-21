@@ -2,7 +2,7 @@
   "db_name": "xxx",
   "email": "user@example.com",
   "password": "xxx",
-  "master_key": "<base64-encoded, at least 256 bytes>",
+  "root_master_key": "<base64-encoded, at least 256 bytes>",
   "auth": {
     "apiKey": "",
     "authDomain": "",
