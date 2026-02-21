@@ -82,15 +82,15 @@ describe('firebase history storage format', () => {
     expect(compactJsonLen).toBeLessThan(legacyJsonLen);
   });
 
-  it('parses legacy snapshot-based histories', () => {
-    const legacy = {
+  it('returns empty history for non-compact payloads', () => {
+    const nonCompact = {
       head: 'h2',
       commits: [
         {
           hash: 'h2',
           parent: 'h1',
           timestamp: '2026-02-21T00:02:00.000Z',
-          changed: ['hiddenFields'],
+          changed: ['customFields'],
           snapshot: {
             title: 'entry',
             username: '',
@@ -98,7 +98,7 @@ describe('firebase history storage format', () => {
             notes: '',
             urls: [],
             totpSecrets: [],
-            hiddenFields: [{ id: 1, label: 'token', value: 'abc' }],
+            customFields: [{ id: 1, label: 'token', value: 'abc' }],
             tags: [],
             timestamp: '2026-02-21T00:02:00.000Z',
           },
@@ -123,10 +123,8 @@ describe('firebase history storage format', () => {
       ],
     };
 
-    const parsed = parseHistoryJson(legacy);
+    const parsed = parseHistoryJson(nonCompact);
     expect(parsed.head).toBe('h2');
-    expect(parsed.commits).toHaveLength(2);
-    expect(parsed.commits[0].changed).toEqual(['customFields']);
-    expect(parsed.commits[0].snapshot.customFields).toEqual([{ id: 1, label: 'token', value: 'abc' }]);
+    expect(parsed.commits).toHaveLength(0);
   });
 });

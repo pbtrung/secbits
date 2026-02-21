@@ -295,36 +295,20 @@ function serializeHistoryForStorage(history) {
   };
 }
 
-function parseLegacyHistory(parsed) {
-  const commits = parsed.commits
-    .filter((c) => c && typeof c === 'object')
-    .map((c) => ({
-      ...normalizeCommitMeta(c),
-      snapshot: normalizeEntryShape(c.snapshot),
-    }))
-    .slice(0, MAX_COMMITS);
-  return { head: parsed.head ?? commits[0]?.hash ?? null, commits };
-}
-
 function parseCompactHistory(parsed) {
   const rawCommits = parsed.commits
     .filter((c) => c && typeof c === 'object')
     .slice(0, MAX_COMMITS);
-  if (rawCommits.length === 0) {
+  if (!(parsed.head_snapshot && typeof parsed.head_snapshot === 'object') || rawCommits.length === 0) {
     return { head: parsed.head ?? null, commits: [] };
   }
 
   let currentSnapshot = normalizeEntryShape(parsed.head_snapshot);
   const commits = [];
   rawCommits.forEach((raw, index) => {
-    let snapshot;
-    if (index === 0) {
-      snapshot = raw.snapshot ? normalizeEntryShape(raw.snapshot) : currentSnapshot;
-    } else if (raw.snapshot) {
-      snapshot = normalizeEntryShape(raw.snapshot);
-    } else {
-      snapshot = applySnapshotDelta(currentSnapshot, raw.delta);
-    }
+    const snapshot = index === 0
+      ? currentSnapshot
+      : applySnapshotDelta(currentSnapshot, raw.delta);
     currentSnapshot = snapshot;
     commits.push({
       ...normalizeCommitMeta(raw),
@@ -340,12 +324,7 @@ function parseHistoryJson(parsed) {
   if (!(parsed && typeof parsed === 'object' && Array.isArray(parsed.commits))) {
     return { head: null, commits: [] };
   }
-
-  if (parsed.head_snapshot && typeof parsed.head_snapshot === 'object') {
-    return parseCompactHistory(parsed);
-  }
-
-  return parseLegacyHistory(parsed);
+  return parseCompactHistory(parsed);
 }
 
 async function decryptAndParseHistory(docKeyBytes, valueBytes) {
