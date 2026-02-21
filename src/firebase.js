@@ -216,22 +216,136 @@ function diffFields(prevSnapshot, nextSnapshot) {
   );
 }
 
+function normalizeChangedFields(changed) {
+  if (!Array.isArray(changed)) return [];
+  return changed.map((f) => (f === 'hiddenFields' ? 'customFields' : f));
+}
+
+function normalizeCommitMeta(commit) {
+  return {
+    hash: commit?.hash ?? null,
+    parent: commit?.parent ?? null,
+    timestamp: normalizeTimestamp(commit?.timestamp),
+    changed: normalizeChangedFields(commit?.changed),
+  };
+}
+
+function buildSnapshotDelta(previousSnapshot, nextSnapshot) {
+  const prev = previousSnapshot && typeof previousSnapshot === 'object' ? previousSnapshot : {};
+  const next = nextSnapshot && typeof nextSnapshot === 'object' ? nextSnapshot : {};
+
+  const set = {};
+  const unset = [];
+  const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+
+  for (const key of keys) {
+    const prevHas = Object.prototype.hasOwnProperty.call(prev, key);
+    const nextHas = Object.prototype.hasOwnProperty.call(next, key);
+    if (!nextHas) {
+      unset.push(key);
+      continue;
+    }
+    if (!prevHas || JSON.stringify(prev[key]) !== JSON.stringify(next[key])) {
+      set[key] = next[key];
+    }
+  }
+
+  return { set, unset };
+}
+
+function applySnapshotDelta(previousSnapshot, delta) {
+  const snapshot = {
+    ...(previousSnapshot && typeof previousSnapshot === 'object' ? previousSnapshot : {}),
+  };
+
+  if (Array.isArray(delta?.unset)) {
+    for (const key of delta.unset) {
+      delete snapshot[key];
+    }
+  }
+
+  if (delta?.set && typeof delta.set === 'object') {
+    for (const [key, value] of Object.entries(delta.set)) {
+      snapshot[key] = value;
+    }
+  }
+
+  return normalizeEntryShape(snapshot);
+}
+
+function serializeHistoryForStorage(history) {
+  const commits = Array.isArray(history?.commits) ? history.commits.slice(0, MAX_COMMITS) : [];
+  if (commits.length === 0) {
+    return { head: null, head_snapshot: null, commits: [] };
+  }
+
+  const snapshots = commits.map((c) => normalizeEntryShape(c?.snapshot));
+  const compactCommits = commits.map((commit, index) => {
+    const compact = normalizeCommitMeta(commit);
+    if (index > 0) {
+      compact.delta = buildSnapshotDelta(snapshots[index - 1], snapshots[index]);
+    }
+    return compact;
+  });
+
+  return {
+    head: history?.head ?? compactCommits[0].hash ?? null,
+    head_snapshot: snapshots[0],
+    commits: compactCommits,
+  };
+}
+
+function parseLegacyHistory(parsed) {
+  const commits = parsed.commits
+    .filter((c) => c && typeof c === 'object')
+    .map((c) => ({
+      ...normalizeCommitMeta(c),
+      snapshot: normalizeEntryShape(c.snapshot),
+    }))
+    .slice(0, MAX_COMMITS);
+  return { head: parsed.head ?? commits[0]?.hash ?? null, commits };
+}
+
+function parseCompactHistory(parsed) {
+  const rawCommits = parsed.commits
+    .filter((c) => c && typeof c === 'object')
+    .slice(0, MAX_COMMITS);
+  if (rawCommits.length === 0) {
+    return { head: parsed.head ?? null, commits: [] };
+  }
+
+  let currentSnapshot = normalizeEntryShape(parsed.head_snapshot);
+  const commits = [];
+  rawCommits.forEach((raw, index) => {
+    let snapshot;
+    if (index === 0) {
+      snapshot = raw.snapshot ? normalizeEntryShape(raw.snapshot) : currentSnapshot;
+    } else if (raw.snapshot) {
+      snapshot = normalizeEntryShape(raw.snapshot);
+    } else {
+      snapshot = applySnapshotDelta(currentSnapshot, raw.delta);
+    }
+    currentSnapshot = snapshot;
+    commits.push({
+      ...normalizeCommitMeta(raw),
+      snapshot,
+    });
+  });
+
+  return { head: parsed.head ?? commits[0]?.hash ?? null, commits };
+}
+
 // Normalise raw decrypted JSON into a { head, commits } history object.
 function parseHistoryJson(parsed) {
-  if (parsed && typeof parsed === 'object' && Array.isArray(parsed.commits)) {
-    const commits = parsed.commits
-      .filter((c) => c && typeof c === 'object')
-      .map((c) => ({
-        ...c,
-        changed: Array.isArray(c.changed)
-          ? c.changed.map((f) => (f === 'hiddenFields' ? 'customFields' : f))
-          : [],
-        snapshot: normalizeEntryShape(c.snapshot),
-      }))
-      .slice(0, MAX_COMMITS);
-    return { head: parsed.head, commits };
+  if (!(parsed && typeof parsed === 'object' && Array.isArray(parsed.commits))) {
+    return { head: null, commits: [] };
   }
-  return { head: null, commits: [] };
+
+  if (parsed.head_snapshot && typeof parsed.head_snapshot === 'object') {
+    return parseCompactHistory(parsed);
+  }
+
+  return parseLegacyHistory(parsed);
 }
 
 async function decryptAndParseHistory(docKeyBytes, valueBytes) {
@@ -287,7 +401,9 @@ export async function createUserEntry(userId, entry) {
   const docKeyBytes = generateEntryDocKey();
   const entry_key = toFirestoreBytes(await wrapEntryKey(userMasterKeyBytes, docKeyBytes));
   const history = await buildNextHistory({ head: null, commits: [] }, payload);
-  const value = toFirestoreBytes(await encryptEntryHistoryWithDocKey(docKeyBytes, history));
+  const value = toFirestoreBytes(
+    await encryptEntryHistoryWithDocKey(docKeyBytes, serializeHistoryForStorage(history))
+  );
   checkValueSize(value);
 
   const colRef = collection(db, 'users', String(userId), 'data');
@@ -324,7 +440,9 @@ export async function updateUserEntry(userId, entryId, entry) {
     ? toFirestoreBytes(existingEntryKeyBytes)
     : toFirestoreBytes(await wrapEntryKey(userMasterKeyBytes, docKeyBytes));
 
-  const value = toFirestoreBytes(await encryptEntryHistoryWithDocKey(docKeyBytes, history));
+  const value = toFirestoreBytes(
+    await encryptEntryHistoryWithDocKey(docKeyBytes, serializeHistoryForStorage(history))
+  );
   checkValueSize(value);
   await updateDoc(docRef, { entry_key, value });
 
@@ -360,7 +478,9 @@ export async function restoreEntryVersion(userId, entryId, commitHash) {
   const history = await buildNextHistory(existingHistory, restoredPayload);
 
   const entry_key = toFirestoreBytes(existingEntryKeyBytes);
-  const value = toFirestoreBytes(await encryptEntryHistoryWithDocKey(docKeyBytes, history));
+  const value = toFirestoreBytes(
+    await encryptEntryHistoryWithDocKey(docKeyBytes, serializeHistoryForStorage(history))
+  );
   checkValueSize(value);
   await updateDoc(docRef, { entry_key, value });
 
@@ -381,3 +501,10 @@ export async function initUserDataCollection(userId) {
     await setDoc(placeholderRef, { _placeholder: true });
   }
 }
+
+export const __historyFormatTestOnly = {
+  applySnapshotDelta,
+  buildSnapshotDelta,
+  parseHistoryJson,
+  serializeHistoryForStorage,
+};
