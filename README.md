@@ -336,7 +336,7 @@ If a TOTP secret is valid base32, a live 6-digit code with a countdown circle is
 
 Each save appends a new commit to the entry's history (up to 10). Saving without any content change is a no-op, so duplicate commits are not created.
 
-Use the **N commits** button in the detail action bar to open the history modal.
+Use the **N versions** button in the detail action bar to open the history modal.
 
 - Desktop: two-pane diff modal (commit list on the left, field-level diff on the right)
 - Mobile: progressive flow (commit list first, then selected commit diff)

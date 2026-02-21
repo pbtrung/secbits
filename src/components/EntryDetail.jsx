@@ -893,7 +893,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
             onClick={() => { setHistoryIdx(0); setShowHistory(true); }}
           >
             <i className="bi bi-git me-1"></i>
-            {commits.length} commit{commits.length !== 1 ? 's' : ''}
+            {commits.length} version{commits.length !== 1 ? 's' : ''}
           </button>
         )}
 

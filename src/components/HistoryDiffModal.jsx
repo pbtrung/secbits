@@ -225,7 +225,7 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
           <div className="modal-header py-2">
             <h6 className="modal-title fw-semibold mb-0">
               <i className="bi bi-git me-2"></i>
-              History - {commits.length} commit{commits.length !== 1 ? 's' : ''}
+              History - {commits.length} version{commits.length !== 1 ? 's' : ''}
             </h6>
             <div className="d-flex align-items-center gap-2 ms-auto">
               {isMobile && (
@@ -237,8 +237,8 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
                     else onClose();
                   }}
                   disabled={saving}
-                  aria-label="Back to commits"
-                  title="Back to commits"
+                  aria-label="Back to versions"
+                  title="Back to versions"
                 >
                   <i className="bi bi-chevron-left"></i>
                 </button>
@@ -276,7 +276,7 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
                         ))}
                       </div>
                     ) : (
-                      <div className="text-muted mb-1" style={{ fontSize: '0.72em' }}>initial commit</div>
+                      <div className="text-muted mb-1" style={{ fontSize: '0.72em' }}>initial version</div>
                     )}
                     <div className="text-muted" style={{ fontSize: '0.7em' }}>
                       {formatTimestamp(c.timestamp)}
