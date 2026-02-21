@@ -130,8 +130,6 @@ The `head` field at the top of the history object always points to the most rece
 
 **Restore.** Restoring an old commit creates a new HEAD commit whose snapshot is the old snapshot with a fresh timestamp. History is extended, never overwritten.
 
-**Migration.** Entries saved in the legacy flat-array format are automatically converted to the commit-chain format on next read. Each old snapshot becomes a commit; its hash is derived from the full snapshot (timestamp included) to preserve uniqueness across identical-content saves.
-
 ## Firebase Setup
 
 ### 1. Create a Firebase project

@@ -84,6 +84,290 @@ function hasDraftChanges(draft, entry, tagCurrentInput) {
   );
 }
 
+// ─── Diff helpers ─────────────────────────────────────────────────────────────
+
+// LCS-based line diff. Returns [{type:'eq'|'add'|'del', v:string}].
+function computeLineDiff(a, b) {
+  const as = String(a ?? '').split('\n');
+  const bs = String(b ?? '').split('\n');
+  const m = as.length, n = bs.length;
+  const dp = Array.from({ length: m + 1 }, () => new Int32Array(n + 1));
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = as[i - 1] === bs[j - 1]
+        ? dp[i - 1][j - 1] + 1
+        : Math.max(dp[i - 1][j], dp[i][j - 1]);
+  const out = [];
+  let i = m, j = n;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && as[i - 1] === bs[j - 1]) {
+      out.unshift({ type: 'eq', v: as[i - 1] }); i--; j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      out.unshift({ type: 'add', v: bs[j - 1] }); j--;
+    } else {
+      out.unshift({ type: 'del', v: as[i - 1] }); i--;
+    }
+  }
+  return out;
+}
+
+// Collapse runs of unchanged lines that are more than CTX lines from any change.
+// Inserts {type:'hunk', skip:N} markers in their place.
+const CTX = 3;
+function withContext(lines) {
+  const near = new Uint8Array(lines.length);
+  for (let i = 0; i < lines.length; i++)
+    if (lines[i].type !== 'eq')
+      for (let j = Math.max(0, i - CTX); j <= Math.min(lines.length - 1, i + CTX); j++)
+        near[j] = 1;
+  const out = [];
+  let skip = 0;
+  for (let i = 0; i < lines.length; i++) {
+    if (near[i]) {
+      if (skip > 0) { out.push({ type: 'hunk', skip }); skip = 0; }
+      out.push(lines[i]);
+    } else {
+      skip++;
+    }
+  }
+  if (skip > 0) out.push({ type: 'hunk', skip });
+  return out;
+}
+
+const DIFF_FIELD_ORDER = ['title', 'username', 'password', 'notes', 'urls', 'totpSecrets', 'tags', 'hiddenFields'];
+const SCALAR_FIELDS = new Set(['title', 'username', 'password']);
+const ARRAY_STR_FIELDS = new Set(['urls', 'totpSecrets', 'tags']);
+
+// Build per-field diff sections for CommitDiff.
+// fromSnap=null means initial commit: show all non-empty fields as added.
+function buildDiffSections(fromSnap, toSnap, changedFields) {
+  const isInit = !fromSnap;
+  const fields = isInit
+    ? DIFF_FIELD_ORDER.filter(f => {
+        const v = toSnap?.[f];
+        return Array.isArray(v) ? v.length > 0 : Boolean(v && String(v).trim());
+      })
+    : (changedFields?.length ? changedFields : []);
+
+  return fields.flatMap(field => {
+    const oldVal = fromSnap?.[field];
+    const newVal = toSnap?.[field];
+
+    if (field === 'notes') {
+      const raw = computeLineDiff(oldVal ?? '', newVal ?? '');
+      return [{ field, lines: isInit ? raw : withContext(raw) }];
+    }
+
+    if (SCALAR_FIELDS.has(field)) {
+      const lines = [];
+      if (oldVal) lines.push({ type: 'del', v: String(oldVal) });
+      if (newVal) lines.push({ type: 'add', v: String(newVal) });
+      return lines.length ? [{ field, lines }] : [];
+    }
+
+    if (ARRAY_STR_FIELDS.has(field)) {
+      const a = Array.isArray(oldVal) ? oldVal : [];
+      const b = Array.isArray(newVal) ? newVal : [];
+      const lines = [
+        ...a.filter(x => !b.includes(x)).map(x => ({ type: 'del', v: x })),
+        ...b.filter(x => !a.includes(x)).map(x => ({ type: 'add', v: x })),
+      ];
+      return lines.length ? [{ field, lines }] : [];
+    }
+
+    if (field === 'hiddenFields') {
+      const a = Array.isArray(oldVal) ? oldVal : [];
+      const b = Array.isArray(newVal) ? newVal : [];
+      const lines = [];
+      for (const of_ of a) {
+        const nf = b.find(f => f.label === of_.label);
+        if (!nf) {
+          lines.push({ type: 'del', v: `[${of_.label}] ${of_.value}` });
+        } else if (nf.value !== of_.value) {
+          lines.push({ type: 'del', v: `[${of_.label}] ${of_.value}` });
+          lines.push({ type: 'add', v: `[${nf.label}] ${nf.value}` });
+        }
+      }
+      for (const nf of b) {
+        if (!a.find(f => f.label === nf.label))
+          lines.push({ type: 'add', v: `[${nf.label}] ${nf.value}` });
+      }
+      return lines.length ? [{ field, lines }] : [];
+    }
+
+    return [];
+  });
+}
+
+// ─── CommitDiff ───────────────────────────────────────────────────────────────
+
+function CommitDiff({ commits, idx }) {
+  const commit = commits[idx];
+  const parentCommit = commit?.parent
+    ? commits.find(c => c.hash === commit.parent)
+    : null;
+
+  if (!commit) return null;
+
+  const sections = buildDiffSections(
+    parentCommit?.snapshot ?? null,
+    commit.snapshot,
+    commit.changed,
+  );
+
+  if (sections.length === 0) {
+    return <p className="text-muted small mb-0">No content changes in this commit.</p>;
+  }
+
+  return (
+    <div>
+      {sections.map(({ field, lines }) => (
+        <div key={field} className="mb-3">
+          <div className="text-muted mb-1 small fw-semibold" style={{ fontFamily: 'sans-serif' }}>
+            diff {field}
+          </div>
+          <div className="border rounded overflow-hidden" style={{ fontFamily: 'monospace', fontSize: '0.78rem', lineHeight: 1.55 }}>
+            {lines.map((line, i) => {
+              if (line.type === 'hunk') return (
+                <div key={i} className="px-2 text-primary bg-primary bg-opacity-10" style={{ userSelect: 'none' }}>
+                  @@ {line.skip} line{line.skip !== 1 ? 's' : ''} unchanged @@
+                </div>
+              );
+              if (line.type === 'eq') return (
+                <div key={i} className="px-2 text-muted" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                  &nbsp;{line.v}
+                </div>
+              );
+              if (line.type === 'del') return (
+                <div key={i} className="px-2 bg-danger bg-opacity-10" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                  <span className="text-danger fw-bold me-1">-</span>{line.v}
+                </div>
+              );
+              if (line.type === 'add') return (
+                <div key={i} className="px-2 bg-success bg-opacity-10" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                  <span className="text-success fw-bold me-1">+</span>{line.v}
+                </div>
+              );
+              return null;
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── HistoryModal ─────────────────────────────────────────────────────────────
+
+function HistoryModal({ commits, idx, onIdxChange, onRestore, onClose, saving }) {
+  const selectedCommit = commits[idx];
+
+  return (
+    <div
+      className="modal d-block"
+      tabIndex="-1"
+      style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1055 }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className="modal-dialog modal-xl modal-dialog-scrollable"
+        style={{ maxHeight: '90vh' }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="modal-content" style={{ height: '85vh' }}>
+
+          {/* Header */}
+          <div className="modal-header py-2">
+            <h6 className="modal-title fw-semibold mb-0">
+              <i className="bi bi-git me-2"></i>
+              History — {commits.length} commit{commits.length !== 1 ? 's' : ''}
+            </h6>
+            <button type="button" className="btn-close" onClick={onClose} />
+          </div>
+
+          {/* Body: two-panel */}
+          <div className="modal-body p-0 d-flex overflow-hidden" style={{ flex: 1, minHeight: 0 }}>
+
+            {/* Left: commit list */}
+            <div
+              className="border-end bg-light"
+              style={{ width: 260, flexShrink: 0, overflowY: 'auto' }}
+            >
+              {commits.map((c, i) => (
+                <button
+                  key={c.hash}
+                  type="button"
+                  onClick={() => onIdxChange(i)}
+                  className={`w-100 text-start border-0 border-bottom px-3 py-2${i === idx ? ' bg-primary-subtle' : ' bg-transparent'}`}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <div className="d-flex align-items-center gap-1 mb-1">
+                    <code style={{ fontSize: '0.75em', letterSpacing: '0.02em' }}>{c.hash}</code>
+                    {i === 0 && (
+                      <span className="badge bg-success ms-1" style={{ fontSize: '0.6em' }}>HEAD</span>
+                    )}
+                  </div>
+                  {c.changed && c.changed.length > 0 ? (
+                    <div className="d-flex flex-wrap gap-1 mb-1">
+                      {c.changed.map(f => (
+                        <span key={f} className="badge bg-secondary" style={{ fontSize: '0.6em' }}>{f}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-muted mb-1" style={{ fontSize: '0.72em' }}>initial commit</div>
+                  )}
+                  <div className="text-muted" style={{ fontSize: '0.7em' }}>
+                    {formatTimestamp(c.timestamp)}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {/* Right: diff view */}
+            <div className="flex-grow-1 overflow-auto p-3">
+              {selectedCommit && (
+                <>
+                  <div className="d-flex align-items-center gap-2 mb-3 pb-2 border-bottom">
+                    <code className="small">{selectedCommit.hash}</code>
+                    {idx === 0 && <span className="badge bg-success">HEAD</span>}
+                    <span className="text-muted small ms-auto">
+                      {formatTimestamp(selectedCommit.timestamp)}
+                    </span>
+                  </div>
+                  <CommitDiff commits={commits} idx={idx} />
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="modal-footer py-2">
+            {idx > 0 && (
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-warning me-auto"
+                onClick={() => onRestore(selectedCommit.hash)}
+                disabled={saving}
+              >
+                {saving
+                  ? <><span className="spinner-border spinner-border-sm me-1"></span>Restoring...</>
+                  : <><i className="bi bi-arrow-counterclockwise me-1"></i>Restore this version</>
+                }
+              </button>
+            )}
+            <button type="button" className="btn btn-sm btn-secondary" onClick={onClose}>
+              Close
+            </button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── EntryDetail ──────────────────────────────────────────────────────────────
+
 function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onRestore, saving, deleting, allTags = [], onDirtyChange }) {
   const [draft, setDraft] = useState(entry);
   const [visiblePasswords, setVisiblePasswords] = useState({});
@@ -94,32 +378,28 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
   const [totpErrors, setTotpErrors] = useState({});
   const [urlErrors, setUrlErrors] = useState({});
   const [tagError, setTagError] = useState('');
-  const [selectedVersion, setSelectedVersion] = useState(0);
   const [notesVisible, setNotesVisible] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyIdx, setHistoryIdx] = useState(0);
   const notesHideTimerRef = useRef(null);
   const tagInputRef = useRef(null);
 
   const commits = entry._commits || [];
-  const selectedCommit = commits.length > 1 && selectedVersion > 0
-    ? commits[selectedVersion]
-    : null;
-  const viewEntry = selectedCommit
-    ? { ...entry, ...selectedCommit.snapshot, id: entry.id, _commits: entry._commits }
-    : entry;
 
   useEffect(() => {
     setDraft(entry);
     setVisiblePasswords({});
     setTagCurrentInput('');
-    setSelectedVersion(0);
     setNotesVisible(false);
     setTotpErrors({});
     setUrlErrors({});
+    setShowHistory(false);
+    setHistoryIdx(0);
   }, [entry]);
 
   useEffect(() => {
     if (isEditing) {
-      setDraft(viewEntry);
+      setDraft(entry);
       setTagCurrentInput('');
     }
   }, [isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -129,8 +409,8 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
       onDirtyChange?.(false);
       return;
     }
-    onDirtyChange(hasDraftChanges(draft, viewEntry, tagCurrentInput));
-  }, [draft, tagCurrentInput, viewEntry, isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
+    onDirtyChange(hasDraftChanges(draft, entry, tagCurrentInput));
+  }, [draft, tagCurrentInput, entry, isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const hideNotes = () => setNotesVisible(false);
@@ -169,6 +449,14 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
       }
     };
   }, [notesVisible]);
+
+  // Close modal on Escape
+  useEffect(() => {
+    if (!showHistory) return;
+    const handler = (e) => { if (e.key === 'Escape') setShowHistory(false); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [showHistory]);
 
   const toggleVisibility = (key) => {
     setVisiblePasswords((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -254,7 +542,6 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
       hiddenFields: draft.hiddenFields.filter((f) => f.id !== id),
     });
   };
-
 
   const validateUrl = (index, value) => {
     if (!value) {
@@ -366,30 +653,15 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
     onSave({ ...draft, tags: finalTags });
   };
 
-  const handleVersionChange = (index) => {
-    const dirty = hasDraftChanges(draft, viewEntry, tagCurrentInput);
-    if (isEditing && dirty && index > 0 && !window.confirm('Load this older version into the editor? Unsaved changes will be replaced.')) {
-      return;
-    }
-    setSelectedVersion(index);
-    if (isEditing && commits.length > 1) {
-      const snap = index > 0 ? commits[index].snapshot : entry;
-      setDraft({ ...snap, id: entry.id, _commits: entry._commits });
-      setTagCurrentInput('');
-    }
-  };
-
-  const handleRestore = (commitHash) => {
-    const commit = commits.find((c) => c.hash === commitHash);
-    if (!commit) return;
-    if (!window.confirm(`Restore the version from ${formatTimestamp(commit.timestamp)}?\nA new commit will be created at the top of history.`)) return;
-    onRestore(entry.id, commitHash);
-  };
-
   const handleDelete = () => {
     if (window.confirm(`Delete "${entry.title || 'this entry'}"?`)) {
       onDelete(entry.id);
     }
+  };
+
+  const handleRestoreFromModal = (commitHash) => {
+    onRestore(entry.id, commitHash);
+    setShowHistory(false);
   };
 
   const hasInvalidFields =
@@ -418,7 +690,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
 
   const saveDisabled = hasInvalidFields || allFieldsEmpty;
 
-  const data = isEditing ? draft : viewEntry;
+  const data = isEditing ? draft : entry;
 
   const CopyBtn = ({ text, label }) => (
     <button
@@ -431,6 +703,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
   );
 
   return (
+    <>
     <fieldset disabled={saving || deleting} className="p-4" style={{ maxWidth: 700 }}>
       {/* Title */}
       <div className="d-flex justify-content-between align-items-start mb-4">
@@ -868,58 +1141,8 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
         )}
       </div>
 
-      {/* History */}
-      {commits.length >= 1 && (
-        <div className="mb-4">
-          <label className="form-label text-muted small fw-semibold">
-            <i className="bi bi-git me-1"></i> History
-            <span className="fw-normal ms-2">{commits.length} commit{commits.length !== 1 ? 's' : ''}</span>
-          </label>
-          <div className="list-group list-group-flush border rounded small">
-            {commits.map((c, i) => (
-              <button
-                key={c.hash}
-                type="button"
-                className={`list-group-item list-group-item-action py-2 px-3${i === selectedVersion ? ' list-group-item-primary' : ''}`}
-                onClick={() => handleVersionChange(i)}
-              >
-                <div className="d-flex align-items-center gap-2 flex-wrap">
-                  <code className="text-body-secondary" style={{ fontSize: '0.75em' }}>{c.hash}</code>
-                  {i === 0 && <span className="badge bg-success" style={{ fontSize: '0.65em' }}>HEAD</span>}
-                  <span className="ms-auto text-muted" style={{ fontSize: '0.8em', whiteSpace: 'nowrap' }}>
-                    {formatTimestamp(c.timestamp)}
-                  </span>
-                </div>
-                {c.changed && c.changed.length > 0 && (
-                  <div className="mt-1 d-flex flex-wrap gap-1">
-                    {c.changed.map((f) => (
-                      <span key={f} className="badge bg-secondary" style={{ fontSize: '0.65em' }}>{f}</span>
-                    ))}
-                  </div>
-                )}
-                {(!c.changed || c.changed.length === 0) && i === commits.length - 1 && (
-                  <div className="text-muted mt-1" style={{ fontSize: '0.8em' }}>initial commit</div>
-                )}
-              </button>
-            ))}
-          </div>
-          {selectedVersion > 0 && !isEditing && (
-            <button
-              className="btn btn-sm btn-outline-warning mt-2"
-              onClick={() => handleRestore(commits[selectedVersion].hash)}
-              disabled={saving}
-            >
-              {saving
-                ? <><span className="spinner-border spinner-border-sm me-1"></span>Restoring...</>
-                : <><i className="bi bi-arrow-counterclockwise me-1"></i>Restore this version</>
-              }
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Action Buttons */}
-      <div className="d-flex gap-2 align-items-center border-top pt-3">
+      <div className="d-flex gap-2 align-items-center border-top pt-3 flex-wrap">
         {isEditing ? (
           <>
             <button className="btn btn-success" onClick={handleSave} disabled={saveDisabled}>
@@ -938,6 +1161,18 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
             <i className="bi bi-pencil me-1"></i>Edit
           </button>
         )}
+
+        {commits.length > 0 && (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-secondary"
+            onClick={() => { setHistoryIdx(0); setShowHistory(true); }}
+          >
+            <i className="bi bi-git me-1"></i>
+            {commits.length} commit{commits.length !== 1 ? 's' : ''}
+          </button>
+        )}
+
         {!entry._isNew && (
           <button className="btn btn-outline-danger ms-auto" onClick={handleDelete}>
             {deleting ? (
@@ -949,6 +1184,18 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
         )}
       </div>
     </fieldset>
+
+    {showHistory && (
+      <HistoryModal
+        commits={commits}
+        idx={historyIdx}
+        onIdxChange={setHistoryIdx}
+        onRestore={handleRestoreFromModal}
+        onClose={() => setShowHistory(false)}
+        saving={saving}
+      />
+    )}
+    </>
   );
 }
 

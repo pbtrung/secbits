@@ -212,38 +212,8 @@ function diffFields(prevSnapshot, nextSnapshot) {
   );
 }
 
-// Convert legacy flat-array format into a commit chain.
-// Uses the full snapshot (including timestamp) as the hash basis so that
-// each historical save gets a unique identity even if content was the same.
-async function migrateHistory(snapshots) {
-  const oldestFirst = [...snapshots].reverse();
-  const commits = [];
-  for (let i = 0; i < oldestFirst.length; i++) {
-    const snap = oldestFirst[i];
-    const hash = await contentHash(snap); // full snapshot → unique per save
-    commits.push({
-      hash,
-      parent: i > 0 ? commits[i - 1].hash : null,
-      timestamp: snap.timestamp,
-      changed: i === 0 ? [] : diffFields(oldestFirst[i - 1], snap),
-      snapshot: snap,
-    });
-  }
-  commits.reverse(); // newest-first
-  return { head: commits[0]?.hash ?? null, commits };
-}
-
 // Normalise raw decrypted JSON into a { head, commits } history object.
-// Handles both the old array format (migrated) and the new object format.
-async function parseHistoryJson(parsed) {
-  if (Array.isArray(parsed)) {
-    const normalized = parsed
-      .filter((item) => item && typeof item === 'object')
-      .map((item) => normalizeEntryShape(item))
-      .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
-      .slice(0, MAX_COMMITS);
-    return migrateHistory(normalized);
-  }
+function parseHistoryJson(parsed) {
   if (parsed && typeof parsed === 'object' && Array.isArray(parsed.commits)) {
     const commits = parsed.commits
       .filter((c) => c && typeof c === 'object')
