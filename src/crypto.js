@@ -183,13 +183,13 @@ function akDecrypt(lib, encKey, encIv, ciphertext, tag) {
 }
 
 /**
- * Validate master_key from config: must be base64, decode to >= 256 bytes.
+ * Validate root_master_key from config: must be base64, decode to >= 256 bytes.
  * Returns decoded bytes or throws.
  */
-export function decodeMasterKey(masterKeyB64) {
-  const bytes = b64ToBytes(masterKeyB64);
+export function decodeRootMasterKey(rootMasterKeyB64) {
+  const bytes = b64ToBytes(rootMasterKeyB64);
   if (bytes.length < 256) {
-    throw new Error('master_key must be at least 256 bytes when decoded');
+    throw new Error('root_master_key must be at least 256 bytes when decoded');
   }
   return bytes;
 }
@@ -199,17 +199,17 @@ export function decodeMasterKey(masterKeyB64) {
  * keys derived from the root master key, return the blob to store in Firestore.
  * Also returns the plaintext User Master Key for session use.
  */
-export async function masterKeySetup(masterKeyBytes) {
+export async function setupUserMasterKey(rootMasterKeyBytes) {
   const lib = await getLc();
   const salt = getRandomBytes(SALT_LEN);
-  const { encKey, encIv } = hkdfSync(lib, masterKeyBytes, salt);
+  const { encKey, encIv } = hkdfSync(lib, rootMasterKeyBytes, salt);
 
   const userMasterKey = getRandomBytes(USER_MASTER_KEY_LEN);
   const { ciphertext: encUserMasterKey, tag } = akEncrypt(lib, encKey, encIv, userMasterKey);
 
   const blob = concat(salt, encUserMasterKey, tag);
   return {
-    storedValue: blob,
+    userMasterKeyBlob: blob,
     userMasterKey,
   };
 }
@@ -218,10 +218,10 @@ export async function masterKeySetup(masterKeyBytes) {
  * Returning user: verify the root master key against the stored blob,
  * decrypt and return the User Master Key or throw on wrong key.
  */
-export async function masterKeyVerify(masterKeyBytes, storedBlob) {
-  const blob = toBytes(storedBlob, 'stored master_key');
+export async function verifyUserMasterKey(rootMasterKeyBytes, storedUserMasterKey) {
+  const blob = toBytes(storedUserMasterKey, 'stored user_master_key');
   if (blob.length !== MASTER_BLOB_LEN) {
-    throw new Error('Invalid stored master_key data');
+    throw new Error('Invalid stored user_master_key data');
   }
 
   const salt = blob.slice(0, SALT_LEN);
@@ -229,12 +229,12 @@ export async function masterKeyVerify(masterKeyBytes, storedBlob) {
   const tag = blob.slice(SALT_LEN + USER_MASTER_KEY_LEN);
 
   const lib = await getLc();
-  const { encKey, encIv } = hkdfSync(lib, masterKeyBytes, salt);
+  const { encKey, encIv } = hkdfSync(lib, rootMasterKeyBytes, salt);
 
   try {
     return akDecrypt(lib, encKey, encIv, encUserMasterKey, tag);
   } catch {
-    throw new Error('Wrong master key');
+    throw new Error('Wrong root master key');
   }
 }
 
@@ -271,15 +271,15 @@ export function generateEntryDocKey() {
   return getRandomBytes(DOC_KEY_LEN);
 }
 
-export async function wrapEntryDocKey(userMasterKey, docKeyBytes) {
+export async function wrapEntryKey(userMasterKey, docKeyBytes) {
   if (!(docKeyBytes instanceof Uint8Array) || docKeyBytes.length !== DOC_KEY_LEN) {
     throw new Error('docKeyBytes must be 64 bytes');
   }
   return encryptBytesToBlob(userMasterKey, docKeyBytes);
 }
 
-export async function unwrapEntryDocKey(userMasterKey, encKeyBlob) {
-  const docKeyBytes = await decryptBlobBytes(userMasterKey, toBytes(encKeyBlob, 'enc_key'));
+export async function unwrapEntryKey(userMasterKey, entryKeyBlob) {
+  const docKeyBytes = await decryptBlobBytes(userMasterKey, toBytes(entryKeyBlob, 'entry_key'));
   if (docKeyBytes.length !== DOC_KEY_LEN) {
     throw new Error('Invalid decrypted doc key length');
   }

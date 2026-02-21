@@ -16,8 +16,8 @@ import {
   decryptEntrySnapshotsWithDocKey,
   encryptEntrySnapshotsWithDocKey,
   generateEntryDocKey,
-  unwrapEntryDocKey,
-  wrapEntryDocKey,
+  unwrapEntryKey,
+  wrapEntryKey,
 } from './crypto';
 
 let app = null;
@@ -95,9 +95,9 @@ export async function fetchUser(userId) {
   return snap.data();
 }
 
-export async function saveUserMasterKey(userId, masterKeyBlob) {
+export async function saveUserMasterKey(userId, userMasterKeyBlob) {
   const docRef = doc(db, 'users', String(userId));
-  await updateDoc(docRef, { master_key: toFirestoreBytes(masterKeyBlob) });
+  await updateDoc(docRef, { user_master_key: toFirestoreBytes(userMasterKeyBlob) });
 }
 
 export async function fetchRawUserDocs(userId) {
@@ -123,7 +123,7 @@ export async function fetchUserEntries(userId) {
     if (raw._placeholder) continue;
 
     try {
-      const snapshots = await parseEntrySnapshots(raw.value, raw.enc_key);
+      const snapshots = await parseEntrySnapshots(raw.value, raw.entry_key);
       if (snapshots.length === 0) continue;
       const latest = snapshots[0];
       entries.push({ id: d.id, ...normalizeEntryShape(latest), _snapshots: snapshots });
@@ -191,15 +191,15 @@ function toEntryPayload(entry) {
   };
 }
 
-async function parseEntrySnapshots(value, encKeyBlob) {
+async function parseEntrySnapshots(value, entryKeyBlob) {
   const valueBytes = toUint8Array(value);
-  const encKeyBytes = toUint8Array(encKeyBlob);
-  if (!valueBytes || !encKeyBytes) return [];
+  const entryKeyBytes = toUint8Array(entryKeyBlob);
+  if (!valueBytes || !entryKeyBytes) return [];
   if (!userMasterKeyBytes) {
     throw new Error('Entry master key is not initialized');
   }
 
-  const docKeyBytes = await unwrapEntryDocKey(userMasterKeyBytes, encKeyBytes);
+  const docKeyBytes = await unwrapEntryKey(userMasterKeyBytes, entryKeyBytes);
   const decrypted = await decryptEntrySnapshotsWithDocKey(docKeyBytes, valueBytes);
   return decrypted
     .filter((item) => item && typeof item === 'object')
@@ -208,8 +208,8 @@ async function parseEntrySnapshots(value, encKeyBlob) {
     .slice(0, MAX_ENTRY_HISTORY);
 }
 
-async function toSnapshotsJson(existingValue, existingEncKey, nextPayload) {
-  const existing = await parseEntrySnapshots(existingValue, existingEncKey);
+async function toSnapshotsJson(existingValue, existingEntryKey, nextPayload) {
+  const existing = await parseEntrySnapshots(existingValue, existingEntryKey);
   const snapshots = [nextPayload, ...existing]
     .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
     .slice(0, MAX_ENTRY_HISTORY);
@@ -218,18 +218,18 @@ async function toSnapshotsJson(existingValue, existingEncKey, nextPayload) {
     throw new Error('Entry master key is not initialized');
   }
 
-  const existingEncKeyBytes = toUint8Array(existingEncKey);
-  if (existingEncKeyBytes) {
-    const docKeyBytes = await unwrapEntryDocKey(userMasterKeyBytes, existingEncKeyBytes);
+  const existingEntryKeyBytes = toUint8Array(existingEntryKey);
+  if (existingEntryKeyBytes) {
+    const docKeyBytes = await unwrapEntryKey(userMasterKeyBytes, existingEntryKeyBytes);
     return {
-      enc_key: toFirestoreBytes(existingEncKeyBytes),
+      entry_key: toFirestoreBytes(existingEntryKeyBytes),
       value: toFirestoreBytes(await encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots)),
     };
   }
 
   const docKeyBytes = generateEntryDocKey();
   return {
-    enc_key: toFirestoreBytes(await wrapEntryDocKey(userMasterKeyBytes, docKeyBytes)),
+    entry_key: toFirestoreBytes(await wrapEntryKey(userMasterKeyBytes, docKeyBytes)),
     value: toFirestoreBytes(await encryptEntrySnapshotsWithDocKey(docKeyBytes, snapshots)),
   };
 }
@@ -241,11 +241,11 @@ export async function createUserEntry(userId, entry) {
     throw new Error('Entry master key is not initialized');
   }
   const docKeyBytes = generateEntryDocKey();
-  const enc_key = toFirestoreBytes(await wrapEntryDocKey(userMasterKeyBytes, docKeyBytes));
+  const entry_key = toFirestoreBytes(await wrapEntryKey(userMasterKeyBytes, docKeyBytes));
   const encryptedValue = await encryptEntrySnapshotsWithDocKey(docKeyBytes, [payload]);
   const value = toFirestoreBytes(encryptedValue);
   checkValueSize(value);
-  const created = await addDoc(colRef, { enc_key, value });
+  const created = await addDoc(colRef, { entry_key, value });
   return { id: created.id, ...payload, _snapshots: [payload] };
 }
 
@@ -254,12 +254,12 @@ export async function updateUserEntry(userId, entryId, entry) {
   const docRef = doc(db, 'users', String(userId), 'data', String(entryId));
   const snap = await getDoc(docRef);
   const existingValue = snap.exists() ? snap.data()?.value : null;
-  const existingEncKey = snap.exists() ? snap.data()?.enc_key : null;
-  const existing = await parseEntrySnapshots(existingValue, existingEncKey);
+  const existingEntryKey = snap.exists() ? snap.data()?.entry_key : null;
+  const existing = await parseEntrySnapshots(existingValue, existingEntryKey);
   const allSnapshots = [payload, ...existing]
     .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
     .slice(0, MAX_ENTRY_HISTORY);
-  const nextData = await toSnapshotsJson(existingValue, existingEncKey, payload);
+  const nextData = await toSnapshotsJson(existingValue, existingEntryKey, payload);
   checkValueSize(nextData.value);
   await updateDoc(docRef, nextData);
   return { id: String(entryId), ...payload, _snapshots: allSnapshots };

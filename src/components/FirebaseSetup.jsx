@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { initFirebase, signIn, fetchUser, saveUserMasterKey, initUserDataCollection, setUserMasterKey, clearUserMasterKey } from '../firebase';
-import { decodeMasterKey, masterKeySetup, masterKeyVerify } from '../crypto';
+import { decodeRootMasterKey, setupUserMasterKey, verifyUserMasterKey } from '../crypto';
 
 const REQUIRED_KEYS = ['apiKey', 'authDomain', 'databaseURL', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
 const SESSION_KEY = 'secbits_config';
@@ -29,10 +29,10 @@ function FirebaseSetup({ onReady }) {
 
     if (!json.email) throw new Error('Missing required field: email');
     if (!json.password) throw new Error('Missing required field: password');
-    if (!json.master_key) throw new Error('Missing required field: master_key');
+    if (!json.root_master_key) throw new Error('Missing required field: root_master_key');
 
     const dbName = json.db_name || '';
-    const masterKeyBytes = decodeMasterKey(json.master_key);
+    const rootMasterKeyBytes = decodeRootMasterKey(json.root_master_key);
 
     setStatus('Authenticating...');
     initFirebase(config, dbName);
@@ -44,16 +44,16 @@ function FirebaseSetup({ onReady }) {
     const username = userData.username;
     if (!username) throw new Error('Username is empty');
 
-    const storedMasterKey = userData.master_key;
+    const storedUserMasterKey = userData.user_master_key;
     let userMasterKey;
-    if (!storedMasterKey) {
+    if (!storedUserMasterKey) {
       setStatus('Setting up encryption...');
-      const { storedValue, userMasterKey: generated } = await masterKeySetup(masterKeyBytes);
-      await saveUserMasterKey(userId, storedValue);
+      const { userMasterKeyBlob, userMasterKey: generated } = await setupUserMasterKey(rootMasterKeyBytes);
+      await saveUserMasterKey(userId, userMasterKeyBlob);
       userMasterKey = generated;
     } else {
       setStatus('Verifying master key...');
-      userMasterKey = await masterKeyVerify(masterKeyBytes, storedMasterKey);
+      userMasterKey = await verifyUserMasterKey(rootMasterKeyBytes, storedUserMasterKey);
     }
 
     setUserMasterKey(userMasterKey);
@@ -178,7 +178,7 @@ function FirebaseSetup({ onReady }) {
   "db_name": "xxx",
   "email": "user@example.com",
   "password": "xxx",
-  "master_key": "<base64, >=256 bytes>",
+  "root_master_key": "<base64, >=256 bytes>",
   "auth": {
     "apiKey": "",
     "authDomain": "",

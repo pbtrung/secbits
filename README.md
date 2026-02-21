@@ -77,9 +77,9 @@ Total overhead per blob: 128 bytes. The master key blob is always 192 bytes (`sa
 
 **First login (new user):**
 
-1. `decodeMasterKey()` validates the base64 root master key from the config file (must decode to >=256 bytes).
+1. `decodeRootMasterKey()` validates the base64 root master key from the config file (must decode to >=256 bytes).
 2. A random 64-byte User Master Key is generated, then AEAD-encrypted using keys derived via HKDF-SHA3-512 from the root master key.
-3. The 192-byte blob (`salt || encUserMasterKey || tag`) is written to `users/{userId}/master_key` in Firestore.
+3. The 192-byte blob (`salt || encUserMasterKey || tag`) is written to `users/{userId}/user_master_key` in Firestore.
 4. The plaintext User Master Key is kept in memory for the rest of the session.
 
 **Returning user:**
@@ -100,7 +100,7 @@ snapshots[]  ->  JSON.stringify  ->  Brotli compress
     ->  stored as Firestore Bytes in value field
 ```
 
-The entry's doc key is itself AEAD-encrypted using the `userMasterKey` and stored in the `enc_key` field of the same Firestore document.
+The entry's doc key is itself AEAD-encrypted using the `userMasterKey` and stored in the `entry_key` field of the same Firestore document.
 
 ## Firebase Setup
 
@@ -108,7 +108,7 @@ The entry's doc key is itself AEAD-encrypted using the `userMasterKey` and store
 
 1. Go to [console.firebase.google.com](https://console.firebase.google.com) and create a new project.
 2. Enable **Firestore Database** (choose a region; **Native mode**).
-3. Enable **Anonymous Authentication**: Authentication > Sign-in method > Anonymous > Enable.
+3. Enable **Email/Password Authentication**: Authentication > Sign-in method > Email/Password > Enable.
 
 ### 2. Register a web app
 
@@ -134,15 +134,15 @@ service cloud.firestore {
 
 This ensures each user can only read and write their own data.
 
-### 4. Create your user document
+### 4. Create a Firebase Auth user and Firestore document
 
-In Firestore, manually create a document at `users/{your-chosen-user-id}` with a string field `username` set to any display name you want.
+1. In **Authentication > Users**, click **Add user** and enter the email and password you will use to log in.
+2. Copy the **UID** shown for the new user.
+3. In **Firestore**, manually create a document at `users/{uid}` (using the UID from step 2) with a string field `username` set to any display name you want.
 
-> **Note:** The `user_id` in your config file must match this document ID exactly.
+### 5. Generate a root master key
 
-### 5. Generate a master key
-
-Run this in a browser console or Node.js to generate a strong random master key:
+Run this in a browser console or Node.js to generate a strong random root master key:
 
 ```js
 const bytes = crypto.getRandomValues(new Uint8Array(256));
@@ -150,17 +150,18 @@ const b64 = btoa(String.fromCharCode(...bytes));
 console.log(b64);
 ```
 
-Copy the output. This is your `master_key`. **Store it safely.** It cannot be recovered if lost. Treat it like a private key.
+Copy the output. This is your `root_master_key`. **Store it safely.** It cannot be recovered if lost. Treat it like a private key.
 
 ## Config File Format
 
-Save the following as a `.json` file (e.g. `secbits-config.json`). **Keep this file private. It contains your master key.**
+Save the following as a `.json` file (e.g. `secbits-config.json`). **Keep this file private. It contains your root master key and login credentials.**
 
 ```json
 {
-  "user_id": "your-firestore-user-document-id",
   "db_name": "",
-  "master_key": "<base64-encoded key, >=256 bytes when decoded>",
+  "email": "user@example.com",
+  "password": "your-firebase-auth-password",
+  "root_master_key": "<base64-encoded key, >=256 bytes when decoded>",
   "auth": {
     "apiKey": "...",
     "authDomain": "your-project.firebaseapp.com",
@@ -175,9 +176,10 @@ Save the following as a `.json` file (e.g. `secbits-config.json`). **Keep this f
 
 | Field | Required | Description |
 |---|---|---|
-| `user_id` | Yes | ID of your user document in the `users/` collection |
 | `db_name` | No | Named Firestore database (leave `""` for the default database) |
-| `master_key` | Yes | Base64-encoded random key, must decode to >=256 bytes |
+| `email` | Yes | Email address of your Firebase Auth user |
+| `password` | Yes | Password of your Firebase Auth user |
+| `root_master_key` | Yes | Base64-encoded random key, must decode to >=256 bytes |
 | `auth` | Yes | Firebase web app config object from the Firebase console |
 
 ## Building and Deploying
@@ -306,7 +308,7 @@ Click the logout button (arrow icon) at the bottom of the tag sidebar. The `sess
 
 **No separate MAC step.** Authentication is built into the AEAD cipher; there is no HMAC post-processing step. The tag covers both the ciphertext and the associated key material.
 
-**Anonymous auth.** Firebase Anonymous Authentication is used to satisfy Firestore security rules. No account creation or password is required.
+**Email/Password auth.** Firebase Email/Password Authentication is used to satisfy Firestore security rules. Only the pre-created account can sign in.
 
 **Session scope.** The config is stored in `sessionStorage`, which is scoped to the tab and cleared when the tab is closed. It is never written to `localStorage`.
 
@@ -324,7 +326,7 @@ Click the logout button (arrow icon) at the bottom of the tag sidebar. The `sess
 | TOTP HMAC | @noble/hashes (HMAC-SHA1) |
 | Compression | brotli-wasm |
 | Database | Firebase Firestore |
-| Auth | Firebase Anonymous Auth |
+| Auth | Firebase Email/Password Auth |
 
 ## Testing
 

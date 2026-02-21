@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchRawUserDocs, fetchUser, getUserMasterKey } from '../firebase';
-import { unwrapEntryDocKey, decryptEntrySnapshotsWithDocKey, bytesToB64 } from '../crypto';
+import { unwrapEntryKey, decryptEntrySnapshotsWithDocKey, bytesToB64 } from '../crypto';
 
 function formatBytes(bytes) {
   if (bytes === 0) return '0 B';
@@ -24,12 +24,12 @@ function valueByteLength(value) {
 }
 
 export function buildExportData({ userId, userData, userMasterKey, decryptedDocs }) {
-  const storedMasterKeyBlob = valueToBytes(userData?.master_key);
+  const storedUserMasterKeyBlob = valueToBytes(userData?.user_master_key);
   return {
     user_id: userId,
     username: userData?.username || null,
     user_master_key_b64: userMasterKey ? bytesToB64(userMasterKey) : null,
-    stored_user_master_key_blob_b64: storedMasterKeyBlob ? bytesToB64(storedMasterKeyBlob) : null,
+    stored_user_master_key_blob_b64: storedUserMasterKeyBlob ? bytesToB64(storedUserMasterKeyBlob) : null,
     data: decryptedDocs,
   };
 }
@@ -48,10 +48,10 @@ function ExportPage({ userId }) {
       const decryptedDocs = [];
       for (const d of docs) {
         const entry = { id: d.id };
-        const encKeyBytes = valueToBytes(d.enc_key);
-        if (encKeyBytes && userMasterKey) {
-          const docKeyBytes = await unwrapEntryDocKey(userMasterKey, encKeyBytes);
-          entry.enc_key = bytesToB64(docKeyBytes);
+        const entryKeyBytes = valueToBytes(d.entry_key);
+        if (entryKeyBytes && userMasterKey) {
+          const docKeyBytes = await unwrapEntryKey(userMasterKey, entryKeyBytes);
+          entry.entry_key = bytesToB64(docKeyBytes);
           if (valueToBytes(d.value)) {
             const snapshots = await decryptEntrySnapshotsWithDocKey(docKeyBytes, d.value);
             entry.value = snapshots.map(({ _snapshots, ...rest }) => rest);
@@ -59,7 +59,7 @@ function ExportPage({ userId }) {
             entry.value = d.value;
           }
         } else {
-          entry.enc_key = encKeyBytes ? bytesToB64(encKeyBytes) : d.enc_key;
+          entry.entry_key = entryKeyBytes ? bytesToB64(entryKeyBytes) : d.entry_key;
           entry.value = d.value;
         }
         decryptedDocs.push(entry);
@@ -109,7 +109,7 @@ function AboutPage({ userId }) {
         let totalBytes = 0;
         docs.forEach((doc) => {
           if (doc.value) totalBytes += valueByteLength(doc.value);
-          if (doc.enc_key) totalBytes += valueByteLength(doc.enc_key);
+          if (doc.entry_key) totalBytes += valueByteLength(doc.entry_key);
         });
         setStats({ count: docs.length, totalBytes });
         setLoading(false);
