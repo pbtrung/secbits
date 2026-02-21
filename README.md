@@ -324,6 +324,8 @@ Every field has a hard character limit enforced in the UI. The limits exist beca
 
 The UI enforces every limit via `maxLength` on inputs, disabled **Add** buttons when the collection cap is reached, and inline error messages. The Save button is disabled whenever any limit is exceeded.
 
+Implementation note: `src/limits.js` defines UI field/collection limits, while the commit-chain cap (`10`) is enforced in `src/firebase.js` where history read/write/truncation happens.
+
 ### Copying values
 
 Every sensitive field (password, TOTP code, custom field value) has a copy button. The clipboard is automatically cleared 30 seconds after any copy.
@@ -493,7 +495,7 @@ secbits/
     ├── firebase.js                   # Firestore read/write and Firebase Auth
     ├── totp.js                       # TOTP generation (RFC 6238, HMAC-SHA1)
     ├── validation.js                 # URL validation helper
-    ├── limits.js                     # Per-field character and collection limits
+    ├── limits.js                     # UI field and per-entry collection limits
     ├── index.css                     # Global styles
     ├── tests/
     │   ├── crypto.test.js            # Encryption/decryption round-trip tests
@@ -512,5 +514,6 @@ secbits/
         ├── SettingsList.jsx          # Settings navigation
         ├── SettingsPanel.jsx         # Export and About pages
         ├── PasswordGenerator.jsx     # Password generator + strength bar
+        ├── HistoryDiffModal.jsx      # Version-history modal and field-level commit diff
         └── ResizeHandle.jsx          # Draggable column divider
 ```
