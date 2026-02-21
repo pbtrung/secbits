@@ -11,7 +11,7 @@ import {
   deleteDoc,
   Bytes,
 } from 'firebase/firestore';
-import { getAuth, signInAnonymously } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 import {
   decryptEntrySnapshotsWithDocKey,
   encryptEntrySnapshotsWithDocKey,
@@ -59,8 +59,9 @@ export function initFirebase(config, dbName) {
   return app;
 }
 
-export async function signIn() {
-  await signInAnonymously(auth);
+export async function signIn(email, password) {
+  const cred = await signInWithEmailAndPassword(auth, email, password);
+  return cred.user.uid;
 }
 
 function zeroizeBytes(bytes) {

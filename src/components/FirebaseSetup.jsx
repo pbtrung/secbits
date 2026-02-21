@@ -27,8 +27,8 @@ function FirebaseSetup({ onReady }) {
     const err = validate(config);
     if (err) throw new Error(err);
 
-    const userId = json.user_id;
-    if (!userId) throw new Error('Missing required field: user_id');
+    if (!json.email) throw new Error('Missing required field: email');
+    if (!json.password) throw new Error('Missing required field: password');
     if (!json.master_key) throw new Error('Missing required field: master_key');
 
     const dbName = json.db_name || '';
@@ -36,7 +36,7 @@ function FirebaseSetup({ onReady }) {
 
     setStatus('Authenticating...');
     initFirebase(config, dbName);
-    await signIn();
+    const userId = await signIn(json.email, json.password);
 
     setStatus('Fetching user...');
     const userData = await fetchUser(userId);
@@ -175,8 +175,9 @@ function FirebaseSetup({ onReady }) {
             <p className="text-muted small mb-2">Expected JSON format:</p>
             <pre className="bg-light rounded p-2 small mb-0" style={{ fontSize: '0.75rem' }}>
 {`{
-  "user_id": "xxx",
   "db_name": "xxx",
+  "email": "user@example.com",
+  "password": "xxx",
   "master_key": "<base64, >=256 bytes>",
   "auth": {
     "apiKey": "",
