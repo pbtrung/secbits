@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildExportData } from '../components/SettingsPanel.jsx';
 
 describe('buildExportData', () => {
-  it('uses explicit master-key fields and omits raw user_master_key', () => {
+  it('uses explicit export fields and omits stored user-master-key fields', () => {
     const exportData = buildExportData({
       userId: 'u1',
       userData: {
@@ -17,9 +17,9 @@ describe('buildExportData', () => {
       user_id: 'u1',
       username: 'alice',
       user_master_key_b64: 'BAUG',
-      stored_user_master_key_blob_b64: 'AQID',
       data: [],
     });
     expect(Object.prototype.hasOwnProperty.call(exportData, 'user_master_key')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(exportData, 'stored_user_master_key_blob_b64')).toBe(false);
   });
 });

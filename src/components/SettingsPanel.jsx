@@ -24,12 +24,10 @@ function valueByteLength(value) {
 }
 
 export function buildExportData({ userId, userData, userMasterKey, decryptedDocs }) {
-  const storedUserMasterKeyBlob = valueToBytes(userData?.user_master_key);
   return {
     user_id: userId,
     username: userData?.username || null,
     user_master_key_b64: userMasterKey ? bytesToB64(userMasterKey) : null,
-    stored_user_master_key_blob_b64: storedUserMasterKeyBlob ? bytesToB64(storedUserMasterKeyBlob) : null,
     data: decryptedDocs,
   };
 }
