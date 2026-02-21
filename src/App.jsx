@@ -235,8 +235,10 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
         customFields: Array.isArray(restored.customFields) ? restored.customFields : (Array.isArray(restored.hiddenFields) ? restored.hiddenFields : []),
         tags: Array.isArray(restored.tags) ? restored.tags : [],
       } : e)));
+      return true;
     } catch (err) {
       setSyncError(err?.message || 'Failed to restore entry.');
+      return false;
     } finally {
       setSaving(false);
     }

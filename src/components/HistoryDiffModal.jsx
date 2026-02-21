@@ -214,7 +214,7 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
       className="modal d-block history-modal"
       tabIndex="-1"
       style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1055 }}
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget && !saving) onClose(); }}
     >
       <div
         className={`modal-dialog modal-dialog-scrollable ${isMobile ? 'modal-fullscreen-sm-down' : 'modal-xl'}`}
@@ -236,6 +236,7 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
                     if (mobileStep === 'diff') setMobileStep('list');
                     else onClose();
                   }}
+                  disabled={saving}
                   aria-label="Back to commits"
                   title="Back to commits"
                 >
@@ -317,7 +318,7 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
                 }
               </button>
             )}
-            <button type="button" className="btn btn-sm btn-secondary" onClick={onClose}>
+            <button type="button" className="btn btn-sm btn-secondary" onClick={onClose} disabled={saving}>
               Close
             </button>
           </div>

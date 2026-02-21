@@ -177,10 +177,10 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
   // Close modal on Escape
   useEffect(() => {
     if (!showHistory) return;
-    const handler = (e) => { if (e.key === 'Escape') setShowHistory(false); };
+    const handler = (e) => { if (e.key === 'Escape' && !saving) setShowHistory(false); };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [showHistory]);
+  }, [showHistory, saving]);
 
   const toggleVisibility = (key) => {
     setVisiblePasswords((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -383,9 +383,9 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
     }
   };
 
-  const handleRestoreFromModal = (commitHash) => {
-    onRestore(entry.id, commitHash);
-    setShowHistory(false);
+  const handleRestoreFromModal = async (commitHash) => {
+    const restored = await onRestore(entry.id, commitHash);
+    if (restored) setShowHistory(false);
   };
 
   const hasInvalidFields =
@@ -915,7 +915,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
         idx={historyIdx}
         onIdxChange={setHistoryIdx}
         onRestore={handleRestoreFromModal}
-        onClose={() => setShowHistory(false)}
+        onClose={() => { if (!saving) setShowHistory(false); }}
         saving={saving}
         isMobile={isMobile}
       />
