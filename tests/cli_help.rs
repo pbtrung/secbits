@@ -17,11 +17,7 @@ fn help_includes_full_command_surface() {
         .stdout(contains("restore"))
         .stdout(contains("totp"))
         .stdout(contains("export"))
-        .stdout(contains("backup"))
-        .stdout(contains("share-init"))
-        .stdout(contains("share-pubkey"))
-        .stdout(contains("share"))
-        .stdout(contains("share-receive"));
+        .stdout(contains("backup"));
 }
 
 #[test]

@@ -61,34 +61,6 @@ pub enum Commands {
         #[command(subcommand)]
         command: BackupCommands,
     },
-    #[command(name = "share-init")]
-    ShareInit,
-    #[command(name = "share-pubkey")]
-    SharePubkey {
-        #[arg(long, value_name = "file")]
-        output: Option<PathBuf>,
-    },
-    Share {
-        #[arg(value_name = "path")]
-        path: String,
-        #[arg(long = "recipient-key", value_name = "file")]
-        recipient_key: PathBuf,
-        #[arg(long, value_name = "file")]
-        output: Option<PathBuf>,
-        #[arg(long, value_name = "name")]
-        target: Option<String>,
-    },
-    #[command(name = "share-receive")]
-    ShareReceive {
-        #[arg(long, value_name = "file")]
-        input: Option<PathBuf>,
-        #[arg(long, value_name = "name")]
-        target: Option<String>,
-        #[arg(long, value_name = "key")]
-        object: Option<String>,
-        #[arg(long = "save-as", value_name = "path")]
-        save_as: Option<String>,
-    },
 }
 
 #[derive(Debug, Subcommand)]

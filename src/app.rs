@@ -18,10 +18,6 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             BackupCommands::Push { .. } => "backup push",
             BackupCommands::Pull { .. } => "backup pull",
         },
-        Commands::ShareInit => "share-init",
-        Commands::SharePubkey { .. } => "share-pubkey",
-        Commands::Share { .. } => "share",
-        Commands::ShareReceive { .. } => "share-receive",
     };
 
     Err(AppError::CommandNotImplemented(command_name))
