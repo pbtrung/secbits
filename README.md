@@ -368,7 +368,7 @@ Scope:
 1. Applies to: `show`, `edit`, `rm`, `history`, `restore`.
 2. `insert` still requires an exact new path and must reject on exact existing path (`PathAlreadyExists`).
 
-### 9.3 Implementing 9.2 (Dependencies and Algorithm)
+#### 9.2.1 Implementing 9.2 (Dependencies and Algorithm)
 
 Implementation approach:
 
