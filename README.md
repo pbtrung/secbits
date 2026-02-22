@@ -440,6 +440,10 @@ npx vitest
 | `encryptBytesToBlob` / `decryptBlobBytes` | `src/tests/crypto.test.js` | 3 | Round-trip correctness, AEAD tag structure, tamper rejection |
 | `generateTOTPForCounter` | `src/tests/totp.test.js` | 3 | RFC 6238 SHA-1 known vectors across normal and large counters |
 | leancrypto WASM primitives | `src/tests/leancrypto.test.js` | 1 (suite) | Ascon-Keccak AEAD, HMAC-SHA3-224, SHA3-512, HKDF-SHA256, SPHINCS+ vectors |
+| `buildExportData` | `src/tests/export-data.test.js` | 1 | Export shape, correct field inclusion, and exclusion of stored user-master-key blob |
+| History storage format | `src/tests/firebase-history-format.test.js` | 2 | Compact head-snapshot + delta storage; full snapshot reconstruction from deltas |
+| User master key lifecycle | `src/tests/firebase-key-lifecycle.test.js` | 2 | In-memory key store/clear and zeroization on replace |
+| `isHttpUrl` | `src/tests/validation.test.js` | 3 | Accepts http/https URLs; rejects non-http(s) schemes and malformed values |
 
 ### Why these tests matter
 
@@ -474,6 +478,16 @@ The test runner lives in `src/tests/leancrypto.test.js` and can run standalone (
 - **HKDF-SHA256**: oneshot and streaming extract+expand against known vectors.
 - **SPHINCS+**: key generation, sign, and verify for all six SHAKE parameter sets.
 
+### Performance / load testing
+
+`perf.test.js` is a standalone Node.js script (not a Vitest test) that generates and inserts encrypted test entries directly into Firestore via the REST API. It reproduces the full app crypto and storage flow in Node: user-master-key verification/setup, doc-key wrapping, compact history serialization, and encrypted `entry_key`/`value` writes.
+
+```bash
+node perf.test.js secbits-config.json
+```
+
+The script reads a random English word pool from `data/english-words.txt` to build realistic entry payloads. It emits per-entry progress logs (index, versions, payload sizes, elapsed time, ETA) and retries failed Firestore writes with exponential backoff.
+
 ## Project Structure
 
 ```
@@ -482,6 +496,9 @@ secbits/
 ├── vite.config.js                    # Vite + React + WASM plugins; test config
 ├── package.json
 ├── firestore.rules                   # Firestore security rules (copy into Firebase Console)
+├── perf.test.js                      # Standalone Node perf/load script: inserts encrypted entries via Firestore REST API
+├── data/
+│   └── english-words.txt             # Word pool used by perf.test.js to generate realistic entry payloads
 ├── public/
 │   ├── firebase-config-template.json # Example config file for users
 │   └── leancrypto/
