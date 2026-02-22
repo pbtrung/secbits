@@ -42,7 +42,7 @@ Internal modules:
 3. `crypto`: thin safe wrappers around leancrypto FFI, byte layout encode/decode, zeroization helpers.
 4. `compression`: brotli encode/decode wrappers.
 5. `model`: entry payload structs, history structs, delta reconstruction.
-6. `app`: domain flows (login/init/insert/show/edit/history/restore).
+6. `app`: domain flows (init/insert/show/edit/history/restore).
 7. `backup`: backup pack/unpack, S3-compatible upload/download flows.
 
 ### 4.1 CLI TOML Config
@@ -157,7 +157,7 @@ Validation rules:
 
 Key generation guidance: generate at least 256 bytes of cryptographically random data and base64-encode it. Example: `openssl rand -base64 344 | tr -d '\n'` produces a 256-byte decoded key.
 
-### 6.2 User Master Key Setup (First Login)
+### 6.2 User Master Key Setup
 
 1. Generate random `user_master_key` (64 bytes).
 2. Generate random `salt` (64 bytes).
@@ -166,7 +166,7 @@ Key generation guidance: generate at least 256 bytes of cryptographically random
 5. Persist `user_master_key_blob = salt || encrypted_user_master_key || tag` (192 bytes).
 6. Keep plaintext user master key in memory only for the current process invocation.
 
-### 6.3 User Master Key Verify (Returning Login)
+### 6.3 User Master Key Verify
 
 1. Load stored blob from `users.user_master_key`.
 2. Validate blob size = 192 bytes.
@@ -416,51 +416,43 @@ Valid `path_hint` values must satisfy:
    - Prompts for root master key.
    - Creates and stores wrapped `user_master_key` blob.
 
-2. `secbits login --username <name>`
-   - Reads root master key from config.
-   - Verifies/decrypts user master key from stored blob.
-   - Prints confirmation. Does not create persistent session state.
-
-3. `secbits ls [prefix]`
+2. `secbits ls [prefix]`
    - List `path_hint` values, optionally filtered by prefix.
 
-4. `secbits show <path>`
+3. `secbits show <path>`
    - Resolve `<path>` with fuzzy matcher to one entry.
    - Unwrap `entry_key`, decrypt `value`, and read history.
    - Print latest snapshot.
 
-5. `secbits insert <path>`
+4. `secbits insert <path>`
    - Reject if path format is invalid (`InvalidPathHint`) or path already exists (`PathAlreadyExists`).
    - Read secret fields from prompt/editor.
    - Create doc key, wrapped `entry_key`, and encrypted `value`.
 
-6. `secbits edit <path>`
+5. `secbits edit <path>`
    - Resolve `<path>` with fuzzy matcher to one entry.
    - Decrypt latest snapshot.
    - Edit fields.
    - Append commit if changed.
 
-7. `secbits rm <path>`
+6. `secbits rm <path>`
    - Resolve `<path>` with fuzzy matcher to one entry.
    - Delete by resolved `path_hint` after confirmation.
 
-8. `secbits history <path>`
+7. `secbits history <path>`
    - Resolve `<path>` with fuzzy matcher to one entry.
    - Print commits: hash, parent, timestamp, changed fields.
 
-9. `secbits restore <path> --commit <hash>`
+8. `secbits restore <path> --commit <hash>`
    - Resolve `<path>` with fuzzy matcher to one entry.
    - Apply restore flow and persist new history blob.
 
-10. `secbits logout`
-    - Prints a message that all session state is per-invocation and already cleared at process exit.
+9. `secbits backup push [--target <name> | --all]`
+   - One of `--target <name>` or `--all` must be provided; invoking with neither flag is an error.
+   - Creates encrypted snapshot of local DB and uploads to one selected backup target or all configured targets.
+   - Object key format per target: `<prefix><username>/<timestamp_utc_iso8601>.secbits.enc`.
 
-11. `secbits backup push [--target <name> | --all]`
-    - One of `--target <name>` or `--all` must be provided; invoking with neither flag is an error.
-    - Creates encrypted snapshot of local DB and uploads to one selected backup target or all configured targets.
-    - Object key format per target: `<prefix><username>/<timestamp_utc_iso8601>.secbits.enc`.
-
-12. `secbits backup pull --target <name> [--object <key>]`
+10. `secbits backup pull --target <name> [--object <key>]`
     - Downloads latest (or specified) encrypted backup object from the selected backup target.
     - "Latest" is determined by listing objects under `<prefix><username>/` and selecting the lexicographically largest key (ISO-8601 timestamps sort correctly this way).
     - Verifies/decrypts using `root_master_key_b64` and restores local DB after confirmation.
@@ -475,10 +467,6 @@ The CLI is stateless across invocations. Each process invocation reads the root 
 4. On process exit, best-effort zeroization of all in-memory sensitive buffers.
 5. Never persist the decrypted user master key to disk.
 6. Commands that require decryption must fail with a clear message if no user record exists for the configured username (`UserNotFound`).
-
-`login` semantics: Verifies the root master key in config against the stored user master key blob and prints confirmation. Serves as an explicit verification step; does not create persistent session state.
-
-`logout` semantics: No-op. All sensitive state is per-invocation and zeroized at process exit. Kept for UX familiarity.
 
 Optional future enhancement: short-lived encrypted session token in OS keyring. If adopted, this is an explicit change to the session model that must be documented and reviewed separately; the encrypted token must not be usable to reconstruct the user master key without the root master key.
 
@@ -679,11 +667,6 @@ Steps:
 4. On confirmation, delete the row by resolved `path_hint`. The `ON DELETE CASCADE` constraint removes all associated columns.
 5. Print deletion confirmation.
 
-### 15.9 `logout`
-
-1. Print: "SecBits uses a per-invocation session model. All key material is held only in process memory and is zeroized at process exit. No persistent session state exists to clear."
-2. Exit with success.
-
 ## 16. Testing Strategy
 
 ### 16.1 Unit Tests
@@ -722,11 +705,11 @@ Steps:
 10. `backup push --all` with zero configured targets returns `BackupTargetNotConfigured`.
 11. Config file present but missing `db_path` returns `InvalidConfigField`.
 12. Config file present but missing `root_master_key_b64` returns `InvalidConfigField`.
-13. Login for a username not in the database returns `UserNotFound`.
+13. Any command run for a username not found in the database returns `UserNotFound`.
 
 ### 16.3 Integration Tests
 
-1. `init -> login -> insert -> show -> edit -> history -> restore`.
+1. `init -> insert -> show -> edit -> history -> restore`.
 2. Multi-entry pass-style path listing.
 3. DB persistence across process restarts.
 4. `backup push -> delete local db copy -> backup pull` disaster-recovery path.
@@ -796,7 +779,7 @@ Steps:
 
 **Goal:** Support secure root master key validation and user master key lifecycle.
 
-**Scope:** `init`, `login`, per-invocation session semantics, auth-related error mapping.
+**Scope:** `init`, per-invocation session semantics, auth-related error mapping.
 
 **Exit criteria:**
 1. Correct key setup/verification behavior validated by unit and integration tests.
@@ -817,7 +800,7 @@ Steps:
 
 **Goal:** Provide complete pass-style command workflows with fuzzy path resolution.
 
-**Scope:** `ls/show/insert/edit/rm/history/restore/logout`, path matcher, ambiguity handling, `path_hint` format validation.
+**Scope:** `ls/show/insert/edit/rm/history/restore`, path matcher, ambiguity handling, `path_hint` format validation.
 
 **Exit criteria:**
 1. Core workflow integration tests pass.
