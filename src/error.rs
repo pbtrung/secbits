@@ -23,6 +23,9 @@ pub enum AppError {
     #[error("key derivation failed")]
     KeyDerivationFailed,
 
+    #[error("leancrypto operation failed with code {0}")]
+    CryptoOperationFailed(i32),
+
     #[error("invalid key material")]
     InvalidKeyMaterial,
 

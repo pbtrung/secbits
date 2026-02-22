@@ -1,9 +1,9 @@
-use hkdf::Hkdf;
-use hmac::{Hmac, Mac};
+use std::ptr;
+use std::sync::Once;
+
+use leancrypto_sys::ffi::leancrypto;
 use rand::rngs::OsRng;
 use rand::TryRngCore;
-use sha3::{Digest, Sha3_512};
-use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 use crate::error::AppError;
@@ -18,39 +18,36 @@ pub const TAG_LEN: usize = 64;
 pub const HKDF_OUT_LEN: usize = ENC_KEY_LEN + ENC_IV_LEN;
 pub const MASTER_BLOB_LEN: usize = SALT_LEN + USER_MASTER_KEY_LEN + TAG_LEN;
 
-type HmacSha3_512 = Hmac<Sha3_512>;
-
-#[derive(Debug)]
-struct KeyMaterial {
-    enc_key: [u8; ENC_KEY_LEN],
-    enc_iv: [u8; ENC_IV_LEN],
-}
-
-impl Drop for KeyMaterial {
-    fn drop(&mut self) {
-        self.enc_key.zeroize();
-        self.enc_iv.zeroize();
-    }
-}
+const HKDF_INFO: &[u8] = b"secbits:enc-material:v1";
 
 pub fn encrypt_bytes_to_blob(key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
     if key.is_empty() {
         return Err(AppError::InvalidKeyMaterial);
     }
 
+    ensure_leancrypto_initialized()?;
+
     let mut salt = [0_u8; SALT_LEN];
     OsRng
         .try_fill_bytes(&mut salt)
         .map_err(|_| AppError::KeyDerivationFailed)?;
 
-    let material = derive_material(key, &salt)?;
-    let ciphertext = xor_stream(&material, plaintext);
-    let tag = compute_tag(&material, &ciphertext)?;
+    let mut material = derive_material(key, &salt)?;
+    let mut ciphertext = vec![0_u8; plaintext.len()];
+    let mut tag = [0_u8; TAG_LEN];
+
+    let mut aead = AeadContext::new(TAG_LEN as u8)?;
+    aead.setkey(&material.enc_key, &material.enc_iv)?;
+    aead.encrypt(plaintext, &mut ciphertext, &mut tag)?;
 
     let mut blob = Vec::with_capacity(SALT_LEN + ciphertext.len() + TAG_LEN);
     blob.extend_from_slice(&salt);
     blob.extend_from_slice(&ciphertext);
     blob.extend_from_slice(&tag);
+
+    material.enc_key.zeroize();
+    material.enc_iv.zeroize();
+
     Ok(blob)
 }
 
@@ -63,26 +60,52 @@ pub fn decrypt_bytes_from_blob(key: &[u8], blob: &[u8]) -> Result<Vec<u8>> {
         return Err(AppError::InvalidBlob);
     }
 
+    ensure_leancrypto_initialized()?;
+
     let salt = &blob[..SALT_LEN];
     let ciphertext = &blob[SALT_LEN..blob.len() - TAG_LEN];
     let tag = &blob[blob.len() - TAG_LEN..];
 
-    let material = derive_material(key, salt)?;
-    let expected_tag = compute_tag(&material, ciphertext)?;
+    let mut material = derive_material(key, salt)?;
+    let mut plaintext = vec![0_u8; ciphertext.len()];
 
-    if expected_tag.as_slice().ct_eq(tag).unwrap_u8() != 1 {
-        return Err(AppError::DecryptionFailedAuthentication);
-    }
+    let mut aead = AeadContext::new(TAG_LEN as u8)?;
+    aead.setkey(&material.enc_key, &material.enc_iv)?;
+    aead.decrypt(ciphertext, &mut plaintext, tag)?;
 
-    Ok(xor_stream(&material, ciphertext))
+    material.enc_key.zeroize();
+    material.enc_iv.zeroize();
+
+    Ok(plaintext)
+}
+
+#[derive(Debug)]
+struct KeyMaterial {
+    enc_key: [u8; ENC_KEY_LEN],
+    enc_iv: [u8; ENC_IV_LEN],
 }
 
 fn derive_material(key: &[u8], salt: &[u8]) -> Result<KeyMaterial> {
-    let hk = Hkdf::<Sha3_512>::new(Some(salt), key);
-
     let mut out = [0_u8; HKDF_OUT_LEN];
-    hk.expand(b"secbits:enc-material:v1", &mut out)
-        .map_err(|_| AppError::KeyDerivationFailed)?;
+
+    let rc = unsafe {
+        leancrypto::lc_hkdf(
+            leancrypto::lc_sha3_512,
+            key.as_ptr(),
+            key.len(),
+            salt.as_ptr(),
+            salt.len(),
+            HKDF_INFO.as_ptr(),
+            HKDF_INFO.len(),
+            out.as_mut_ptr(),
+            out.len(),
+        )
+    };
+
+    if rc < 0 {
+        out.zeroize();
+        return Err(AppError::KeyDerivationFailed);
+    }
 
     let mut enc_key = [0_u8; ENC_KEY_LEN];
     enc_key.copy_from_slice(&out[..ENC_KEY_LEN]);
@@ -95,40 +118,110 @@ fn derive_material(key: &[u8], salt: &[u8]) -> Result<KeyMaterial> {
     Ok(KeyMaterial { enc_key, enc_iv })
 }
 
-fn xor_stream(material: &KeyMaterial, input: &[u8]) -> Vec<u8> {
-    let mut output = Vec::with_capacity(input.len());
-    let mut counter: u64 = 0;
-
-    while output.len() < input.len() {
-        let mut hasher = Sha3_512::new();
-        hasher.update(material.enc_key);
-        hasher.update(material.enc_iv);
-        hasher.update(counter.to_le_bytes());
-        let block = hasher.finalize();
-
-        let remaining = input.len() - output.len();
-        let take = remaining.min(block.len());
-
-        let start = output.len();
-        for idx in 0..take {
-            output.push(input[start + idx] ^ block[idx]);
-        }
-
-        counter = counter.wrapping_add(1);
-    }
-
-    output
+struct AeadContext {
+    ctx: *mut leancrypto::lc_aead_ctx,
 }
 
-fn compute_tag(material: &KeyMaterial, ciphertext: &[u8]) -> Result<[u8; TAG_LEN]> {
-    let mut mac = HmacSha3_512::new_from_slice(&material.enc_key)
-        .map_err(|_| AppError::KeyDerivationFailed)?;
-    mac.update(&material.enc_iv);
-    mac.update(ciphertext);
+impl AeadContext {
+    fn new(tag_len: u8) -> Result<Self> {
+        let mut ctx: *mut leancrypto::lc_aead_ctx = ptr::null_mut();
 
-    let mut out = [0_u8; TAG_LEN];
-    out.copy_from_slice(&mac.finalize().into_bytes());
-    Ok(out)
+        let rc =
+            unsafe { leancrypto::lc_ak_alloc_taglen(leancrypto::lc_sha3_512, tag_len, &mut ctx) };
+        if rc < 0 || ctx.is_null() {
+            return Err(AppError::CryptoOperationFailed(rc));
+        }
+
+        Ok(Self { ctx })
+    }
+
+    fn setkey(&mut self, key: &[u8], iv: &[u8]) -> Result<()> {
+        let rc = unsafe {
+            leancrypto::lc_aead_setkey(self.ctx, key.as_ptr(), key.len(), iv.as_ptr(), iv.len())
+        };
+
+        if rc < 0 {
+            return Err(AppError::CryptoOperationFailed(rc));
+        }
+
+        Ok(())
+    }
+
+    fn encrypt(&mut self, plaintext: &[u8], ciphertext: &mut [u8], tag: &mut [u8]) -> Result<()> {
+        let rc = unsafe {
+            leancrypto::lc_aead_encrypt(
+                self.ctx,
+                plaintext.as_ptr(),
+                ciphertext.as_mut_ptr(),
+                plaintext.len(),
+                ptr::null(),
+                0,
+                tag.as_mut_ptr(),
+                tag.len(),
+            )
+        };
+
+        if rc < 0 {
+            return Err(AppError::CryptoOperationFailed(rc));
+        }
+
+        Ok(())
+    }
+
+    fn decrypt(&mut self, ciphertext: &[u8], plaintext: &mut [u8], tag: &[u8]) -> Result<()> {
+        let rc = unsafe {
+            leancrypto::lc_aead_decrypt(
+                self.ctx,
+                ciphertext.as_ptr(),
+                plaintext.as_mut_ptr(),
+                ciphertext.len(),
+                ptr::null(),
+                0,
+                tag.as_ptr(),
+                tag.len(),
+            )
+        };
+
+        if rc == -(leancrypto::EBADMSG as i32) {
+            return Err(AppError::DecryptionFailedAuthentication);
+        }
+
+        if rc < 0 {
+            return Err(AppError::CryptoOperationFailed(rc));
+        }
+
+        Ok(())
+    }
+}
+
+impl Drop for AeadContext {
+    fn drop(&mut self) {
+        if !self.ctx.is_null() {
+            unsafe {
+                leancrypto::lc_aead_zero_free(self.ctx);
+            }
+            self.ctx = ptr::null_mut();
+        }
+    }
+}
+
+fn ensure_leancrypto_initialized() -> Result<()> {
+    static INIT: Once = Once::new();
+    static mut INIT_STATUS: i32 = 0;
+
+    INIT.call_once(|| {
+        let rc = unsafe { leancrypto::lc_init(0) };
+        unsafe {
+            INIT_STATUS = rc;
+        }
+    });
+
+    let status = unsafe { INIT_STATUS };
+    if status < 0 {
+        return Err(AppError::CryptoOperationFailed(status));
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
