@@ -515,6 +515,140 @@ Valid `path_hint` values must satisfy:
     - Receive and decrypt a share payload; insert the shared snapshot as a new entry in the active user's vault.
     - See §20 for full protocol.
 
+### 9.4 Interactive Entry Input Design
+
+This section governs the UX for all interactive field collection used by `insert` and `edit`. The design was driven by a concrete audit of the initial implementation that exposed several security and usability gaps.
+
+### 9.4.1 Field Security Classification
+
+**Rationale:** treating all fields identically with a plain echoing prompt leaks secrets to anyone watching the screen, to terminal scrollback, and to screen recordings.
+
+Fields are classified into three tiers:
+
+1. **Secret fields — masked input, no echo:** `password`, each entry of `totpSecrets`. Uses the `rpassword` crate for terminal-safe masked reads. Nothing is displayed while the user types (no `*` substitution, which would leak length).
+2. **Sensitive-free-text field — editor or multi-line masked:** `notes`. May contain recovery codes, API keys, and other secrets; a single-line echoing prompt is inadequate.
+3. **Plain fields — normal echo:** `title`, `username`, `urls`, `tags`, `customFields`.
+
+### 9.4.2 Password Confirmation
+
+**Rationale:** a masked password field gives no visual feedback. A single typo stores the wrong value with no recovery path other than a manual `edit`.
+
+**Solution:** after the initial masked `password` prompt, immediately re-prompt with `repeat password:`. If the two values differ, print `Passwords do not match.` and loop until they match or the user cancels. Return `PasswordConfirmationMismatch` if the loop is aborted programmatically (e.g. EOF on stdin).
+
+### 9.4.3 TOTP Secret Validation at Entry Time
+
+**Rationale:** an invalid TOTP secret is accepted silently during `insert` and only surfaces as a confusing error when `totp` is later invoked. At that point the user does not know which stored secret is broken.
+
+**Solution:** after collecting each TOTP secret, immediately:
+
+1. Attempt Base32 decode. On failure, print `Invalid TOTP secret: not valid Base32.` and re-prompt for that secret.
+2. Enforce minimum length: decoded secret must be `>= 10` bytes (RFC 4226 HMAC key minimum). Warn (but do not reject) if `< 16` bytes: `Warning: TOTP secret is shorter than the recommended 16 bytes.`
+
+Return `InvalidTotpSecret` if the user provides an invalid value in non-interactive (piped) mode.
+
+### 9.4.4 Multi-value Field Input (URLs, Tags, TOTP Secrets)
+
+**Rationale:** comma-separated input silently breaks when field values contain commas. A URL with a comma in a query parameter or a tag containing a comma is split into two invalid entries with no error. There is no escaping mechanism.
+
+**Solution:** collect multi-value fields one entry per line, terminated by an empty line:
+
+```
+urls (one per line, empty line to finish):
+  > https://mail.google.com
+  > https://accounts.google.com
+  >
+```
+
+The prompt indicator `>` is printed before each line. An empty line ends collection. This eliminates parsing ambiguity and allows any Unicode value in any field.
+
+In non-interactive (piped) mode the JSON schema input is unchanged; this rule applies only to the interactive prompt path.
+
+### 9.4.5 Notes Field — Multi-line and Editor-backed
+
+**Rationale:** `notes` is routinely used for multi-line content (SSH config snippets, 2FA recovery codes, multi-line API credentials). A single `read_line` call silently discards all content after the first newline when input is piped, causing data loss with no error.
+
+**Solution:**
+
+1. If `$VISUAL` or `$EDITOR` is set, write an empty temporary file to `$XDG_RUNTIME_DIR` if available (typically a `tmpfs` mount), otherwise fall back to the system temp dir. Launch the editor process and wait for it to exit. Read back the file contents. Securely overwrite the temp file with zeros before deletion (best-effort).
+2. If no editor is configured and stdin is a terminal, collect multi-line input terminated by `Ctrl+D` (EOF): prompt header is `notes (Ctrl+D to finish, or leave blank):`.
+3. If stdin is not a terminal (piped mode), read until EOF for the notes value.
+
+Security note on temp file: create with mode `0600`, in a directory not world-readable. Do not use a predictable filename. Zeroize contents before unlinking.
+
+### 9.4.6 Custom Fields Interactive Support
+
+**Rationale:** `customFields` is a first-class part of the entry model (shown in `show` output, tracked in history deltas) but the initial interactive prompt path had no mechanism to create them. Custom fields were therefore unreachable for interactive users.
+
+**Solution:** after all fixed fields are collected, offer a creation loop:
+
+```
+custom field label (empty to finish): API token
+custom field value: sk-...
+custom field label (empty to finish):
+```
+
+Field IDs are assigned as monotonically increasing integers starting from 1. If the label text suggests a sensitive value (contains `key`, `secret`, `token`, `password`, `credential`, or `api` case-insensitively), the value prompt automatically switches to masked input and the user is notified: `(masked — label suggests sensitive value)`.
+
+### 9.4.7 Optional Field Skipping
+
+**Rationale:** most entries only need `title`, `username`, and `password`. Unconditionally presenting all seven field groups forces the user through four extra Enter presses for fields they do not want.
+
+**Solution:** present fields in two stages.
+
+Stage 1 — always prompted (core fields):
+
+1. `title`
+2. `username`
+3. `password` (masked, with confirmation)
+
+Stage 2 — each preceded by a yes/no gate:
+
+4. `Add URLs? [y/N]`
+5. `Add notes? [y/N]`
+6. `Add TOTP secrets? [y/N]`
+7. `Add tags? [y/N]`
+8. `Add custom fields? [y/N]`
+
+Answering `N` (or pressing Enter) skips that group; the field is stored as its empty default. This allows a three-prompt insert path for the common case while keeping full fields accessible.
+
+### 9.4.8 Abort Mechanism and Terminal Safety
+
+**Rationale:** there is no documented cancel path. If the user decides mid-entry that they entered the wrong path or want to start over, only `Ctrl-C` works and it leaves no clear indication that nothing was written. After a masked read, a kill signal can leave the terminal with echo disabled if cleanup is not handled.
+
+**Solution:**
+
+1. Print `(Ctrl-C to cancel)` in the preamble line before any prompts begin.
+2. The `rpassword` crate restores terminal echo on drop, covering both normal exit and signal receipt; verify this in integration tests.
+3. On `SIGINT` received during field collection, print a newline followed by `Aborted.` to stdout and exit with code 130. No data is written to the database if the user cancels at any point before the final write.
+
+### 9.4.9 Command-invocation Log Demotion for Interactive Commands
+
+**Rationale:** the INFO `command invoked` log line fires before interactive prompts begin, injecting a timestamp banner that disrupts the visual flow of the session. This log is most useful for audit trails in automated/scripted contexts where a higher log level is typical.
+
+**Solution:** demote the command-invocation log from `INFO` to `DEBUG` for commands that collect interactive input (`insert`, `edit`). The log continues to fire at INFO level for all non-interactive commands. With the default `log_level = info` a user running an interactive session sees a clean prompt with no preceding banner.
+
+### 9.4.10 Post-Insert Summary
+
+**Rationale:** after completing entry, the only output is a logging line confirming the path. The user has no visible confirmation of which fields were stored with non-empty values and must run `show` to verify.
+
+**Solution:** after a successful `insert` (or `edit` that records a change), print a compact non-secret summary to stdout:
+
+```
+Inserted test/email/1
+  title:    Gmail
+  username: alice@example.com
+  urls:     2
+  totp:     1 secret
+  tags:     work
+```
+
+Rules:
+1. `password` value is never printed. Show only `password: set` vs `password: (empty)`.
+2. `notes` value is never printed. Show only `notes: set (N bytes)` vs `notes: (empty)`.
+3. TOTP secret values are never printed. Show count only.
+4. `customFields` values are never printed. Show `custom fields: N`.
+5. Fields absent or empty are omitted from the summary entirely.
+
 ## 10. Authentication and Session Semantics
 
 The CLI is stateless across invocations. Each process invocation reads the root master key from config, performs its work, and zeroizes all key material before exit.
@@ -561,6 +695,8 @@ Representative errors:
 27. `ShareDecryptFailed`
 28. `ShareUploadFailed`
 29. `ShareDownloadFailed`
+30. `PasswordConfirmationMismatch`
+31. `InvalidTotpSecret`
 
 All crypto/auth errors should be explicit and non-ambiguous for operators.
 
@@ -593,6 +729,7 @@ Rust crates (initial):
 12. `regex` for path query matching (smart-case regex + literal fallback).
 13. Optional: `url` and Unicode normalization crate for semantic diff normalization rules.
 14. TOTP crate (e.g., `totp-rs` or `totp-lite`) for RFC 6238 TOTP code generation.
+15. `rpassword` for masked terminal input of `password` and `totpSecrets` fields (see §9.4.1). Must restore terminal echo on drop and on signal receipt.
 
 Note: the hybrid ML-KEM-1024 + X448 KEM functions (`lc_kyber_x448_1024_*`) are part of leancrypto and are covered by the existing FFI binding crate in item 9. No additional crate is required for sharing.
 
@@ -635,22 +772,27 @@ Use system brotli libs through FFI crate or direct bindings.
 1. Verify root master key from config against stored user master key blob; derive user master key. Return `UserNotFound` if no user record exists.
 2. Validate `path_hint` format per §9.2.3. Return `InvalidPathHint` on violation.
 3. Check `path_hint` uniqueness. Return `PathAlreadyExists` if it already exists.
-4. Build entry payload fields with current timestamp.
-5. Generate `doc_key` (64 random bytes).
-6. Build initial commit:
+4. Collect entry fields via interactive input (§9.4) or by reading JSON from stdin (non-interactive mode):
+   - In interactive mode: follow §9.4.7 field ordering, §9.4.2 password confirmation, §9.4.3 TOTP validation, §9.4.4 multi-value line input, §9.4.5 notes editor/multi-line, §9.4.6 custom fields loop.
+   - In non-interactive (piped) mode: read and parse a JSON object from stdin. Validate each `totpSecrets` entry for Base32 decodability; return `InvalidTotpSecret` on failure.
+   - Return `PasswordConfirmationMismatch` if password and its confirmation differ (interactive mode).
+5. Set `timestamp` to current UTC ISO-8601.
+6. Generate `doc_key` (64 random bytes).
+7. Build initial commit:
    - `parent = null`.
    - `timestamp` = current UTC ISO-8601 timestamp.
    - `changed` = list of all non-empty fields in the initial snapshot.
    - `hash` = content hash of the initial snapshot (per §8.1).
    - `delta.set` = all initially populated field values (serves as the reconstruction baseline per §8.3 rule 3).
    - `delta.unset` = all fields absent or empty in the initial snapshot.
-7. Build compact history object: `{ "head": <hash>, "head_snapshot": <snapshot>, "commits": [<initial_commit>] }`.
-8. Serialize history JSON.
-9. Brotli compress serialized JSON.
-10. Encrypt compressed history with `doc_key` via `encryptBytesToBlob` => `value` blob.
-11. Wrap `doc_key` with user master key via `encryptBytesToBlob` => `entry_key` blob.
-12. Write row with `entry_key = entry_key_blob` and `value = value_blob`.
-13. If `backup_on_save = true` in config, trigger `backup push --all`.
+8. Build compact history object: `{ "head": <hash>, "head_snapshot": <snapshot>, "commits": [<initial_commit>] }`.
+9. Serialize history JSON.
+10. Brotli compress serialized JSON.
+11. Encrypt compressed history with `doc_key` via `encryptBytesToBlob` => `value` blob.
+12. Wrap `doc_key` with user master key via `encryptBytesToBlob` => `entry_key` blob.
+13. Write row with `entry_key = entry_key_blob` and `value = value_blob`.
+14. Print post-insert summary per §9.4.10 (non-secret fields only).
+15. If `backup_on_save = true` in config, trigger `backup push --all`.
 
 ### 15.2 `show`
 
@@ -911,9 +1053,9 @@ Steps:
 
 ### 17.6 Milestone 6: Path UX and Core Commands
 
-**Goal:** Provide complete pass-style command workflows with fuzzy path resolution.
+**Goal:** Provide complete pass-style command workflows with fuzzy path resolution and a secure, usable interactive entry input experience.
 
-**Scope:** `ls/show/insert/edit/rm/history/restore/totp/export`, path matcher, ambiguity handling, `path_hint` format validation, per-user path scoping.
+**Scope:** `ls/show/insert/edit/rm/history/restore/totp/export`, path matcher, ambiguity handling, `path_hint` format validation, per-user path scoping, interactive input design per §9.4.
 
 **Exit criteria:**
 1. Core workflow integration tests pass.
@@ -922,6 +1064,16 @@ Steps:
 4. Per-user path uniqueness enforced: same `path_hint` allowed across different users, rejected for the same user.
 5. `totp` computes correct codes against known-secret/known-time test vectors.
 6. `export` produces a valid JSON array containing all and only the active user's entries.
+7. `password` and `totpSecrets` fields use masked input (no echo) in interactive mode.
+8. `password` requires confirmation in interactive mode; mismatch returns `PasswordConfirmationMismatch`.
+9. Each TOTP secret is validated for Base32 decodability and minimum length at input time; `InvalidTotpSecret` returned on failure.
+10. Multi-value fields (`urls`, `tags`, `totpSecrets`) collected one-per-line in interactive mode.
+11. `notes` supports multi-line input (editor-backed when `$VISUAL`/`$EDITOR` is set, otherwise Ctrl+D-terminated).
+12. `customFields` are reachable via interactive prompt loop.
+13. Optional field groups are gated behind a yes/no prompt; core fields (title, username, password) are always collected.
+14. Post-insert/post-edit summary printed to stdout (non-secret fields only, per §9.4.10).
+15. `insert` and `edit` command-invocation log demoted to DEBUG; no INFO banner interrupts interactive prompts.
+16. Ctrl-C cancels cleanly with `Aborted.` output and no database write; terminal echo is restored.
 
 ### 17.7 Milestone 7: Config and Backup Targets
 
