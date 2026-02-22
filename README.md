@@ -1,4 +1,4 @@
-# SecBits Rust Branch Design (Offline, System Crypto)
+# SecBits
 
 This document is the full implementation design for rebuilding SecBits as an offline-first Rust application from an empty repository state.
 
