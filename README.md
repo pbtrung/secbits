@@ -52,6 +52,8 @@ Config file format: TOML.
 ```toml
 root_master_key_b64 = "BASE64_ROOT_MASTER_KEY"
 db_path = "/home/user/.local/share/secbits/secbits.db"
+username = "alice"
+backup_on_save = false  # optional; when true, triggers backup push --all after every successful write command
 
 [targets.r2]
 provider = "r2"
@@ -87,9 +89,11 @@ Rules:
 
 1. `root_master_key_b64` must decode and satisfy root key length validation.
 2. `db_path` points to the local SQLite database file used by the CLI.
-3. `[targets.<name>]` defines one or more S3-compatible backup targets, allowing R2, AWS S3, and GCS to be configured at the same time.
-4. `provider` identifies behavior differences (`r2`, `aws`, `gcs`) while still using S3 API-compatible upload/download flows.
-5. Secrets in config must be protected by filesystem permissions (`0600`) or environment override strategy.
+3. `username` identifies the active user in the local database. Required for all commands that access entries.
+4. `backup_on_save` is optional and defaults to `false`. When `true`, triggers `backup push --all` automatically after every successful write command (`insert`, `edit`, `restore`).
+5. `[targets.<name>]` defines one or more S3-compatible backup targets, allowing R2, AWS S3, and GCS to be configured at the same time.
+6. `provider` identifies behavior differences (`r2`, `aws`, `gcs`) while still using S3 API-compatible upload/download flows.
+7. Secrets in config must be protected by filesystem permissions (`0600`) or environment override strategy.
 
 ## 5. SQLite Schema
 
@@ -107,10 +111,11 @@ CREATE TABLE users (
 CREATE TABLE entries (
   entry_id INTEGER PRIMARY KEY,
   user_id INTEGER NOT NULL,
-  path_hint TEXT NOT NULL UNIQUE,
+  path_hint TEXT NOT NULL,
   entry_key BLOB NOT NULL,
   value BLOB NOT NULL,
-  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+  UNIQUE(user_id, path_hint)
 );
 
 CREATE INDEX idx_entries_user_id ON entries(user_id);
@@ -119,7 +124,7 @@ CREATE INDEX idx_entries_user_id ON entries(user_id);
 Notes:
 
 1. `user_id` and `entry_id` are integer primary keys.
-2. `path_hint` stores pass-style path (`mail/google/main`) and is globally unique.
+2. `path_hint` stores pass-style path (`mail/google/main`) and is unique per user.
 3. `entry_key` stores wrapped per-entry doc key bytes.
 4. `value` stores encrypted history blob bytes.
 5. Secrets must never be written to plaintext columns.
@@ -329,8 +334,9 @@ Read/validation flow:
 2. Read file bytes from disk.
 3. Parse TOML into typed config struct.
 4. Validate required fields:
-   - `root_master_key_b64` and `db_path` for all commands.
+   - `root_master_key_b64`, `db_path`, and `username` for all commands.
    - At least one `[targets.<name>]` section for backup commands.
+   - `backup_on_save` must be a boolean if present; defaults to `false` if absent.
 5. Expand `~` in paths and normalize `db_path`.
 6. Return explicit error (`ConfigFileNotFound` or `InvalidConfigField`) on failure.
 
@@ -344,7 +350,7 @@ Operational notes:
 
 #### 9.2.1 Design and Goals
 
-Path-oriented commands support fuzzy matching against `entries.path_hint`.
+Path-oriented commands support fuzzy matching against `entries.path_hint`. All matching is scoped to the active user identified by `username` in config.
 
 Case-smart matching: if the query contains any uppercase letter, matching is case-sensitive; otherwise it is case-insensitive.
 
@@ -378,8 +384,8 @@ Scope:
 Implementation approach:
 
 1. Fetch candidate paths from SQLite:
-   - Exact check first: `SELECT path_hint FROM entries WHERE path_hint = ? LIMIT 2`.
-   - If no exact match, fetch candidate set (full list or prefix-filtered list) ordered by `path_hint`.
+   - Exact check first: `SELECT path_hint FROM entries WHERE path_hint = ? AND user_id = ? LIMIT 2`.
+   - If no exact match, fetch candidate set (`SELECT path_hint FROM entries WHERE user_id = ? ORDER BY path_hint`) or a prefix-filtered variant.
 2. Build matcher using case-smart mode (uppercase in query → case-sensitive, else case-insensitive):
    - Try compiling query as regex.
    - If regex compile fails, escape query and use literal substring matching.
@@ -417,7 +423,7 @@ Valid `path_hint` values must satisfy:
    - Creates and stores wrapped `user_master_key` blob.
 
 2. `secbits ls [prefix]`
-   - List `path_hint` values, optionally filtered by prefix.
+   - List `path_hint` values for the active user, optionally filtered by prefix.
 
 3. `secbits show <path>`
    - Resolve `<path>` with fuzzy matcher to one entry.
@@ -425,15 +431,17 @@ Valid `path_hint` values must satisfy:
    - Print latest snapshot.
 
 4. `secbits insert <path>`
-   - Reject if path format is invalid (`InvalidPathHint`) or path already exists (`PathAlreadyExists`).
+   - Reject if path format is invalid (`InvalidPathHint`) or path already exists for the active user (`PathAlreadyExists`).
    - Read secret fields from prompt/editor.
    - Create doc key, wrapped `entry_key`, and encrypted `value`.
+   - If `backup_on_save = true`, trigger `backup push --all` on success.
 
 5. `secbits edit <path>`
    - Resolve `<path>` with fuzzy matcher to one entry.
    - Decrypt latest snapshot.
    - Edit fields.
    - Append commit if changed.
+   - If `backup_on_save = true`, trigger `backup push --all` on success.
 
 6. `secbits rm <path>`
    - Resolve `<path>` with fuzzy matcher to one entry.
@@ -446,13 +454,25 @@ Valid `path_hint` values must satisfy:
 8. `secbits restore <path> --commit <hash>`
    - Resolve `<path>` with fuzzy matcher to one entry.
    - Apply restore flow and persist new history blob.
+   - If `backup_on_save = true`, trigger `backup push --all` on success.
 
-9. `secbits backup push [--target <name> | --all]`
-   - One of `--target <name>` or `--all` must be provided; invoking with neither flag is an error.
-   - Creates encrypted snapshot of local DB and uploads to one selected backup target or all configured targets.
-   - Object key format per target: `<prefix><username>/<timestamp_utc_iso8601>.secbits.enc`.
+9. `secbits totp <path>`
+   - Resolve `<path>` with fuzzy matcher to one entry.
+   - Extract `totpSecrets` from the latest snapshot. Return `NoTotpSecrets` if empty.
+   - Compute and display the current TOTP code(s) (RFC 6238, 30-second window, 6 digits) with seconds remaining in the current window.
 
-10. `secbits backup pull --target <name> [--object <key>]`
+10. `secbits export [--output <file>]`
+    - Decrypt all entries for the active user.
+    - Serialize each entry's `path_hint` and `head_snapshot` fields into a JSON array.
+    - Write to `<file>` or stdout if `--output` is not provided.
+    - Print a warning that the output is plaintext.
+
+11. `secbits backup push [--target <name> | --all]`
+    - One of `--target <name>` or `--all` must be provided; invoking with neither flag is an error.
+    - Creates encrypted snapshot of local DB and uploads to one selected backup target or all configured targets.
+    - Object key format per target: `<prefix><username>/<timestamp_utc_iso8601>.secbits.enc`.
+
+12. `secbits backup pull --target <name> [--object <key>]`
     - Downloads latest (or specified) encrypted backup object from the selected backup target.
     - "Latest" is determined by listing objects under `<prefix><username>/` and selecting the lexicographically largest key (ISO-8601 timestamps sort correctly this way).
     - Verifies/decrypts using `root_master_key_b64` and restores local DB after confirmation.
@@ -494,6 +514,8 @@ Representative errors:
 18. `BackupDecryptFailed`
 19. `BackupRestoreFailed`
 20. `BackupTargetNotConfigured`
+21. `NoTotpSecrets`
+22. `ExportFailed`
 
 All crypto/auth errors should be explicit and non-ambiguous for operators.
 
@@ -525,6 +547,7 @@ Rust crates (initial):
 11. S3-compatible client crate (`aws-sdk-s3` or equivalent with custom endpoint support).
 12. `regex` for path query matching (smart-case regex + literal fallback).
 13. Optional: `url` and Unicode normalization crate for semantic diff normalization rules.
+14. TOTP crate (e.g., `totp-rs` or `totp-lite`) for RFC 6238 TOTP code generation.
 
 ## 14. FFI Integration Strategy
 
@@ -574,6 +597,7 @@ Use system brotli libs through FFI crate or direct bindings.
 10. Encrypt compressed history with `doc_key` via `encryptBytesToBlob` => `value` blob.
 11. Wrap `doc_key` with user master key via `encryptBytesToBlob` => `entry_key` blob.
 12. Write row with `entry_key = entry_key_blob` and `value = value_blob`.
+13. If `backup_on_save = true` in config, trigger `backup push --all`.
 
 ### 15.2 `show`
 
@@ -638,6 +662,7 @@ Steps:
 10. If `commits.len() > 10`, drop oldest commit (FIFO) and update the new oldest commit's `delta.set` to its full snapshot.
 11. Serialize, brotli compress, and re-encrypt history with `doc_key` via `encryptBytesToBlob`.
 12. Update row: `value = new_value_blob`.
+13. If `backup_on_save = true` in config, trigger `backup push --all`.
 
 ### 15.6 `history`
 
@@ -658,6 +683,7 @@ Steps:
 8. Build delta for the prior HEAD (now the second commit): `delta.set` = complete values of all fields in the prior HEAD snapshot.
 9. Update `head_snapshot = target_snapshot`. Prepend new HEAD to `commits`. If `commits.len() > 10`, drop oldest (FIFO) and update new oldest's `delta.set` to its full snapshot.
 10. Serialize, compress, and re-encrypt. Update row: `value = new_value_blob`.
+11. If `backup_on_save = true` in config, trigger `backup push --all`.
 
 ### 15.8 `rm`
 
@@ -666,6 +692,24 @@ Steps:
 3. Print resolved `path_hint` and prompt for confirmation: "Delete `<path_hint>`? [y/N]".
 4. On confirmation, delete the row by resolved `path_hint`. The `ON DELETE CASCADE` constraint removes all associated columns.
 5. Print deletion confirmation.
+
+### 15.9 `totp`
+
+1. Verify root master key from config; derive user master key.
+2. Resolve `<path>` via fuzzy matcher to one `path_hint`.
+3. Load row; unwrap `doc_key`; decrypt and decompress history.
+4. Extract `totpSecrets` from `head_snapshot`. Return `NoTotpSecrets` if the list is empty.
+5. For each secret, compute the current TOTP code (RFC 6238, SHA-1, 30-second window, 6 digits).
+6. Print each code with the seconds remaining in the current window.
+
+### 15.10 `export`
+
+1. Verify root master key from config; derive user master key.
+2. Fetch all entry rows for the active user ordered by `path_hint`.
+3. For each row: unwrap `doc_key`; decrypt and decompress history; extract `head_snapshot`.
+4. Build a JSON array: each element is `{ "path": "<path_hint>", <head_snapshot fields...> }`.
+5. Write JSON to `--output <file>` or stdout if `--output` is not provided. Return `ExportFailed` on I/O error.
+6. Print a warning that the output file contains plaintext secrets and should be handled accordingly.
 
 ## 16. Testing Strategy
 
@@ -690,6 +734,8 @@ Steps:
     - `customFields` reorder vs true content change.
     - URL normalization equivalence cases.
     - Unicode NFC normalization edge cases.
+15. TOTP code generation: known-secret/known-time produces expected 6-digit code.
+16. `path_hint` uniqueness is per-user: two users can each have the same path without conflict; the same user cannot have duplicates.
 
 ### 16.2 Negative Tests
 
@@ -706,6 +752,8 @@ Steps:
 11. Config file present but missing `db_path` returns `InvalidConfigField`.
 12. Config file present but missing `root_master_key_b64` returns `InvalidConfigField`.
 13. Any command run for a username not found in the database returns `UserNotFound`.
+14. `totp` on an entry with no `totpSecrets` returns `NoTotpSecrets`.
+15. `export --output <unwritable_path>` returns `ExportFailed`.
 
 ### 16.3 Integration Tests
 
@@ -717,6 +765,9 @@ Steps:
 6. Diff behavior on reorder/whitespace/normalization scenarios.
 7. Commit overflow: apply 11 distinct edits to one entry; verify history length is exactly 10 and oldest commit's `delta.set` reflects its full snapshot.
 8. `backup pull` overwrites local DB; verify the confirmation prompt and that cancellation leaves the existing DB intact.
+9. `totp` on an entry with multiple `totpSecrets` displays all codes.
+10. `export` produces a valid JSON array containing all entries for the active user only.
+11. `backup_on_save = true`: `insert` automatically triggers a backup push on success.
 
 ### 16.4 End-to-End and CLI Contract Tests
 
@@ -800,7 +851,7 @@ Steps:
 
 **Goal:** Provide complete pass-style command workflows with fuzzy path resolution.
 
-**Scope:** `ls/show/insert/edit/rm/history/restore`, path matcher, ambiguity handling, `path_hint` format validation.
+**Scope:** `ls/show/insert/edit/rm/history/restore/totp/export`, path matcher, ambiguity handling, `path_hint` format validation, per-user path scoping.
 
 **Exit criteria:**
 1. Core workflow integration tests pass.
@@ -811,12 +862,13 @@ Steps:
 
 **Goal:** Enable deterministic TOML-driven runtime config and encrypted backups.
 
-**Scope:** Config load order/validation, backup push/pull with key derivation per §15.3, safe replace flow per §15.4, multi-target selection logic.
+**Scope:** Config load order/validation, `username` and `backup_on_save` config fields, backup push/pull with key derivation per §15.3, safe replace flow per §15.4, multi-target selection logic, `backup_on_save` auto-trigger in write commands.
 
 **Exit criteria:**
 1. Backup round-trip tests pass for selected target and `--all`.
 2. Disaster-recovery scenario passes.
 3. `backup pull` safe replace is atomic; partial failure leaves existing DB intact.
+4. `backup_on_save = true` triggers backup after `insert`, `edit`, and `restore`.
 
 ### 17.8 Milestone 8: Diff Accuracy and Quality Hardening
 
@@ -838,35 +890,7 @@ Steps:
 1. All quality gates in §16.6 pass.
 2. Release artifact and documentation are complete.
 
-## 18. Open Decisions (Track Explicitly)
-
-### 18.1 Path Uniqueness Scope
-
-Question: Should `path_hint` uniqueness be global or per-user?
-
-Current default: Global uniqueness (`UNIQUE(path_hint)`). If switched to per-user, change the constraint to `UNIQUE(user_id, path_hint)` and update `ls` and all path resolution queries to filter by the active user.
-
-Alternative: Per-user uniqueness with `UNIQUE(user_id, path_hint)`.
-
-### 18.2 TOTP Helper Command
-
-Question: Should TOTP generation be included in CLI output helpers?
-
-Current default: Keep model support only; add `totp <path>` command surface later if required.
-
-### 18.3 Import and Export
-
-Question: Should JSON import/export be included?
-
-Current default: Keep as a future enhancement.
-
-### 18.4 Backup Scheduling
-
-Question: Should backups be manual only or allow timer-based automation?
-
-Current default: Manual by default.
-
-## 19. Minimal Acceptance Criteria
+## 18. Minimal Acceptance Criteria
 
 1. Can create user and verify root master key offline.
 2. Can insert/show/edit/remove entries by pass-style path.
@@ -875,14 +899,18 @@ Current default: Manual by default.
 5. All crypto invariants match this document.
 6. Can push encrypted backups to one or all configured backup targets.
 7. Can pull encrypted backups from a chosen backup target.
+8. `totp <path>` computes live TOTP codes from stored secrets.
+9. `export` produces a plaintext JSON snapshot of all entries.
+10. `backup_on_save = true` in config triggers automatic backup after every write.
 
-## 20. Summary
+## 19. Summary
 
 This design defines a Rust-native offline SecBits with:
 
 1. Strict retention of existing enc/dec/auth behavior.
 2. SQLite-backed local persistence with version-tracked schema migrations.
-3. Pass-style path UX with fuzzy matching.
-4. TOML-driven CLI configuration (root key, db path, backup targets).
-5. Multi-target encrypted backup support for R2/GCS/AWS S3 in one config.
-6. A detailed, testable implementation plan for starting from an empty repository state.
+3. Pass-style path UX with fuzzy matching and per-user entry scoping.
+4. TOML-driven CLI configuration (root key, username, db path, backup targets, backup_on_save).
+5. Multi-target encrypted backup support for R2/GCS/AWS S3 with optional per-save auto-backup.
+6. TOTP code generation and JSON export built into the CLI.
+7. A detailed, testable implementation plan for starting from an empty repository state.
