@@ -622,10 +622,10 @@ Use system brotli libs through FFI crate or direct bindings.
 ### 17.1 Milestone 1: Foundation and Project Skeleton
 
 Goal:
-1. Create a buildable, testable Rust CLI baseline with module boundaries.
+Create a buildable, testable Rust CLI baseline with module boundaries.
 
 Scope:
-1. Workspace bootstrap, CLI command wiring, error type scaffolding, logging policy.
+Workspace bootstrap, CLI command wiring, error type scaffolding, logging policy.
 
 Exit criteria:
 1. `secbits --help` shows full command surface.
@@ -634,10 +634,10 @@ Exit criteria:
 ### 17.2 Milestone 2: Storage Layer and Migrations
 
 Goal:
-1. Establish stable local persistence for users and entries.
+Establish stable local persistence for users and entries.
 
 Scope:
-1. SQLite connection lifecycle, schema creation, migration runner, repository layer.
+SQLite connection lifecycle, schema creation, migration runner, repository layer.
 
 Exit criteria:
 1. Fresh DB bootstraps automatically.
@@ -646,10 +646,10 @@ Exit criteria:
 ### 17.3 Milestone 3: Crypto and Compression Core
 
 Goal:
-1. Implement production-safe cryptographic and compression primitives.
+Implement production-safe cryptographic and compression primitives.
 
 Scope:
-1. leancrypto wrappers, brotli wrappers, blob layout codec, zeroization hooks.
+leancrypto wrappers, brotli wrappers, blob layout codec, zeroization hooks.
 
 Exit criteria:
 1. Encrypt/decrypt round-trip tests pass.
@@ -658,10 +658,10 @@ Exit criteria:
 ### 17.4 Milestone 4: Authentication Lifecycle
 
 Goal:
-1. Support secure root master key validation and user master key lifecycle.
+Support secure root master key validation and user master key lifecycle.
 
 Scope:
-1. `init`, `login`, in-memory session semantics, auth-related error mapping.
+`init`, `login`, in-memory session semantics, auth-related error mapping.
 
 Exit criteria:
 1. Correct key setup/verification behavior validated by unit and integration tests.
@@ -670,10 +670,10 @@ Exit criteria:
 ### 17.5 Milestone 5: Entry History Engine
 
 Goal:
-1. Deliver robust entry storage with commit history semantics.
+Deliver robust entry storage with commit history semantics.
 
 Scope:
-1. `entry_key` wrapping, encrypted history payload, commit hash, dedup, restore, structured deltas.
+`entry_key` wrapping, encrypted history payload, commit hash, dedup, restore, structured deltas.
 
 Exit criteria:
 1. History reconstruction and restore tests pass.
@@ -682,10 +682,10 @@ Exit criteria:
 ### 17.6 Milestone 6: Path UX and Core Commands
 
 Goal:
-1. Provide complete pass-style command workflows with fuzzy path resolution.
+Provide complete pass-style command workflows with fuzzy path resolution.
 
 Scope:
-1. `ls/show/insert/edit/rm/history/restore/logout`, path matcher, ambiguity handling.
+`ls/show/insert/edit/rm/history/restore/logout`, path matcher, ambiguity handling.
 
 Exit criteria:
 1. Core workflow integration tests pass.
@@ -694,10 +694,10 @@ Exit criteria:
 ### 17.7 Milestone 7: Config and Backup Targets
 
 Goal:
-1. Enable deterministic TOML-driven runtime config and encrypted backups.
+Enable deterministic TOML-driven runtime config and encrypted backups.
 
 Scope:
-1. Config load order/validation, backup push/pull, multi-target selection logic.
+Config load order/validation, backup push/pull, multi-target selection logic.
 
 Exit criteria:
 1. Backup round-trip tests pass for selected target and `--all`.
@@ -706,10 +706,10 @@ Exit criteria:
 ### 17.8 Milestone 8: Diff Accuracy and Quality Hardening
 
 Goal:
-1. Improve diff precision and finalize operational quality.
+Improve diff precision and finalize operational quality.
 
 Scope:
-1. Canonicalization rules, semantic diff logic, field-level hashes, error-hardening.
+Canonicalization rules, semantic diff logic, field-level hashes, error-hardening.
 
 Exit criteria:
 1. Diff normalization and structured-delta tests pass.
@@ -718,10 +718,10 @@ Exit criteria:
 ### 17.9 Milestone 9: Release Readiness
 
 Goal:
-1. Ship a documented, reproducible CLI release.
+Ship a documented, reproducible CLI release.
 
 Scope:
-1. Packaging, operational docs, command examples, final verification matrix.
+Packaging, operational docs, command examples, final verification matrix.
 
 Exit criteria:
 1. All quality gates in 16.6 pass.
@@ -732,37 +732,37 @@ Exit criteria:
 ### 18.1 Path Uniqueness Scope
 
 Question:
-1. Should `path_hint` uniqueness be global or per-user?
+Should `path_hint` uniqueness be global or per-user?
 
 Current default:
-1. Global uniqueness (`UNIQUE(path_hint)`).
+Global uniqueness (`UNIQUE(path_hint)`).
 
 Alternative:
-1. Per-user uniqueness with `UNIQUE(user_id, path_hint)`.
+Per-user uniqueness with `UNIQUE(user_id, path_hint)`.
 
 ### 18.2 TOTP Helper Command
 
 Question:
-1. Should TOTP generation be included in CLI output helpers?
+Should TOTP generation be included in CLI output helpers?
 
 Current default:
-1. Keep model support only; add `totp <path>` command surface later if required.
+Keep model support only; add `totp <path>` command surface later if required.
 
 ### 18.3 Import and Export
 
 Question:
-1. Should JSON import/export be included?
+Should JSON import/export be included?
 
 Current default:
-1. Keep as a future enhancement.
+Keep as a future enhancement.
 
 ### 18.4 Backup Scheduling
 
 Question:
-1. Should backups be manual only or allow timer-based automation?
+Should backups be manual only or allow timer-based automation?
 
 Current default:
-1. Manual by default.
+Manual by default.
 
 ## 19. Minimal Acceptance Criteria
 
