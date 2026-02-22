@@ -1,536 +1,456 @@
-# SecBits
+# SecBits Rust Branch Design (Offline, System Crypto)
 
-A self-hosted, end-to-end encrypted password manager. All data is encrypted on the client before it reaches Firebase. The server never sees plaintext secrets.
+This document is the full implementation design for rebuilding SecBits as an offline-first Rust application from an empty repository state.
 
-## Table of Contents
+It is intentionally detailed and prescriptive so implementation can start immediately without referencing the prior JavaScript codebase.
 
-1. [Features](#features)
-2. [Cryptographic Design](#cryptographic-design)
-3. [Firebase Setup](#firebase-setup)
-4. [Config File Format](#config-file-format)
-5. [Building and Deploying](#building-and-deploying)
-6. [Usage Guide](#usage-guide)
-7. [Security Notes](#security-notes)
-8. [Tech Stack](#tech-stack)
-9. [Testing](#testing)
-10. [Project Structure](#project-structure)
+## 1. Objectives
 
-## Features
+1. Build a local/offline password manager in Rust.
+2. Preserve the existing encryption, decryption, and authentication/key-lifecycle model.
+3. Use system-installed libraries:
+- leancrypto (for HKDF-SHA3-512 + Ascon-Keccak-512 AEAD)
+- brotli (for pre-encryption compression)
+- sqlite (for local storage)
+4. Mimic pass-style UX with path-oriented entries.
+5. Keep commit-history semantics compatible with current logic (hashing, dedup, restore, compact history object).
 
-| Feature | Description |
-|---|---|
-| End-to-end encryption | Ascon-Keccak-512 AEAD; Firebase stores only ciphertext |
-| Per-entry document keys | Each entry uses its own randomly generated key |
-| Version history | Git-like commit chain per entry: content-addressed commits, changed-field annotations, modal diff viewer, one-click restore |
-| TOTP generation | Live 6-digit codes with countdown timer |
-| Password generator | Configurable charset, length 8 to 128, entropy display |
-| Custom fields | Arbitrary key/value pairs per entry |
-| Tags | Organize entries with comma-separated tags; sidebar filter with counts |
-| Full-text search | Searches title, username, and URLs in real time |
-| Export | Download a decrypted JSON backup at any time |
-| Responsive layout | Three-column resizable desktop view; stacked mobile navigation |
-| Session persistence | Config cached in `sessionStorage` for the tab lifetime (cleared on close/logout) |
-| Unified startup flow | Auth screen keeps the spinner/status visible through entry preload (no separate post-auth loading screen) |
-| Clipboard auto-clear | Clipboard is overwritten 30 seconds after any copy |
-| Notes auto-hide | Revealed notes are hidden after 15 seconds or on window blur |
+## 2. Non-Goals
 
-## Cryptographic Design
+1. No Firebase integration.
+2. No browser UI in phase 1.
+3. No cloud sync in phase 1.
+4. No format migration tooling in phase 1 unless explicitly added later.
 
-### Key hierarchy
+## 3. Runtime and Toolchain
 
-```
-Root Master Key (from config file, >=256 bytes)
-    |
-    +-- HKDF-SHA3-512 -> encKey (64B) + encIv (64B)
-    |
-    +-- Ascon-Keccak-512(encKey, encIv, userMasterKey) -> encUserMasterKey + AEAD tag (64B)
-    |
-    +-- User Master Key (64B, random per user, decrypted at login)
-            |
-            +-- per-entry doc key (64B, random per entry)
-                    |
-                    +-- HKDF-SHA3-512 -> encKey (64B) + encIv (64B)
-                    +-- JSON -> Brotli compress -> Ascon-Keccak-512 encrypt + AEAD tag
-                    +-- stored as Firestore Bytes in value field
-```
+1. Rust stable (target edition: 2021 or newer).
+2. Linux-first implementation.
+3. Dynamic linking to system libraries:
+- libsqlite3
+- libbrotlienc + libbrotlidec
+- libleancrypto (or project-local build artifact if system package is unavailable)
 
-### Algorithms
+## 4. High-Level Architecture
 
-| Algorithm | Role | Notes |
-|---|---|---|
-| Ascon-Keccak-512 AEAD | Authenticated encryption | 512-bit key, 512-bit nonce, 512-bit tag; via leancrypto WASM |
-| HKDF-SHA3-512 | Key derivation | Fresh 64-byte salt per encryption; derives 128 bytes (encKey \|\| encIv) |
-| Brotli (WASM) | Compression | Applied before encryption |
-| TOTP-SHA1 | 2FA code generation | RFC 6238, 30-second window |
+Single binary CLI:
 
-### Blob format
+- `secbits` command with subcommands.
+- Local database file (default: `~/.local/share/secbits/secbits.db`).
+- Session state contains decrypted User Master Key only in process memory.
 
-Every encrypted value has the same layout:
+Internal modules:
 
-```
-salt (64B) || ciphertext (N B) || AEAD tag (64B)
-```
+1. `cli`
+- argument parsing
+- interactive prompts
+- command routing
 
-Total overhead per blob: 128 bytes. The master key blob is always 192 bytes (`salt || encUserMasterKey || tag`).
+2. `db`
+- sqlite connection lifecycle
+- schema migrations
+- CRUD for users/data
 
-### Master key flow
+3. `crypto`
+- thin safe wrappers around leancrypto FFI
+- byte layout encode/decode
+- zeroization helpers
 
-**First login (new user):**
+4. `compression`
+- brotli encode/decode wrappers
 
-1. `decodeRootMasterKey()` validates the base64 root master key from the config file (must decode to >=256 bytes).
-2. A random 64-byte User Master Key is generated, then AEAD-encrypted using keys derived via HKDF-SHA3-512 from the root master key.
-3. The 192-byte blob (`salt || encUserMasterKey || tag`) is written to `users/{userId}/user_master_key` in Firestore.
-4. The plaintext User Master Key is kept in memory for the rest of the session.
+5. `model`
+- entry payload structs
+- history structs
+- delta reconstruction
 
-**Returning user:**
+6. `app`
+- domain flows (login/init/insert/show/edit/history/restore)
 
-1. The stored 192-byte blob is fetched from Firestore.
-2. HKDF-SHA3-512 re-derives encKey and encIv from the root master key and the stored salt.
-3. Ascon-Keccak-512 AEAD decryption verifies the tag and recovers the User Master Key. A wrong root master key causes authentication failure here.
-4. The User Master Key is kept in memory for the session.
+## 5. SQLite Schema
 
-### Entry encryption
+Exact schema requested:
 
-Each entry stores a commit chain (up to 10 commits). On every save the history object is serialised, compressed, and encrypted:
+```sql
+CREATE TABLE users (
+  user_id INTEGER PRIMARY KEY,
+  user_master_key BLOB NOT NULL,
+  username TEXT NOT NULL UNIQUE
+);
 
-```
-{ head, head_snapshot, commits[] }  ->  JSON.stringify  ->  Brotli compress
-    ->  Ascon-Keccak-512 AEAD encrypt (with entry's doc key)
-    ->  AEAD tag appended
-    ->  stored as Firestore Bytes in value field
+CREATE TABLE data (
+  data_id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  path_hint TEXT NOT NULL UNIQUE,
+  value BLOB NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_data_user_id ON data(user_id);
 ```
 
-The entry's doc key is itself AEAD-encrypted using the `userMasterKey` and stored in the `entry_key` field of the same Firestore document.
+Notes:
 
-### Commit structure
+1. `user_id` and `data_id` are integer primary keys.
+2. `path_hint` stores pass-style path (`mail/google/main`) and is globally unique.
+3. `value` stores encrypted envelope bytes only.
+4. Secrets must never be written to plaintext columns.
 
-Each commit object inside the history has the following shape:
+## 6. Cryptographic Invariants (Must Match Existing Design)
+
+Constants:
+
+- `SALT_LEN = 64`
+- `USER_MASTER_KEY_LEN = 64`
+- `DOC_KEY_LEN = 64`
+- `ENC_KEY_LEN = 64`
+- `ENC_IV_LEN = 64`
+- `TAG_LEN = 64`
+- `HKDF_OUT_LEN = 128`
+- `MASTER_BLOB_LEN = 192`
+
+Algorithms:
+
+1. HKDF with SHA3-512 via leancrypto.
+2. AEAD Ascon-Keccak-512 via leancrypto.
+3. Brotli compression before encrypting entry history.
+4. Blob layout: `salt || ciphertext || tag`.
+
+### 6.1 Root Master Key Validation
+
+Input root key is base64 text.
+
+Validation rules:
+
+1. Must decode successfully.
+2. Decoded length must be `>= 256` bytes.
+3. Else fail fast with explicit error.
+
+### 6.2 User Master Key Setup (First Login)
+
+1. Generate random `user_master_key` (64 bytes).
+2. Generate random `salt` (64 bytes).
+3. Derive `{encKey, encIv}` from `root_master_key + salt` using HKDF-SHA3-512.
+4. AEAD-encrypt `user_master_key` using `{encKey, encIv}` with 64-byte tag.
+5. Persist `user_master_key_blob = salt || encrypted_user_master_key || tag` (192 bytes).
+6. Keep plaintext user master key in memory only.
+
+### 6.3 User Master Key Verify (Returning Login)
+
+1. Load stored blob from `users.user_master_key`.
+2. Validate blob size = 192 bytes.
+3. Parse:
+- `salt = blob[0..64]`
+- `enc_user_master_key = blob[64..128]`
+- `tag = blob[128..192]`
+4. Re-derive `{encKey, encIv}` from root key + salt.
+5. AEAD-decrypt and authenticate.
+6. On auth failure: return `Wrong root master key`.
+
+## 7. Data-at-Rest Envelope in `data.value`
+
+`data.value` stores a binary envelope containing both wrapped doc key and encrypted history.
+
+Format (v1):
+
+```
+magic[4] = "SBV1"
+version[1] = 1
+entry_key_len[4] (u32, big-endian)
+history_len[4] (u32, big-endian)
+entry_key_blob[entry_key_len]
+history_blob[history_len]
+```
+
+Where:
+
+1. `entry_key_blob = encryptBytesToBlob(user_master_key, doc_key)`
+2. `history_blob = encryptBytesToBlob(doc_key, brotli(JSON(history_object)))`
+
+Rationale:
+
+- Keeps wrapped per-entry doc key semantics from current design.
+- Keeps history encryption and compression semantics unchanged.
+- Fits schema with single encrypted `value` column.
+
+## 8. Entry Model and Commit History
+
+Entry plaintext object fields (current compatibility baseline):
+
+1. `title: string`
+2. `username: string`
+3. `password: string`
+4. `notes: string`
+5. `urls: string[]`
+6. `totpSecrets: string[]`
+7. `customFields: [{ id: number, label: string, value: string }]`
+8. `tags: string[]`
+9. `timestamp: ISO-8601 string`
+
+Tracked fields for change detection:
+
+- `title, username, password, notes, urls, totpSecrets, customFields, tags`
+
+### 8.1 Commit Hash
+
+1. Build content object excluding `timestamp`.
+2. Stable top-level key ordering.
+3. SHA-256 digest.
+4. Use first 12 hex characters as commit hash.
+
+### 8.2 Commit Object
 
 ```json
 {
-  "hash":      "a1b2c3d4e5f6",
-  "parent":    "f7e8d9c0b1a2",
-  "timestamp": "2025-06-01T14:32:00Z",
-  "changed":   ["password"]
+  "hash": "a1b2c3d4e5f6",
+  "parent": "f7e8d9c0b1a2",
+  "timestamp": "2026-02-22T00:00:00Z",
+  "changed": ["password"]
 }
 ```
 
-| Field | Description |
-|---|---|
-| `hash` | SHA-256 of the snapshot content (timestamp excluded), truncated to 12 hex chars |
-| `parent` | Hash of the preceding commit; `null` for the initial commit |
-| `timestamp` | ISO-8601 wall-clock time of the save |
-| `changed` | Fields that differ from the previous commit (`title`, `password`, `notes`, etc.) |
+### 8.3 Compact Storage Object
 
-The `head` field at the top of the history object always points to the most recent commit hash.
-
-### Compact history storage format
-
-To reduce Firestore payload size, only the latest snapshot is stored in full:
+Store encrypted JSON as:
 
 ```json
 {
   "head": "a1b2c3d4e5f6",
-  "head_snapshot": { "title": "…", "username": "…", "password": "…", "notes": "…", "...": "..." },
+  "head_snapshot": { "...": "..." },
   "commits": [
-    { "hash": "a1b2c3d4e5f6", "parent": "f7e8d9c0b1a2", "timestamp": "2025-06-01T14:32:00Z", "changed": ["password"] },
-    { "hash": "f7e8d9c0b1a2", "parent": null, "timestamp": "2025-05-31T10:00:00Z", "changed": [], "delta": { "set": { "password": "old" }, "unset": [] } }
+    { "hash": "a1b2c3d4e5f6", "parent": "f7e8d9c0b1a2", "timestamp": "...", "changed": ["password"] },
+    { "hash": "f7e8d9c0b1a2", "parent": null, "timestamp": "...", "changed": [], "delta": { "set": { "password": "old" }, "unset": [] } }
   ]
 }
 ```
 
-- `head_snapshot` stores the full plaintext snapshot for HEAD.
-- `commits[0]` stores HEAD commit metadata.
-- Older commits store `delta` (`set`/`unset`) relative to the newer snapshot above them.
-- Snapshots are reconstructed in memory at read time for diff and restore.
-- Only this compact format is supported.
+Rules:
 
-**Deduplication.** Before appending a new commit, the hash of the incoming content (fields only, no timestamp) is compared to the current `head` hash. If they match the save is a no-op and no commit is written.
+1. `commits[0]` is HEAD metadata.
+2. Older commits may carry `delta` relative to newer snapshot.
+3. Reconstruct snapshots in memory when listing history/showing diff.
+4. Max commits = 10 (drop oldest on overflow).
 
-**Restore.** Restoring an old commit creates a new HEAD commit whose snapshot is the old snapshot with a fresh timestamp. History is extended, never overwritten.
+### 8.4 Dedup Behavior
 
-## Firebase Setup
+On save:
 
-### 1. Create a Firebase project
+1. Compute new content hash (no timestamp).
+2. If hash equals current head hash, no-op (do not append commit).
 
-1. Go to [console.firebase.google.com](https://console.firebase.google.com) and create a new project.
-2. Enable **Firestore Database** (choose a region; **Native mode**).
-3. Enable **Email/Password Authentication**: Authentication > Sign-in method > Email/Password > Enable.
+### 8.5 Restore Behavior
 
-### 2. Register a web app
+1. Find target commit by hash.
+2. Create new HEAD commit with target snapshot and fresh timestamp.
+3. Preserve old commits (non-destructive history extension).
 
-In Project Settings > General > Your apps > Add app (Web). Copy the `firebaseConfig` object. You will need these values.
+## 9. Pass-Style CLI Design
 
-### 3. Set Firestore security rules
+Command set (phase 1):
 
-The repository includes `firestore.rules` with the production-ready rules for this app. Copy its contents into **Firestore > Rules** in the Firebase Console and publish.
+1. `secbits init --username <name>`
+- Creates user row if missing.
+- Prompts for root master key.
+- Creates and stores wrapped `user_master_key` blob.
 
-The rules restrict every path to the authenticated owner (matched by Firebase Auth UID). For the user profile document they enforce that only the expected fields (`username`, `user_master_key`) can be written on create. For password entry documents they require exactly the two encrypted fields (`entry_key`, `value`) plus a 1 MB size cap, with a narrow exception for the internal init placeholder document.
+2. `secbits login --username <name>`
+- Prompts for root master key.
+- Verifies/decrypts user master key into session memory.
 
-### 4. Create a Firebase Auth user and Firestore document
+3. `secbits ls [prefix]`
+- List `path_hint` values, optionally filtered by prefix.
 
-1. In **Authentication > Users**, click **Add user** and enter the email and password you will use to log in.
-2. Copy the **UID** shown for the new user.
-3. In **Firestore**, manually create a document at `users/{uid}` (using the UID from step 2) with a string field `username` set to any display name you want.
+4. `secbits show <path>`
+- Lookup row by `path_hint`.
+- Decrypt envelope and history.
+- Print latest snapshot.
 
-### 5. Generate a root master key
+5. `secbits insert <path>`
+- Reject if path exists.
+- Read secret fields from prompt/editor.
+- Create doc key, history, encrypted envelope.
 
-Run this in a browser console or Node.js to generate a strong random root master key:
+6. `secbits edit <path>`
+- Decrypt latest snapshot.
+- Edit fields.
+- Append commit if changed.
 
-```js
-const bytes = crypto.getRandomValues(new Uint8Array(256));
-const b64 = btoa(String.fromCharCode(...bytes));
-console.log(b64);
-```
+7. `secbits rm <path>`
+- Delete by `path_hint` after confirmation.
 
-Copy the output. This is your `root_master_key`. **Store it safely.** It cannot be recovered if lost. Treat it like a private key.
+8. `secbits history <path>`
+- Print commits: hash, parent, timestamp, changed fields.
 
-## Config File Format
+9. `secbits restore <path> --commit <hash>`
+- Apply restore flow and persist new history blob.
 
-Save the following as a `.json` file (e.g. `secbits-config.json`). **Keep this file private. It contains your root master key and login credentials.**
+10. `secbits logout`
+- Explicitly zeroize in-memory user master key.
 
-```json
-{
-  "db_name": "",
-  "email": "user@example.com",
-  "password": "your-firebase-auth-password",
-  "root_master_key": "<base64-encoded key, >=256 bytes when decoded>",
-  "auth": {
-    "apiKey": "...",
-    "authDomain": "your-project.firebaseapp.com",
-    "databaseURL": "https://your-project-default-rtdb.firebaseio.com",
-    "projectId": "your-project-id",
-    "storageBucket": "your-project.appspot.com",
-    "messagingSenderId": "...",
-    "appId": "..."
-  }
-}
-```
+## 10. Authentication and Session Semantics
 
-| Field | Required | Description |
-|---|---|---|
-| `db_name` | No | Named Firestore database (leave `""` for the default database) |
-| `email` | Yes | Email address of your Firebase Auth user |
-| `password` | Yes | Password of your Firebase Auth user |
-| `root_master_key` | Yes | Base64-encoded random key, must decode to >=256 bytes |
-| `auth` | Yes | Firebase web app config object from the Firebase console |
+1. Session key is process memory only.
+2. Never persist decrypted user master key to disk.
+3. On process exit, best-effort zeroization.
+4. Commands that require decryption must fail with clear message if not logged in.
 
-## Building and Deploying
+Optional phase 2:
 
-### Prerequisites
+- short-lived encrypted session token in OS keyring.
 
-Node.js 18 or later and npm 9 or later.
+## 11. Error Model
 
-### Install dependencies
+Representative errors:
 
-```bash
-npm install
-```
+1. `InvalidRootMasterKeyFormat`
+2. `RootMasterKeyTooShort`
+3. `WrongRootMasterKey`
+4. `InvalidStoredUserMasterKeyBlob`
+5. `InvalidEnvelopeFormat`
+6. `DecryptionFailedAuthentication`
+7. `PathAlreadyExists`
+8. `PathNotFound`
+9. `HistoryCorrupted`
 
-### Development server
+All crypto/auth errors should be explicit and non-ambiguous for operators.
 
-```bash
-npm run dev
-```
+## 12. Security Controls
 
-Opens at `http://localhost:5173` with hot module replacement.
+1. Zeroize sensitive byte buffers (`zeroize` crate).
+2. Avoid logging secret fields, raw blobs, or keys.
+3. Use constant-time comparisons where relevant.
+4. Disable core dumps in production guidance where feasible.
+5. Restrict database file permissions (`0600`).
+6. `path_hint` is metadata, not secret; all secret material stays encrypted in `value`.
 
-### Production build
+## 13. Dependency Plan
 
-```bash
-npm run build
-```
+Rust crates (initial):
 
-Output goes to `dist/`. Preview the production build locally:
+1. `clap` for CLI.
+2. `rusqlite` for SQLite.
+3. `serde` + `serde_json` for history serialization.
+4. `base64` for root key decoding.
+5. `sha2` (or compatible) for commit hash.
+6. `rand` / `getrandom` for secure randomness.
+7. `zeroize` for key material cleanup.
+8. `thiserror` / `anyhow` for error handling.
+9. FFI binding crate(s) for leancrypto and brotli system libs.
 
-```bash
-npm run preview
-```
+## 14. FFI Integration Strategy
 
-### Deploying
+### 14.1 Leancrypto
 
-The `dist/` directory is a standard static site. Deploy it to any static host.
+Implement a safe wrapper layer that exposes:
 
-**Firebase Hosting:**
+1. `hkdf_sha3_512(ikm, salt) -> (enc_key[64], enc_iv[64])`
+2. `aead_encrypt(enc_key, enc_iv, plaintext) -> (ciphertext, tag[64])`
+3. `aead_decrypt(enc_key, enc_iv, ciphertext, tag) -> plaintext | auth error`
 
-```bash
-npm install -g firebase-tools
-firebase login
-firebase init hosting   # set public dir to "dist", SPA rewrite to index.html
-npm run build
-firebase deploy
-```
+Wrapper responsibilities:
 
-**Netlify / Vercel / Cloudflare Pages:**
+1. Own all raw pointers.
+2. Free all allocated memory in all paths.
+3. Map leancrypto rc codes to Rust error types.
+4. Unit-test pointer safety and round-trips.
 
-Set the build command to `npm run build` and the output directory to `dist`. No server-side rendering is needed.
+### 14.2 Brotli
 
-**NGINX / Apache:**
+Provide:
 
-Copy the contents of `dist/` to your web root. Configure the server to serve `index.html` for all routes (SPA routing).
+1. `compress(bytes) -> bytes`
+2. `decompress(bytes) -> bytes`
 
-> The app is fully client-side. There is no backend process to run.
+Use system brotli libs through FFI crate or direct bindings.
 
-## Usage Guide
+## 15. Detailed Command Flow Examples
 
-### First login
+### 15.1 `insert`
 
-1. Open the app in your browser.
-2. Drag and drop (or click to browse) your config `.json` file onto the upload area.
-3. The app verifies your master key against Firestore, then loads your entries before leaving the auth screen. On first login a new encryption key pair is generated and stored.
-4. The config is cached in `sessionStorage` for the lifetime of the browser tab. You will not be asked to upload it again unless you close the tab or log out.
+1. Ensure logged in and session has user master key.
+2. Validate `path_hint` uniqueness.
+3. Build entry payload with current timestamp.
+4. Generate `doc_key` (64 random bytes).
+5. Build history object with initial commit.
+6. Serialize history JSON.
+7. Brotli compress JSON.
+8. Encrypt compressed history with `doc_key` => `history_blob`.
+9. Wrap `doc_key` with user master key => `entry_key_blob`.
+10. Build envelope and write row.
 
-### Creating an entry
+### 15.2 `show`
 
-1. Click the **+** button in the entry list panel.
-2. Fill in the fields you need. All fields are optional except the title.
-3. Click **Save**. The entry is encrypted and synced to Firestore.
+1. Ensure logged in.
+2. Load row by `path_hint`.
+3. Parse envelope.
+4. Unwrap `doc_key` using user master key.
+5. Decrypt `history_blob`.
+6. Brotli decompress and parse JSON.
+7. Reconstruct commits/snapshots.
+8. Render latest snapshot.
 
-If you cancel while there are unsaved edits, you will be asked to confirm before the new entry is discarded.
+## 16. Testing Strategy
 
-### Entry fields
+### 16.1 Unit Tests
 
-| Field | Description |
-|---|---|
-| Title | Display name for the entry |
-| Username | Account login name or email |
-| Password | Secret, hidden by default, toggle to reveal |
-| TOTP Secrets | Base32-encoded TOTP seeds (format is validated) |
-| URLs | One or more URLs linked to the account (validated, open in new tab) |
-| Custom Fields | Hidden key/value pairs for API keys, recovery codes, etc. |
-| Notes | Free-text notes, hidden by default, reveals for 15 seconds |
-| Tags | Comma-separated; case-insensitive; autocomplete from existing tags |
+1. Root key validation.
+2. Blob layout parse/encode.
+3. User master key setup/verify.
+4. Entry key wrap/unwrap.
+5. History encrypt/decrypt round-trip.
+6. Commit hash/dedup correctness.
+7. Delta reconstruction and restore.
 
-### Field limits
+### 16.2 Negative Tests
 
-Every field has a hard character limit enforced in the UI. The limits exist because each entry stores up to 10 commits (version history) in a single Firestore `value` field. That field must stay under **999,999 bytes** after Brotli compression and Ascon-Keccak-512 encryption. Keeping individual fields bounded ensures the combined payload of all commits fits comfortably within that ceiling.
+1. Wrong root key rejects verify.
+2. Tampered tag rejects decrypt.
+3. Corrupted envelope lengths fail parsing.
+4. Corrupted history JSON fails safely.
 
-| Field | Limit | Reason |
-|---|---|---|
-| Title | 200 chars | Display name; longer values add negligible value |
-| Username | 200 chars | Covers email addresses and long login names |
-| Password | 1,000 chars | Generous for generated passwords; above typical generator output |
-| Notes | 100,000 chars | Largest field; single largest contributor to snapshot size |
-| URL (each) | 2,048 chars | De-facto browser/server URL length limit |
-| TOTP secret (each) | 256 chars | Base32 seeds are typically 16–64 chars; 256 is generous |
-| Custom field label | 100 chars | Field name only |
-| Custom field value | 1,000 chars | Covers API keys, recovery codes, and similar secrets |
-| Tag (each) | 50 chars | Tag labels are short by convention |
-| URLs per entry | 20 | Structural limit to cap total payload size |
-| TOTP secrets per entry | 10 | Structural limit |
-| Custom fields per entry | 20 | Structural limit |
-| Tags per entry | 20 | Structural limit |
-| Commits per entry | 10 | Oldest commit is dropped when the chain exceeds this length |
+### 16.3 Integration Tests
 
-The UI enforces every limit via `maxLength` on inputs, disabled **Add** buttons when the collection cap is reached, and inline error messages. The Save button is disabled whenever any limit is exceeded.
+1. `init -> login -> insert -> show -> edit -> history -> restore`.
+2. Multi-entry pass-style path listing.
+3. DB persistence across process restarts.
 
-Implementation note: `src/limits.js` defines UI field/collection limits, while the commit-chain cap (`10`) is enforced in `src/firebase.js` where history read/write/truncation happens.
+## 17. Implementation Milestones
 
-### Copying values
+1. Bootstrap empty Rust workspace + CLI skeleton.
+2. Add SQLite schema and migration runner.
+3. Add leancrypto+brotli wrappers.
+4. Implement auth key lifecycle (`init`, `login`).
+5. Implement envelope + history codec.
+6. Implement CRUD and pass-style commands.
+7. Add full test suite.
+8. Harden error handling and zeroization.
+9. Package and document operational setup.
 
-Every sensitive field (password, TOTP code, custom field value) has a copy button. The clipboard is automatically cleared 30 seconds after any copy.
+## 18. Open Decisions (Track Explicitly)
 
-### TOTP codes
+1. Should `path_hint` uniqueness be global or per-user?
+- Current schema makes it global due to `UNIQUE(path_hint)`.
+- If per-user desired later: replace with `UNIQUE(user_id, path_hint)`.
 
-If a TOTP secret is valid base32, a live 6-digit code with a countdown circle is shown next to the secret in view mode. Invalid secrets are flagged inline.
+2. Should TOTP generation be included in phase 1 CLI output helpers?
+- Model supports it; command surface can add `totp <path>` later.
 
-### Version history
+3. Should import/export JSON be added in phase 1?
+- Recommended phase 2.
 
-Each save appends a new commit to the entry's history (up to 10). Saving without any content change is a no-op, so duplicate commits are not created.
+## 19. Minimal Acceptance Criteria
 
-Use the **N versions** button in the detail action bar to open the history modal.
+1. Can create user and verify root master key offline.
+2. Can insert/show/edit/remove entries by pass-style path.
+3. Entry data at rest is encrypted and authenticated.
+4. History supports dedup, listing, and restore.
+5. All crypto invariants match this document.
 
-- Desktop: two-pane diff modal (commit list on the left, field-level diff on the right)
-- Mobile: progressive flow (commit list first, then selected commit diff)
+## 20. Summary
 
-Each commit row shows:
+This design defines a Rust-native offline SecBits with:
 
-- A 12-character content hash (e.g. `a1b2c3d4e5f6`)
-- A **HEAD** badge on the latest commit
-- Changed-field badges (`password`, `notes`, `customFields`, etc.)
-- Save timestamp
-
-Selecting any commit opens a diff against its parent commit. Notes use line-based diffing with context, scalar fields show remove/add pairs, and array fields show added/removed items.
-
-To non-destructively roll back, select an older commit and click **Restore this version**. This writes a new HEAD commit with the restored snapshot; prior history remains intact.
-
-### Password generator
-
-In edit mode, click **Generate Password** below the password field to open the generator. Adjust character sets and length, then click the check button to apply the generated password.
-
-### Tags and search
-
-Select a tag in the left sidebar to filter entries. Use the search bar to search across title, username, and URLs. Tag suggestions appear as you type in the tags field.
-
-### Export
-
-Go to **Settings > Export**. A JSON file containing all your decrypted entry data is downloaded. Keep this file secure. It contains your plaintext secrets along with `user_master_key_b64`.
-
-Export JSON includes `user_id`, `username`, `user_master_key_b64`, and decrypted `data`.
-Each exported entry in `data` includes `entry_key_b64` (decrypted per-entry doc key) and `value`.
-
-Export JSON does **not** include `stored_user_master_key_blob_b64`.
-
-### Logging out
-
-Click the logout button (arrow icon) at the bottom of the tag sidebar. The `sessionStorage` config is cleared immediately.
-
-## Security Notes
-
-**The master key is everything.** Anyone with your config file and access to your Firestore database can decrypt all your data. Keep the config file off shared machines and out of version control.
-
-**Firebase never sees plaintext.** All encryption and decryption happens in the browser. Firestore only stores ciphertext blobs.
-
-**Per-entry keys.** Each entry is encrypted with its own randomly generated document key. Compromise of one entry's key does not affect others.
-
-**AEAD integrity.** Every encrypted value is authenticated by the Ascon-Keccak-512 AEAD tag. Tampered ciphertext or tag causes decryption to fail before any plaintext is returned.
-
-**No separate MAC step.** Authentication is built into the AEAD cipher; there is no HMAC post-processing step. The tag covers both the ciphertext and the associated key material.
-
-**Email/Password auth.** Firebase Email/Password Authentication is used to satisfy Firestore security rules. Only the pre-created account can sign in.
-
-**Session scope.** The config is stored in `sessionStorage`, which is scoped to the tab and cleared when the tab is closed. It is never written to `localStorage`.
-
-**Content Security Policy.** A CSP header restricts scripts, connections, styles, fonts, and images to known-good origins.
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| UI framework | React 19 |
-| Build tool | Vite 6 |
-| CSS | Bootstrap 5 |
-| Icons | Bootstrap Icons |
-| AEAD cipher + KDF | leancrypto WASM (Ascon-Keccak-512, HKDF-SHA3-512) |
-| TOTP HMAC | @noble/hashes (HMAC-SHA1) |
-| Compression | brotli-wasm |
-| Database | Firebase Firestore |
-| Auth | Firebase Email/Password Auth |
-
-## Testing
-
-The project uses **Vitest** for unit tests.
-
-### How to run tests
-
-Run the full test suite:
-
-```bash
-npx vitest run
-```
-
-Run a specific test file:
-
-```bash
-npx vitest run src/tests/crypto.test.js
-npx vitest run src/tests/totp.test.js
-npx vitest run src/tests/leancrypto.test.js
-```
-
-Optional watch mode while developing:
-
-```bash
-npx vitest
-```
-
-### What is covered
-
-| Area | File | Tests | What is validated |
-|---|---|---|---|
-| `encryptBytesToBlob` / `decryptBlobBytes` | `src/tests/crypto.test.js` | 3 | Round-trip correctness, AEAD tag structure, tamper rejection |
-| `generateTOTPForCounter` | `src/tests/totp.test.js` | 3 | RFC 6238 SHA-1 known vectors across normal and large counters |
-| leancrypto WASM primitives | `src/tests/leancrypto.test.js` | 1 (suite) | Ascon-Keccak AEAD, HMAC-SHA3-224, SHA3-512, HKDF-SHA256, SPHINCS+ vectors |
-| `buildExportData` | `src/tests/export-data.test.js` | 1 | Export shape, correct field inclusion, and exclusion of stored user-master-key blob |
-| History storage format | `src/tests/firebase-history-format.test.js` | 2 | Compact head-snapshot + delta storage; full snapshot reconstruction from deltas |
-| User master key lifecycle | `src/tests/firebase-key-lifecycle.test.js` | 2 | In-memory key store/clear and zeroization on replace |
-| `isHttpUrl` | `src/tests/validation.test.js` | 3 | Accepts http/https URLs; rejects non-http(s) schemes and malformed values |
-
-### Why these tests matter
-
-1. Encryption correctness: secrets must decrypt to the exact original bytes with no loss or mutation.
-2. Integrity enforcement: AEAD authentication must reject any tampered blob before returning plaintext.
-3. Interoperability: TOTP output must match standard RFC vectors so authenticator codes are reliable.
-4. WASM correctness: leancrypto primitives are verified against known test vectors before any application code relies on them.
-
-### How the crypto tests work
-
-1. Generate random `keyBytes` and a random 128-byte plaintext using `crypto.getRandomValues`.
-2. Encrypt plaintext to blob `c` with `encryptBytesToBlob` (async).
-3. Decrypt blob `c` to `d` with `decryptBlobBytes` (async).
-4. Compare plaintext and `d` byte-by-byte.
-5. Verify blob length equals `SALT_LEN(64) + plaintext.length + TAG_LEN(64)` and that the tag bytes are non-zero.
-6. Tamper one byte of the tag and verify `decryptBlobBytes` rejects the blob.
-
-### How the TOTP tests work
-
-1. Use the RFC 6238 SHA-1 shared secret (`12345678901234567890`, base32-encoded).
-2. Call `generateTOTPForCounter(secret, counter)` with fixed counters from RFC vectors.
-3. Assert the returned 6-digit code matches the expected values.
-4. Include larger counter cases to ensure correct 8-byte big-endian counter handling and dynamic truncation behavior.
-
-### How the leancrypto WASM tests work
-
-The test runner lives in `src/tests/leancrypto.test.js` and can run standalone (`node src/tests/leancrypto.test.js`) or inside Vitest (via a dual-mode wrapper that calls `main()` in `test()` when `globalThis.test` is defined). SPHINCS fixture data is separated into `src/tests/leancrypto.sphincs-vectors.js`. The suite exercises the WASM library directly through its C API:
-
-- **Ascon-Keccak AEAD**: encrypt/decrypt with known vectors; verifies out-of-place and in-place modes, and that tampered ciphertext is rejected with the correct error code.
-- **HMAC-SHA3-224**: one-shot MAC against a known vector.
-- **SHA3-512**: oneshot and streaming hash against known vectors.
-- **HKDF-SHA256**: oneshot and streaming extract+expand against known vectors.
-- **SPHINCS+**: key generation, sign, and verify for all six SHAKE parameter sets.
-
-### Performance / load testing
-
-`perf.test.js` is a standalone Node.js script (not a Vitest test) that generates and inserts encrypted test entries directly into Firestore via the REST API. It reproduces the full app crypto and storage flow in Node: user-master-key verification/setup, doc-key wrapping, compact history serialization, and encrypted `entry_key`/`value` writes.
-
-```bash
-node perf.test.js secbits-config.json
-```
-
-The script reads a random English word pool from `data/english-words.txt` to build realistic entry payloads. It emits per-entry progress logs (index, versions, payload sizes, elapsed time, ETA) and retries failed Firestore writes with exponential backoff.
-
-## Project Structure
-
-```
-secbits/
-├── index.html                        # HTML shell with CSP meta tag
-├── vite.config.js                    # Vite + React + WASM plugins; test config
-├── package.json
-├── firestore.rules                   # Firestore security rules (copy into Firebase Console)
-├── perf.test.js                      # Standalone Node perf/load script: inserts encrypted entries via Firestore REST API
-├── data/
-│   └── english-words.txt             # Word pool used by perf.test.js to generate realistic entry payloads
-├── public/
-│   ├── firebase-config-template.json # Example config file for users
-│   └── leancrypto/
-│       ├── leancrypto.js             # Emscripten UMD bundle (browser + Node)
-│       ├── leancrypto.js.md          # Build notes for the leancrypto WASM bundle
-│       └── leancrypto.wasm           # Compiled leancrypto WASM binary
-└── src/
-    ├── main.jsx                      # Entry point, mounts React root
-    ├── App.jsx                       # Root component, state management
-    ├── crypto.js                     # All cryptographic operations (leancrypto WASM)
-    ├── firebase.js                   # Firestore read/write and Firebase Auth
-    ├── totp.js                       # TOTP generation (RFC 6238, HMAC-SHA1)
-    ├── validation.js                 # URL validation helper
-    ├── limits.js                     # UI field and per-entry collection limits
-    ├── index.css                     # Global styles
-    ├── tests/
-    │   ├── crypto.test.js            # Encryption/decryption round-trip tests
-    │   ├── totp.test.js              # RFC 6238 TOTP known-vector tests
-    │   ├── leancrypto.test.js        # WASM primitive tests (Vitest + standalone Node)
-    │   ├── leancrypto.sphincs-vectors.js # SPHINCS+ fixture vectors
-    │   ├── export-data.test.js       # buildExportData shape and field tests
-    │   ├── firebase-history-format.test.js # Compact history format tests
-    │   ├── firebase-key-lifecycle.test.js # User master key store/clear/replace tests
-    │   └── validation.test.js        # URL validation tests
-    └── components/
-        ├── FirebaseSetup.jsx         # Config upload, email/password auth, key setup
-        ├── EntryDetail.jsx           # View and edit a single entry
-        ├── EntryList.jsx             # Scrollable list of entries
-        ├── TagsSidebar.jsx           # Tag filter sidebar + user controls
-        ├── SettingsList.jsx          # Settings navigation
-        ├── SettingsPanel.jsx         # Export and About pages
-        ├── PasswordGenerator.jsx     # Password generator + strength bar
-        ├── HistoryDiffModal.jsx      # Version-history modal and field-level commit diff
-        └── ResizeHandle.jsx          # Draggable column divider
-```
+1. strict retention of existing enc/dec/auth behavior,
+2. sqlite-backed local persistence,
+3. pass-style path UX,
+4. and a detailed, testable implementation plan for starting from an empty repository state.
