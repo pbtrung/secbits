@@ -25,6 +25,7 @@ yarn-error.log*
 
 # build output
 /dist
+/target
 
 # config
 firebase-config.json
