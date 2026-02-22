@@ -19,9 +19,9 @@ It is intentionally detailed and prescriptive so implementation can start immedi
 ## 2. Non-Goals
 
 1. No Firebase integration.
-2. No browser UI in phase 1.
-3. No automatic multi-device cloud sync in phase 1.
-4. No format migration tooling in phase 1 unless explicitly added later.
+2. No browser UI.
+3. No automatic multi-device cloud sync.
+4. No format migration tooling unless explicitly added later.
 
 ## 3. Runtime and Toolchain
 
@@ -70,7 +70,7 @@ Internal modules:
 - domain flows (login/init/insert/show/edit/history/restore)
 
 7. `backup`
-- cloud backup pack/unpack
+- backup pack/unpack
 - S3-compatible upload/download flows
 
 ## 4.1 CLI TOML Config
@@ -401,7 +401,7 @@ Dependency decision:
 3. Recommended crate dependency: `regex` for reliable regex compilation and matching.
 4. If you want zero extra Rust crates, you can implement only exact + substring matching, but that would no longer meet the regex part of 9.2.
 
-Command set (phase 1):
+### 9.3 Command Set
 
 1. `secbits init --username <name>`
 - Creates user row if missing.
@@ -448,7 +448,7 @@ Command set (phase 1):
 
 11. `secbits backup push [--target <name>|--all]`
 - Create encrypted snapshot of local DB and upload to one selected backup target or all configured targets.
-- Object key format per cloud: `<prefix><username>/<timestamp>.secbits.enc`.
+- Object key format per target: `<prefix><username>/<timestamp>.secbits.enc`.
 
 12. `secbits backup pull --target <name> [--object <key>]`
 - Download latest (or specified) encrypted backup object from the selected backup target.
@@ -461,7 +461,7 @@ Command set (phase 1):
 3. On process exit, best-effort zeroization.
 4. Commands that require decryption must fail with clear message if not logged in.
 
-Optional phase 2:
+Optional future enhancement:
 
 - short-lived encrypted session token in OS keyring.
 
@@ -578,7 +578,7 @@ Use system brotli libs through FFI crate or direct bindings.
 4. Encrypt + authenticate backup payload.
 5. Resolve upload targets from `--target <name>` or `--all`.
 6. Upload encrypted object to each selected S3-compatible backend (R2/GCS/AWS S3).
-7. Return per-cloud object key and checksum.
+7. Return per-target object key and checksum.
 
 ### 15.4 `backup pull --target <name>`
 
@@ -629,7 +629,7 @@ Use system brotli libs through FFI crate or direct bindings.
 5. Implement `entry_key` + history codec.
 6. Implement CRUD and pass-style commands.
 7. Implement TOML config loading and validation.
-8. Implement S3-compatible cloud backup commands.
+8. Implement S3-compatible backup commands.
 9. Implement multi-target profile selection logic for backup push/pull.
 10. Implement semantic diff engine and structured delta persistence.
 11. Add full test suite.
@@ -642,14 +642,14 @@ Use system brotli libs through FFI crate or direct bindings.
 - Current schema makes it global due to `UNIQUE(path_hint)`.
 - If per-user desired later: replace with `UNIQUE(user_id, path_hint)`.
 
-2. Should TOTP generation be included in phase 1 CLI output helpers?
+2. Should TOTP generation be included in CLI output helpers?
 - Model supports it; command surface can add `totp <path>` later.
 
-3. Should import/export JSON be added in phase 1?
-- Recommended phase 2.
+3. Should import/export JSON be added?
+- Recommended as a future enhancement.
 
 4. Backup schedule policy: manual only or optional timer-based automation?
-- Default recommendation: manual in phase 1.
+- Default recommendation: manual by default.
 
 ## 19. Minimal Acceptance Criteria
 
