@@ -5,6 +5,7 @@ use assert_cmd::Command;
 use base64::{engine::general_purpose, Engine as _};
 use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
+use serde_json::Value;
 use tempfile::TempDir;
 
 fn write_config(config_path: &Path, db_path: &Path, username: &str, root_key_b64: &str) {
@@ -203,7 +204,7 @@ fn export_outputs_json_array() {
         .assert()
         .success();
 
-    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+    let assert = Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
         .args([
             "--config",
             config_path.to_str().expect("config path"),
@@ -211,7 +212,40 @@ fn export_outputs_json_array() {
         ])
         .assert()
         .success()
-        .stdout(contains("[").and(contains("\"path\": \"mail/google/main\"")));
+        .stdout(
+            contains("[")
+                .and(contains("\"path\": \"mail/google/main\""))
+                .and(contains("\"user_master_key\":"))
+                .and(contains("\"entry_key\":")),
+        );
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8 stdout");
+    let json_text = stdout
+        .split("\nWarning: export output is plaintext secrets")
+        .next()
+        .expect("json output before warning")
+        .trim();
+    let parsed: Value = serde_json::from_str(json_text).expect("valid export json");
+    let first = parsed
+        .as_array()
+        .and_then(|arr| arr.first())
+        .expect("first export row");
+    let user_master_key_b64 = first
+        .get("user_master_key")
+        .and_then(Value::as_str)
+        .expect("user_master_key in export");
+    let entry_key_b64 = first
+        .get("entry_key")
+        .and_then(Value::as_str)
+        .expect("entry_key in export");
+    assert!(
+        general_purpose::STANDARD.decode(user_master_key_b64).is_ok(),
+        "user_master_key must be base64"
+    );
+    assert!(
+        general_purpose::STANDARD.decode(entry_key_b64).is_ok(),
+        "entry_key must be base64"
+    );
 }
 
 // §16.2 #8: insert with an empty path must fail with InvalidPathHint.

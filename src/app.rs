@@ -1,6 +1,7 @@
 use std::fs;
 use std::io::{self, IsTerminal, Read, Write};
 
+use base64::{engine::general_purpose, Engine as _};
 use data_encoding::BASE32_NOPAD;
 use hmac::{Hmac, Mac};
 use rand::rngs::OsRng;
@@ -276,6 +277,14 @@ fn handle_export(
             serde_json::to_value(&history.head_snapshot).map_err(|_| AppError::ExportFailed)?;
         if let Value::Object(map) = &mut value {
             map.insert("path".to_string(), Value::String(entry.path_hint));
+            map.insert(
+                "user_master_key".to_string(),
+                Value::String(general_purpose::STANDARD.encode(&session.user_master_key)),
+            );
+            map.insert(
+                "entry_key".to_string(),
+                Value::String(general_purpose::STANDARD.encode(&entry.entry_key)),
+            );
         }
         out.push(value);
     }
