@@ -238,13 +238,15 @@ fn export_outputs_json_array() {
         .get("entry_key")
         .and_then(Value::as_str)
         .expect("entry_key in export");
+    let user_master_key = general_purpose::STANDARD
+        .decode(user_master_key_b64)
+        .expect("user_master_key must be base64");
+    let entry_key = general_purpose::STANDARD
+        .decode(entry_key_b64)
+        .expect("entry_key must be base64");
     assert!(
-        general_purpose::STANDARD.decode(user_master_key_b64).is_ok(),
-        "user_master_key must be base64"
-    );
-    assert!(
-        general_purpose::STANDARD.decode(entry_key_b64).is_ok(),
-        "entry_key must be base64"
+        user_master_key.len() == 64 && entry_key.len() == 64,
+        "decrypted user_master_key and entry_key must both be 64 bytes"
     );
 }
 

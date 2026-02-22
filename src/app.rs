@@ -273,6 +273,8 @@ fn handle_export(
 
     for entry in entries {
         let history = decrypt_history(session, &entry)?;
+        let entry_key_plain = decrypt_bytes_from_blob(&session.user_master_key, &entry.entry_key)
+            .map_err(|_| AppError::InvalidEntryKeyBlob)?;
         let mut value =
             serde_json::to_value(&history.head_snapshot).map_err(|_| AppError::ExportFailed)?;
         if let Value::Object(map) = &mut value {
@@ -283,7 +285,7 @@ fn handle_export(
             );
             map.insert(
                 "entry_key".to_string(),
-                Value::String(general_purpose::STANDARD.encode(&entry.entry_key)),
+                Value::String(general_purpose::STANDARD.encode(&entry_key_plain)),
             );
         }
         out.push(value);
