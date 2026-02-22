@@ -661,3 +661,50 @@ fn insert_rejects_invalid_totp_secret_in_non_interactive_json() {
         .failure()
         .stdout(contains("invalid totp secret").or(contains("command failed")));
 }
+
+#[test]
+fn interactive_totp_invalid_secret_reprompts_instead_of_failing_command() {
+    let (_dir, db_path, config_path) = setup_paths();
+    let root = general_purpose::STANDARD.encode(vec![18_u8; 256]);
+    write_config(&config_path, &db_path, "alice", &root);
+    init(&config_path);
+
+    let interactive_input = concat!(
+        "Mail\n",                               // title
+        "alice\n",                              // username
+        "p1\n",                                 // password
+        "p1\n",                                 // repeat password
+        "n\n",                                  // add urls
+        "n\n",                                  // add tags
+        "y\n",                                  // add totp
+        "AAA\n",                                // invalid (too short decoded len)
+        "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ\n",   // valid
+        "\n",                                   // end totp
+        "n\n",                                  // add custom fields
+        "n\n"                                   // add notes
+    );
+
+    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .env("SECBITS_FORCE_INTERACTIVE", "1")
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "insert",
+            "mail/google/main",
+        ])
+        .write_stdin(interactive_input)
+        .assert()
+        .success()
+        .stdout(contains("Invalid TOTP secret:"))
+        .stdout(contains("Saved `mail/google/main`"));
+
+    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "totp",
+            "mail/google/main",
+        ])
+        .assert()
+        .success();
+}

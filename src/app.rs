@@ -571,7 +571,24 @@ fn prompt_totp_secrets() -> Result<Vec<String>> {
         if secret.is_empty() {
             break;
         }
-        let normalized = normalize_totp_secret(&secret)?;
+
+        let (normalized, decoded_len) = match decode_totp_secret(&secret) {
+            Ok(value) => value,
+            Err(AppError::InvalidTotpSecret) => {
+                println!("Invalid TOTP secret: not valid Base32.");
+                continue;
+            }
+            Err(err) => return Err(err),
+        };
+
+        if decoded_len < 10 {
+            println!("Invalid TOTP secret: decoded secret must be at least 10 bytes.");
+            continue;
+        }
+        if decoded_len < 16 {
+            println!("Warning: TOTP secret is shorter than the recommended 16 bytes.");
+        }
+
         out.push(normalized);
     }
     Ok(out)
@@ -681,12 +698,23 @@ fn force_interactive_mode() -> bool {
 
 fn validate_totp_secrets(secrets: &[String]) -> Result<()> {
     for secret in secrets {
-        let _ = normalize_totp_secret(secret)?;
+        let (_normalized, decoded_len) = decode_totp_secret(secret)?;
+        if decoded_len < 10 {
+            return Err(AppError::InvalidTotpSecret);
+        }
     }
     Ok(())
 }
 
 fn normalize_totp_secret(secret: &str) -> Result<String> {
+    let (normalized, decoded_len) = decode_totp_secret(secret)?;
+    if decoded_len < 10 {
+        return Err(AppError::InvalidTotpSecret);
+    }
+    Ok(normalized)
+}
+
+fn decode_totp_secret(secret: &str) -> Result<(String, usize)> {
     let normalized = secret.trim().replace(' ', "").to_ascii_uppercase();
     if normalized.is_empty() {
         return Err(AppError::InvalidTotpSecret);
@@ -694,10 +722,7 @@ fn normalize_totp_secret(secret: &str) -> Result<String> {
     let decoded = BASE32_NOPAD
         .decode(normalized.as_bytes())
         .map_err(|_| AppError::InvalidTotpSecret)?;
-    if decoded.len() < 10 {
-        return Err(AppError::InvalidTotpSecret);
-    }
-    Ok(normalized)
+    Ok((normalized, decoded.len()))
 }
 
 fn print_snapshot_summary(path: &str, snapshot: &EntrySnapshot) {
