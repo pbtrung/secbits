@@ -1,3 +1,4 @@
+use tracing::{debug, info, warn};
 use zeroize::Zeroize;
 
 use crate::cli::{BackupCommands, Cli, Commands};
@@ -10,18 +11,29 @@ use crate::error::AppError;
 use crate::Result;
 
 pub fn dispatch(cli: Cli, config: AppConfig) -> Result<()> {
+    log_command_invocation(&cli.command);
+
     let mut root_master_key = validate_root_master_key_b64(&config.root_master_key_b64)?;
+    debug!("validated root master key format and length");
 
     let db = Database::open(&config.db_path)?;
+    debug!(db_path = %config.db_path.display(), "opened database");
 
     let result = match &cli.command {
         Commands::Init { username } => {
+            info!(username = %username, "handling init command");
             handle_init(&db, &root_master_key, &config.username, username)
         }
         other => {
+            debug!("authenticating session for command");
             let mut user_master_key =
                 authenticate_session(&db, &config.username, &root_master_key)?;
+            debug!("session authenticated");
             let command_name = command_name(other);
+            info!(
+                command = command_name,
+                "command authenticated; handler not implemented yet"
+            );
             user_master_key.zeroize();
             Err(AppError::CommandNotImplemented(command_name))
         }
@@ -38,31 +50,42 @@ fn handle_init(
     command_username: &str,
 ) -> Result<()> {
     if configured_username != command_username {
+        warn!(
+            configured_username = %configured_username,
+            command_username = %command_username,
+            "init username does not match configured username"
+        );
         return Err(AppError::InvalidConfigField(
             "init --username must match config username".to_string(),
         ));
     }
 
     if let Some(existing_user) = db.get_user_by_username(command_username)? {
+        info!(username = %command_username, "existing user found, verifying stored key blob");
         let mut user_master_key =
             verify_user_master_key_blob(root_master_key, &existing_user.user_master_key)?;
         user_master_key.zeroize();
+        info!(username = %command_username, "init verification succeeded");
         return Ok(());
     }
 
     let (mut user_master_key, user_master_key_blob) = create_user_master_key_blob(root_master_key)?;
     db.create_user(command_username, &user_master_key_blob)?;
     user_master_key.zeroize();
+    info!(username = %command_username, "created new user and stored wrapped user master key");
 
     Ok(())
 }
 
 fn authenticate_session(db: &Database, username: &str, root_master_key: &[u8]) -> Result<Vec<u8>> {
-    let user = db
-        .get_user_by_username(username)?
-        .ok_or(AppError::UserNotFound)?;
+    let user = db.get_user_by_username(username)?.ok_or_else(|| {
+        warn!(username = %username, "configured user not found");
+        AppError::UserNotFound
+    })?;
 
-    verify_user_master_key_blob(root_master_key, &user.user_master_key)
+    let user_master_key = verify_user_master_key_blob(root_master_key, &user.user_master_key)?;
+    debug!(username = %username, "verified user master key blob");
+    Ok(user_master_key)
 }
 
 fn command_name(command: &Commands) -> &'static str {
@@ -80,6 +103,35 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Backup { command } => match command {
             BackupCommands::Push { .. } => "backup push",
             BackupCommands::Pull { .. } => "backup pull",
+        },
+    }
+}
+
+fn log_command_invocation(command: &Commands) {
+    match command {
+        Commands::Init { username } => {
+            info!(command = "init", username = %username, "command invoked")
+        }
+        Commands::Ls { prefix } => info!(command = "ls", prefix = ?prefix, "command invoked"),
+        Commands::Show { path } => info!(command = "show", path = %path, "command invoked"),
+        Commands::Insert { path } => info!(command = "insert", path = %path, "command invoked"),
+        Commands::Edit { path } => info!(command = "edit", path = %path, "command invoked"),
+        Commands::Rm { path } => info!(command = "rm", path = %path, "command invoked"),
+        Commands::History { path } => info!(command = "history", path = %path, "command invoked"),
+        Commands::Restore { path, commit } => {
+            info!(command = "restore", path = %path, commit = %commit, "command invoked")
+        }
+        Commands::Totp { path } => info!(command = "totp", path = %path, "command invoked"),
+        Commands::Export { output } => {
+            info!(command = "export", output = ?output, "command invoked")
+        }
+        Commands::Backup { command } => match command {
+            BackupCommands::Push { target, all } => {
+                info!(command = "backup push", target = ?target, all = *all, "command invoked")
+            }
+            BackupCommands::Pull { target, object } => {
+                info!(command = "backup pull", target = %target, object = ?object, "command invoked")
+            }
         },
     }
 }
