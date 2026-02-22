@@ -81,7 +81,7 @@ Config file format: TOML.
 root_master_key_b64 = "BASE64_ROOT_MASTER_KEY"
 db_path = "/home/user/.local/share/secbits/secbits.db"
 
-[clouds.r2]
+[targets.r2]
 provider = "r2"
 endpoint = "https://<account>.r2.cloudflarestorage.com"
 region = "auto"
@@ -91,7 +91,7 @@ access_key_id = "..."
 secret_access_key = "..."
 session_token = "" # optional
 
-[clouds.aws]
+[targets.aws]
 provider = "aws"
 region = "us-east-1"
 bucket = "secbits-backups-aws"
@@ -100,7 +100,7 @@ access_key_id = "..."
 secret_access_key = "..."
 session_token = "" # optional
 
-[clouds.gcs]
+[targets.gcs]
 provider = "gcs"
 endpoint = "https://storage.googleapis.com"
 region = "auto"
@@ -115,7 +115,7 @@ Rules:
 
 1. `root_master_key_b64` must decode and satisfy root key length validation.
 2. `db_path` points to the local SQLite database file used by the CLI.
-3. `[clouds.<name>]` defines one or more S3-compatible cloud targets, allowing R2, AWS S3, and GCS to be configured at the same time.
+3. `[targets.<name>]` defines one or more S3-compatible backup targets, allowing R2, AWS S3, and GCS to be configured at the same time.
 4. `provider` identifies behavior differences (`r2`, `aws`, `gcs`) while still using S3 API-compatible upload/download flows.
 5. Secrets in config must be protected by filesystem permissions (`0600`) or environment override strategy.
 
@@ -328,12 +328,12 @@ Command set (phase 1):
 10. `secbits logout`
 - Explicitly zeroize in-memory user master key.
 
-11. `secbits backup push [--cloud <name>|--all]`
-- Create encrypted snapshot of local DB and upload to one selected cloud target or all configured targets.
+11. `secbits backup push [--target <name>|--all]`
+- Create encrypted snapshot of local DB and upload to one selected backup target or all configured targets.
 - Object key format per cloud: `<prefix><username>/<timestamp>.secbits.enc`.
 
-12. `secbits backup pull --cloud <name> [--object <key>]`
-- Download latest (or specified) encrypted backup object from the selected cloud target.
+12. `secbits backup pull --target <name> [--object <key>]`
+- Download latest (or specified) encrypted backup object from the selected backup target.
 - Verify/decrypt using `root_master_key_b64` and restore local DB after confirmation.
 
 ## 10. Authentication and Session Semantics
@@ -365,7 +365,7 @@ Representative errors:
 12. `BackupUploadFailed`
 13. `BackupDownloadFailed`
 14. `BackupDecryptFailed`
-15. `BackupCloudNotConfigured`
+15. `BackupTargetNotConfigured`
 
 All crypto/auth errors should be explicit and non-ambiguous for operators.
 
@@ -454,14 +454,14 @@ Use system brotli libs through FFI crate or direct bindings.
 2. Open `db_path` and read SQLite file bytes.
 3. Generate backup nonce/salt and derive backup encryption key from root master key.
 4. Encrypt + authenticate backup payload.
-5. Resolve upload targets from `--cloud <name>` or `--all`.
+5. Resolve upload targets from `--target <name>` or `--all`.
 6. Upload encrypted object to each selected S3-compatible backend (R2/GCS/AWS S3).
 7. Return per-cloud object key and checksum.
 
-### 15.4 `backup pull --cloud <name>`
+### 15.4 `backup pull --target <name>`
 
 1. Load and validate TOML config.
-2. Resolve selected cloud profile from `--cloud`.
+2. Resolve selected target profile from `--target`.
 3. Resolve backup object key (latest or explicit `--object`).
 4. Download encrypted object from the selected S3-compatible backend.
 5. Decrypt + authenticate with root master key.
@@ -493,7 +493,7 @@ Use system brotli libs through FFI crate or direct bindings.
 2. Multi-entry pass-style path listing.
 3. DB persistence across process restarts.
 4. `backup push -> delete local db copy -> backup pull` disaster-recovery path.
-5. Multi-cloud push (`--all`) and provider-selective pull (`--cloud r2|aws|gcs`) coverage.
+5. Multi-target push (`--all`) and provider-selective pull (`--target r2|aws|gcs`) coverage.
 
 ## 17. Implementation Milestones
 
@@ -505,7 +505,7 @@ Use system brotli libs through FFI crate or direct bindings.
 6. Implement CRUD and pass-style commands.
 7. Implement TOML config loading and validation.
 8. Implement S3-compatible cloud backup commands.
-9. Implement multi-cloud profile selection logic for backup push/pull.
+9. Implement multi-target profile selection logic for backup push/pull.
 10. Add full test suite.
 11. Harden error handling and zeroization.
 12. Package and document operational setup.
@@ -532,8 +532,8 @@ Use system brotli libs through FFI crate or direct bindings.
 3. Entry data at rest is encrypted and authenticated.
 4. History supports dedup, listing, and restore.
 5. All crypto invariants match this document.
-6. Can push encrypted backups to one or all configured cloud targets.
-7. Can pull encrypted backups from a chosen cloud target.
+6. Can push encrypted backups to one or all configured backup targets.
+7. Can pull encrypted backups from a chosen backup target.
 
 ## 20. Summary
 
@@ -542,6 +542,6 @@ This design defines a Rust-native offline SecBits with:
 1. strict retention of existing enc/dec/auth behavior,
 2. sqlite-backed local persistence,
 3. pass-style path UX,
-4. TOML-driven CLI configuration (root key, db path, cloud backend),
-5. multi-cloud encrypted backup support for R2/GCS/AWS S3 in one config,
+4. TOML-driven CLI configuration (root key, db path, backup targets),
+5. multi-target encrypted backup support for R2/GCS/AWS S3 in one config,
 6. and a detailed, testable implementation plan for starting from an empty repository state.
