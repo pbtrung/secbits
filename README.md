@@ -54,6 +54,9 @@ root_master_key_b64 = "BASE64_ROOT_MASTER_KEY"
 db_path = "/home/user/.local/share/secbits/secbits.db"
 username = "alice"
 backup_on_save = false  # optional; when true, triggers backup push --all after every successful write command
+log_level = "info"      # optional; one of: trace, debug, info, warn, error
+log_target = false      # optional; include target/module name in log lines
+log_time = false        # optional; include timestamp in log lines
 
 [targets.r2]
 provider = "r2"
@@ -91,9 +94,12 @@ Rules:
 2. `db_path` points to the local SQLite database file used by the CLI.
 3. `username` identifies the active user in the local database. Required for all commands that access entries.
 4. `backup_on_save` is optional and defaults to `false`. When `true`, triggers `backup push --all` automatically after every successful write command (`insert`, `edit`, `restore`).
-5. `[targets.<name>]` defines one or more S3-compatible backup targets, allowing R2, AWS S3, and GCS to be configured at the same time.
-6. `provider` identifies behavior differences (`r2`, `aws`, `gcs`) while still using S3 API-compatible upload/download flows.
-7. Secrets in config must be protected by filesystem permissions (`0600`) or environment override strategy.
+5. `log_level` is optional and defaults to `info`; valid values are `trace`, `debug`, `info`, `warn`, `error`.
+6. `log_target` is optional and defaults to `false`; when `true`, logs include the module/target name.
+7. `log_time` is optional and defaults to `false`; when `true`, logs include timestamps.
+8. `[targets.<name>]` defines one or more S3-compatible backup targets, allowing R2, AWS S3, and GCS to be configured at the same time.
+9. `provider` identifies behavior differences (`r2`, `aws`, `gcs`) while still using S3 API-compatible upload/download flows.
+10. Secrets in config must be protected by filesystem permissions (`0600`) or environment override strategy.
 
 ## 5. SQLite Schema
 
@@ -352,6 +358,7 @@ Read/validation flow:
    - `root_master_key_b64`, `db_path`, and `username` for all commands.
    - At least one `[targets.<name>]` section for backup commands.
    - `backup_on_save` must be a boolean if present; defaults to `false` if absent.
+   - Logging fields are optional; `log_level` must be one of `trace|debug|info|warn|error`; `log_target` and `log_time` must be booleans if present.
 5. Expand `~` in paths and normalize `db_path`.
 6. Return explicit error (`ConfigFileNotFound` or `InvalidConfigField`) on failure.
 

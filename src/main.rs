@@ -9,6 +9,7 @@ fn main() {
 
 fn run() -> secbits::Result<()> {
     let cli = secbits::cli::Cli::parse();
-    secbits::logging::init()?;
-    secbits::app::dispatch(cli)
+    let config = secbits::config::load_config(cli.config.clone())?;
+    secbits::logging::init(&config.logging)?;
+    secbits::app::dispatch(cli, config)
 }

@@ -17,6 +17,14 @@ pub struct AppConfig {
     pub db_path: PathBuf,
     pub username: String,
     pub backup_on_save: bool,
+    pub logging: LoggingConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoggingConfig {
+    pub level: String,
+    pub target: bool,
+    pub time: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -25,6 +33,9 @@ struct FileConfig {
     db_path: String,
     username: String,
     backup_on_save: Option<bool>,
+    log_level: Option<String>,
+    log_target: Option<bool>,
+    log_time: Option<bool>,
 }
 
 pub fn load_config(explicit_path: Option<PathBuf>) -> Result<AppConfig> {
@@ -50,12 +61,19 @@ pub fn load_config(explicit_path: Option<PathBuf>) -> Result<AppConfig> {
     }
 
     let db_path = expand_tilde(&parsed.db_path)?;
+    let log_level = parsed.log_level.unwrap_or_else(|| "info".to_string());
+    validate_log_level(&log_level)?;
 
     Ok(AppConfig {
         root_master_key_b64: parsed.root_master_key_b64,
         db_path,
         username: parsed.username,
         backup_on_save: parsed.backup_on_save.unwrap_or(false),
+        logging: LoggingConfig {
+            level: log_level,
+            target: parsed.log_target.unwrap_or(false),
+            time: parsed.log_time.unwrap_or(false),
+        },
     })
 }
 
@@ -94,6 +112,15 @@ fn expand_tilde(input: impl AsRef<Path>) -> Result<PathBuf> {
     Ok(PathBuf::from(home).join(suffix))
 }
 
+fn validate_log_level(level: &str) -> Result<()> {
+    match level {
+        "trace" | "debug" | "info" | "warn" | "error" => Ok(()),
+        _ => Err(AppError::InvalidConfigField(
+            "log_level must be one of: trace, debug, info, warn, error".to_string(),
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -118,6 +145,9 @@ mod tests {
         assert_eq!(config.root_master_key_b64, "abc");
         assert_eq!(config.username, "alice");
         assert!(!config.backup_on_save);
+        assert_eq!(config.logging.level, "info");
+        assert!(!config.logging.target);
+        assert!(!config.logging.time);
     }
 
     #[test]
@@ -128,6 +158,21 @@ mod tests {
         fs::write(
             &config_path,
             "root_master_key_b64 = \"abc\"\ndb_path = \"/tmp/secbits.db\"\nusername = \"\"\n",
+        )
+        .expect("write");
+
+        let err = load_config(Some(config_path)).expect_err("must fail");
+        assert!(matches!(err, AppError::InvalidConfigField(_)));
+    }
+
+    #[test]
+    fn load_config_rejects_invalid_log_level() {
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+
+        fs::write(
+            &config_path,
+            "root_master_key_b64 = \"abc\"\ndb_path = \"/tmp/secbits.db\"\nusername = \"alice\"\nlog_level = \"verbose\"\n",
         )
         .expect("write");
 

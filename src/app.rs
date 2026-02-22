@@ -1,7 +1,7 @@
 use zeroize::Zeroize;
 
 use crate::cli::{BackupCommands, Cli, Commands};
-use crate::config::load_config;
+use crate::config::AppConfig;
 use crate::crypto::{
     create_user_master_key_blob, validate_root_master_key_b64, verify_user_master_key_blob,
 };
@@ -9,8 +9,7 @@ use crate::db::Database;
 use crate::error::AppError;
 use crate::Result;
 
-pub fn dispatch(cli: Cli) -> Result<()> {
-    let config = load_config(cli.config)?;
+pub fn dispatch(cli: Cli, config: AppConfig) -> Result<()> {
     let mut root_master_key = validate_root_master_key_b64(&config.root_master_key_b64)?;
 
     let db = Database::open(&config.db_path)?;
