@@ -348,7 +348,16 @@ Operational notes:
 
 ### 9.2 Path Resolution (Fuzzy, rg-like)
 
+#### 9.2.1 Design and Goals
+
 Path-oriented commands support fuzzy matching against `entries.path_hint` using an `rg`-style matcher.
+
+Design goals:
+
+1. Keep pass-style UX fast for users who remember partial paths.
+2. Preserve deterministic behavior for scripts and automation.
+3. Fail safely on ambiguous input instead of guessing.
+4. Keep path metadata matching local-only with no external process dependency.
 
 Matching rules:
 
@@ -368,7 +377,7 @@ Scope:
 1. Applies to: `show`, `edit`, `rm`, `history`, `restore`.
 2. `insert` still requires an exact new path and must reject on exact existing path (`PathAlreadyExists`).
 
-#### 9.2.1 Implementing 9.2 (Dependencies and Algorithm)
+#### 9.2.2 Implementation Plan (Dependencies and Algorithm)
 
 Implementation approach:
 
