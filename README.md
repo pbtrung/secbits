@@ -902,7 +902,8 @@ Steps:
 1. Verify root master key from config; derive user master key.
 2. Fetch all entry rows for the active user ordered by `path_hint`.
 3. For each row: unwrap `doc_key`; decrypt and decompress history; extract `head_snapshot`.
-4. Build a JSON array: each element is `{ "path": "<path_hint>", <head_snapshot fields...> }`.
+4. Build a JSON array where each element includes plaintext base64 keys plus snapshot fields:
+   `{ "path": "<path_hint>", "user_master_key": "<base64>", "entry_key": "<base64>", <head_snapshot fields...> }`.
 5. Write JSON to `--output <file>` or stdout if `--output` is not provided. Return `ExportFailed` on I/O error.
 6. Print a warning that the output file contains plaintext secrets and should be handled accordingly.
 
@@ -1129,7 +1130,7 @@ Steps:
 6. Can push encrypted backups to one or all configured backup targets.
 7. Can pull encrypted backups from a chosen backup target.
 8. `totp <path>` computes live TOTP codes from stored secrets.
-9. `export` produces a plaintext JSON snapshot of all entries.
+9. `export` produces a plaintext JSON snapshot of all entries and includes `user_master_key` and `entry_key` as base64 strings.
 10. `backup_on_save = true` in config triggers automatic backup after every write.
 11. Can share an entry snapshot with another user using hybrid ML-KEM-1024 + X448.
 12. Shared entry is decryptable only by the intended recipient; tampered payloads are rejected.
