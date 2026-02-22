@@ -189,6 +189,21 @@ fn handle_edit(db: &Database, session: &AuthSession, path: &str) -> Result<()> {
 
 fn handle_rm(db: &Database, user_id: i64, path: &str) -> Result<()> {
     let entry = resolve_entry(db, user_id, path)?;
+
+    // §15.8: print resolved path and require explicit confirmation before deleting.
+    print!("Delete `{}`? [y/N] ", entry.path_hint);
+    io::stdout().flush().map_err(AppError::Io)?;
+
+    let mut line = String::new();
+    io::stdin()
+        .read_line(&mut line)
+        .map_err(AppError::Io)?;
+
+    if line.trim().to_ascii_lowercase() != "y" {
+        println!("Aborted.");
+        return Ok(());
+    }
+
     db.delete_entry_by_path(user_id, &entry.path_hint)?;
     println!("Deleted {}", entry.path_hint);
     Ok(())
@@ -537,6 +552,31 @@ fn authenticate_session(
         user_id: user.user_id,
         user_master_key,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compute_totp;
+
+    // §16.1 #15: TOTP code generation with known secret and timestamp.
+    // RFC 6238 Appendix B test vector (SHA-1, 30 s step):
+    //   key  = "12345678901234567890" (ASCII 20 bytes)
+    //   Base32(key) = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+    //   T = 59 s  =>  counter = floor(59/30) = 1
+    //   8-digit TOTP = 94287082  =>  6-digit = 94287082 % 1_000_000 = 287082
+    #[test]
+    fn totp_known_secret_and_time_produce_expected_code() {
+        let code = compute_totp("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", 59).expect("totp succeeds");
+        assert_eq!(code, "287082");
+    }
+
+    // A zero-padded code must still be exactly 6 digits.
+    #[test]
+    fn totp_result_is_always_6_digits() {
+        let code = compute_totp("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", 59).expect("totp");
+        assert_eq!(code.len(), 6, "TOTP code must be exactly 6 characters");
+        assert!(code.chars().all(|c| c.is_ascii_digit()), "TOTP code must be all digits");
+    }
 }
 
 fn log_command_invocation(command: &Commands) {

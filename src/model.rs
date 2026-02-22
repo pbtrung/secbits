@@ -333,7 +333,11 @@ fn canonicalize_json(value: &Value) -> String {
         Value::Null => "null".to_string(),
         Value::Bool(b) => b.to_string(),
         Value::Number(n) => n.to_string(),
-        Value::String(s) => format!("\"{}\"", s.replace('"', "\\\"")),
+        // Delegate string serialization to serde_json so all characters
+        // (backslashes, newlines, control chars, etc.) are properly escaped.
+        Value::String(s) => {
+            serde_json::to_string(s.as_str()).unwrap_or_else(|_| "\"\"".to_string())
+        }
         Value::Array(arr) => {
             let parts: Vec<String> = arr.iter().map(canonicalize_json).collect();
             format!("[{}]", parts.join(","))
@@ -343,7 +347,11 @@ fn canonicalize_json(value: &Value) -> String {
             keys.sort();
             let parts: Vec<String> = keys
                 .into_iter()
-                .map(|k| format!("\"{}\":{}", k, canonicalize_json(&map[k])))
+                .map(|k| {
+                    let k_json = serde_json::to_string(k.as_str())
+                        .unwrap_or_else(|_| "\"\"".to_string());
+                    format!("{}:{}", k_json, canonicalize_json(&map[k]))
+                })
                 .collect();
             format!("{{{}}}", parts.join(","))
         }
@@ -425,5 +433,68 @@ mod tests {
         let hb = content_hash(&b).expect("hash");
 
         assert_eq!(ha, hb);
+    }
+
+    // §16.1 #11: initial commit structure
+    #[test]
+    fn initial_commit_has_correct_structure() {
+        let s = EntrySnapshot {
+            title: "Mail".to_string(),
+            username: "alice".to_string(),
+            password: "p1".to_string(),
+            notes: String::new(),
+            urls: vec![],
+            totp_secrets: vec![],
+            custom_fields: vec![],
+            tags: vec![],
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let history = build_initial_history(s).expect("history");
+
+        assert_eq!(history.commits.len(), 1);
+        let commit = &history.commits[0];
+
+        // parent must be null
+        assert!(commit.parent.is_none(), "initial commit must have no parent");
+        // HEAD commit must have no delta (§8.3 rule 1)
+        assert!(commit.delta.is_none(), "HEAD commit must have no delta");
+        // changed must list all non-empty fields
+        assert!(commit.changed.contains(&"title".to_string()));
+        assert!(commit.changed.contains(&"username".to_string()));
+        assert!(commit.changed.contains(&"password".to_string()));
+        // notes is empty; must NOT appear in changed
+        assert!(!commit.changed.contains(&"notes".to_string()));
+        // head hash matches the single commit's hash
+        assert_eq!(history.head, commit.hash);
+    }
+
+    // §16.1 #13: restore to HEAD is a no-op
+    #[test]
+    fn restore_to_head_is_noop() {
+        let mut history = build_initial_history(snapshot("p1")).expect("history");
+        let head_hash = history.head.clone();
+
+        let changed = restore_to_commit(&mut history, &head_hash).expect("restore");
+
+        assert!(!changed, "restore to HEAD must return false");
+        assert_eq!(history.commits.len(), 1, "history must be unchanged");
+        assert_eq!(history.head, head_hash, "head must be unchanged");
+    }
+
+    // canonicalize_json must handle backslashes and other special chars so that
+    // distinct strings produce distinct hashes (no escaping collision).
+    #[test]
+    fn hash_distinguishes_backslash_from_no_backslash() {
+        let mut with_bs = snapshot("p1");
+        with_bs.title = "back\\slash".to_string();
+
+        let mut without_bs = snapshot("p1");
+        without_bs.title = "backslash".to_string();
+
+        let h1 = content_hash(&with_bs).expect("hash1");
+        let h2 = content_hash(&without_bs).expect("hash2");
+
+        assert_ne!(h1, h2, "strings differing only by backslash must hash differently");
     }
 }

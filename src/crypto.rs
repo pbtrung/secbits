@@ -345,9 +345,18 @@ mod tests {
     }
 
     #[test]
-    fn invalid_stored_user_master_key_blob_size_is_rejected() {
+    fn invalid_stored_user_master_key_blob_too_short_is_rejected() {
         let root_key = vec![9_u8; 256];
         let err = verify_user_master_key_blob(&root_key, &[0_u8; 10]).expect_err("must fail");
+        assert!(matches!(err, AppError::InvalidStoredUserMasterKeyBlob));
+    }
+
+    // §16.2 #6: blob too long (e.g. 200 bytes) must also be rejected.
+    #[test]
+    fn invalid_stored_user_master_key_blob_too_long_is_rejected() {
+        let root_key = vec![9_u8; 256];
+        // MASTER_BLOB_LEN = 192; 200 bytes is too long.
+        let err = verify_user_master_key_blob(&root_key, &[0_u8; 200]).expect_err("must fail");
         assert!(matches!(err, AppError::InvalidStoredUserMasterKeyBlob));
     }
 

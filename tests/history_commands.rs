@@ -213,3 +213,277 @@ fn export_outputs_json_array() {
         .success()
         .stdout(contains("[").and(contains("\"path\": \"mail/google/main\"")));
 }
+
+// §16.2 #8: insert with an empty path must fail with InvalidPathHint.
+#[test]
+fn insert_rejects_empty_path_hint() {
+    let (_dir, db_path, config_path) = setup_paths();
+    let root = general_purpose::STANDARD.encode(vec![6_u8; 256]);
+    write_config(&config_path, &db_path, "alice", &root);
+    init(&config_path);
+
+    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "insert",
+            "",
+        ])
+        .write_stdin("{}")
+        .assert()
+        .failure();
+}
+
+// §16.2 #8: insert with consecutive slashes must fail with InvalidPathHint.
+#[test]
+fn insert_rejects_consecutive_slash_path_hint() {
+    let (_dir, db_path, config_path) = setup_paths();
+    let root = general_purpose::STANDARD.encode(vec![8_u8; 256]);
+    write_config(&config_path, &db_path, "alice", &root);
+    init(&config_path);
+
+    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "insert",
+            "mail//google",
+        ])
+        .write_stdin("{}")
+        .assert()
+        .failure()
+        .stdout(contains("invalid path hint").or(contains("command failed")));
+}
+
+// §16.2 #7: restore --commit <unknown_hash> must return CommitNotFound.
+#[test]
+fn restore_unknown_commit_returns_error() {
+    let (_dir, db_path, config_path) = setup_paths();
+    let root = general_purpose::STANDARD.encode(vec![11_u8; 256]);
+    write_config(&config_path, &db_path, "alice", &root);
+    init(&config_path);
+
+    let payload = r#"{"title":"x","username":"a","password":"p","notes":"","urls":[],"totpSecrets":[],"customFields":[],"tags":[],"timestamp":""}"#;
+
+    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "insert",
+            "mail/google/main",
+        ])
+        .write_stdin(payload)
+        .assert()
+        .success();
+
+    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "restore",
+            "mail/google/main",
+            "--commit",
+            "000000000000",
+        ])
+        .assert()
+        .failure()
+        .stdout(contains("commit not found").or(contains("command failed")));
+}
+
+// §16.3 #7: 11 distinct edits must leave exactly 10 commits in history.
+#[test]
+fn commit_overflow_keeps_exactly_10_commits() {
+    let (_dir, db_path, config_path) = setup_paths();
+    let root = general_purpose::STANDARD.encode(vec![12_u8; 256]);
+    write_config(&config_path, &db_path, "alice", &root);
+    init(&config_path);
+
+    let make_payload = |pw: &str| {
+        format!(
+            r#"{{"title":"x","username":"a","password":"{pw}","notes":"","urls":[],"totpSecrets":[],"customFields":[],"tags":[],"timestamp":""}}"#
+        )
+    };
+
+    // Initial insert (commit 1)
+    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "insert",
+            "mail/google/main",
+        ])
+        .write_stdin(make_payload("p0"))
+        .assert()
+        .success();
+
+    // 10 more distinct edits (commits 2..11)
+    for idx in 1..=10 {
+        Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+            .args([
+                "--config",
+                config_path.to_str().expect("config path"),
+                "edit",
+                "mail/google/main",
+            ])
+            .write_stdin(make_payload(&format!("p{idx}")))
+            .assert()
+            .success();
+    }
+
+    // history must output exactly 10 non-empty lines (one per commit).
+    let out = Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "history",
+            "mail/google/main",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let commit_count = String::from_utf8(out)
+        .expect("utf8")
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .count();
+
+    assert_eq!(commit_count, 10, "history must contain exactly 10 commits after 11 changes");
+}
+
+// §16.3 #9: totp with multiple secrets must display all codes.
+#[test]
+fn totp_with_multiple_secrets_displays_all() {
+    let (_dir, db_path, config_path) = setup_paths();
+    let root = general_purpose::STANDARD.encode(vec![13_u8; 256]);
+    write_config(&config_path, &db_path, "alice", &root);
+    init(&config_path);
+
+    // Two TOTP secrets; both are the RFC 6238 test secret for reproducibility.
+    let payload = r#"{"title":"x","username":"a","password":"p","notes":"","urls":[],"totpSecrets":["GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ","GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"],"customFields":[],"tags":[],"timestamp":""}"#;
+
+    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "insert",
+            "mail/google/main",
+        ])
+        .write_stdin(payload)
+        .assert()
+        .success();
+
+    let out = Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "totp",
+            "mail/google/main",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let line_count = String::from_utf8(out)
+        .expect("utf8")
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .count();
+
+    assert_eq!(line_count, 2, "two TOTP secrets must produce two output lines");
+}
+
+// §15.8: rm must print the path and require explicit confirmation; "n" must abort.
+#[test]
+fn rm_requires_confirmation_and_n_aborts() {
+    let (_dir, db_path, config_path) = setup_paths();
+    let root = general_purpose::STANDARD.encode(vec![14_u8; 256]);
+    write_config(&config_path, &db_path, "alice", &root);
+    init(&config_path);
+
+    let payload = r#"{"title":"x","username":"a","password":"p","notes":"","urls":[],"totpSecrets":[],"customFields":[],"tags":[],"timestamp":""}"#;
+
+    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "insert",
+            "mail/google/main",
+        ])
+        .write_stdin(payload)
+        .assert()
+        .success();
+
+    // Answer "n" — must abort without deleting.
+    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "rm",
+            "mail/google/main",
+        ])
+        .write_stdin("n\n")
+        .assert()
+        .success()
+        .stdout(contains("Aborted"));
+
+    // Entry must still exist after the aborted rm.
+    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "show",
+            "mail/google/main",
+        ])
+        .assert()
+        .success();
+}
+
+// §15.8: rm with "y" confirmation must delete the entry.
+#[test]
+fn rm_with_y_deletes_entry() {
+    let (_dir, db_path, config_path) = setup_paths();
+    let root = general_purpose::STANDARD.encode(vec![15_u8; 256]);
+    write_config(&config_path, &db_path, "alice", &root);
+    init(&config_path);
+
+    let payload = r#"{"title":"x","username":"a","password":"p","notes":"","urls":[],"totpSecrets":[],"customFields":[],"tags":[],"timestamp":""}"#;
+
+    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "insert",
+            "mail/google/main",
+        ])
+        .write_stdin(payload)
+        .assert()
+        .success();
+
+    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "rm",
+            "mail/google/main",
+        ])
+        .write_stdin("y\n")
+        .assert()
+        .success()
+        .stdout(contains("Deleted"));
+
+    // Entry must be gone.
+    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "show",
+            "mail/google/main",
+        ])
+        .assert()
+        .failure();
+}

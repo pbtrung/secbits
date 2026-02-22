@@ -54,6 +54,12 @@ pub fn load_config(explicit_path: Option<PathBuf>) -> Result<AppConfig> {
         ));
     }
 
+    if parsed.db_path.trim().is_empty() {
+        return Err(AppError::InvalidConfigField(
+            "db_path must not be empty".to_string(),
+        ));
+    }
+
     if parsed.username.trim().is_empty() {
         return Err(AppError::InvalidConfigField(
             "username must not be empty".to_string(),
@@ -148,6 +154,21 @@ mod tests {
         assert_eq!(config.logging.level, "info");
         assert!(!config.logging.target);
         assert!(!config.logging.time);
+    }
+
+    #[test]
+    fn load_config_rejects_empty_db_path() {
+        let dir = tempdir().expect("tempdir");
+        let config_path = dir.path().join("config.toml");
+
+        fs::write(
+            &config_path,
+            "root_master_key_b64 = \"abc\"\ndb_path = \"\"\nusername = \"alice\"\n",
+        )
+        .expect("write");
+
+        let err = load_config(Some(config_path)).expect_err("must fail");
+        assert!(matches!(err, AppError::InvalidConfigField(_)));
     }
 
     #[test]
