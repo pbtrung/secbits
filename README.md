@@ -121,6 +121,14 @@ CREATE TABLE entries (
 CREATE INDEX idx_entries_user_id ON entries(user_id);
 ```
 
+Migration 2 (sharing keypairs — applied when `PRAGMA user_version = 1`):
+
+```sql
+ALTER TABLE users ADD COLUMN share_public_key BLOB;      -- NULL until share-init
+ALTER TABLE users ADD COLUMN share_secret_key_enc BLOB;  -- NULL until share-init
+PRAGMA user_version = 2;
+```
+
 Notes:
 
 1. `user_id` and `entry_id` are integer primary keys.
@@ -142,6 +150,13 @@ Constants:
 - `TAG_LEN = 64`
 - `HKDF_OUT_LEN = 128` (= `ENC_KEY_LEN + ENC_IV_LEN`)
 - `MASTER_BLOB_LEN = 192` (= `SALT_LEN + USER_MASTER_KEY_LEN + TAG_LEN`)
+
+Sharing constants (ML-KEM-1024 + X448 hybrid KEM; verify all sizes against leancrypto `lc_kyber_x448.h`):
+
+- `SHARE_PK_LEN = 1624` (ML-KEM-1024 pk 1568 + X448 pk 56)
+- `SHARE_SK_LEN = 3224` (ML-KEM-1024 sk 3168 + X448 sk 56)
+- `SHARE_CT_LEN = 1624` (ML-KEM-1024 ct 1568 + X448 ephemeral pk 56)
+- `SHARE_SS_LEN = 64` (hybrid shared secret output)
 
 Algorithms:
 
@@ -477,6 +492,22 @@ Valid `path_hint` values must satisfy:
     - "Latest" is determined by listing objects under `<prefix><username>/` and selecting the lexicographically largest key (ISO-8601 timestamps sort correctly this way).
     - Verifies/decrypts using `root_master_key_b64` and restores local DB after confirmation.
 
+13. `secbits share-init`
+    - Generate hybrid ML-KEM-1024 + X448 keypair. Idempotent: prompts for confirmation before overwriting existing keys.
+    - Store public key and encrypted secret key in the `users` row.
+
+14. `secbits share-pubkey [--output <file>]`
+    - Export own hybrid public key to `<file>` or stdout (raw bytes, `SHARE_PK_LEN` bytes).
+    - Return `ShareKeysNotInitialized` if `share-init` has not been run.
+
+15. `secbits share <path> --recipient-key <file> [--output <file> | --target <name>]`
+    - Encrypt current entry snapshot for the recipient and write share payload to `<file>` or upload to S3 relay via `--target`.
+    - See §20 for full protocol.
+
+16. `secbits share-receive [--input <file> | --target <name> [--object <key>]] [--save-as <path>]`
+    - Receive and decrypt a share payload; insert the shared snapshot as a new entry in the active user's vault.
+    - See §20 for full protocol.
+
 ## 10. Authentication and Session Semantics
 
 The CLI is stateless across invocations. Each process invocation reads the root master key from config, performs its work, and zeroizes all key material before exit.
@@ -516,6 +547,13 @@ Representative errors:
 20. `BackupTargetNotConfigured`
 21. `NoTotpSecrets`
 22. `ExportFailed`
+23. `ShareKeysNotInitialized`
+24. `InvalidRecipientPublicKey`
+25. `InvalidSharePayload`
+26. `ShareNotForThisUser`
+27. `ShareDecryptFailed`
+28. `ShareUploadFailed`
+29. `ShareDownloadFailed`
 
 All crypto/auth errors should be explicit and non-ambiguous for operators.
 
@@ -548,6 +586,8 @@ Rust crates (initial):
 12. `regex` for path query matching (smart-case regex + literal fallback).
 13. Optional: `url` and Unicode normalization crate for semantic diff normalization rules.
 14. TOTP crate (e.g., `totp-rs` or `totp-lite`) for RFC 6238 TOTP code generation.
+
+Note: the hybrid ML-KEM-1024 + X448 KEM functions (`lc_kyber_x448_1024_*`) are part of leancrypto and are covered by the existing FFI binding crate in item 9. No additional crate is required for sharing.
 
 ## 14. FFI Integration Strategy
 
@@ -736,6 +776,8 @@ Steps:
     - Unicode NFC normalization edge cases.
 15. TOTP code generation: known-secret/known-time produces expected 6-digit code.
 16. `path_hint` uniqueness is per-user: two users can each have the same path without conflict; the same user cannot have duplicates.
+17. Hybrid KEM round-trip: encapsulate with a known public key, decapsulate with the matching secret key, verify shared secret matches.
+18. Share payload encode/decode round-trip produces byte-identical output for fixed inputs.
 
 ### 16.2 Negative Tests
 
@@ -754,6 +796,11 @@ Steps:
 13. Any command run for a username not found in the database returns `UserNotFound`.
 14. `totp` on an entry with no `totpSecrets` returns `NoTotpSecrets`.
 15. `export --output <unwritable_path>` returns `ExportFailed`.
+16. `share-pubkey` before `share-init` returns `ShareKeysNotInitialized`.
+17. `share-receive` with a payload addressed to a different user returns `ShareNotForThisUser`.
+18. `share-receive` with a tampered KEM ciphertext returns `ShareDecryptFailed`.
+19. `share-receive` with a truncated payload returns `InvalidSharePayload`.
+20. Recipient public key file of wrong length returns `InvalidRecipientPublicKey`.
 
 ### 16.3 Integration Tests
 
@@ -768,6 +815,8 @@ Steps:
 9. `totp` on an entry with multiple `totpSecrets` displays all codes.
 10. `export` produces a valid JSON array containing all entries for the active user only.
 11. `backup_on_save = true`: `insert` automatically triggers a backup push on success.
+12. Full share round-trip: Alice runs `share-init`, exports pubkey; Bob runs `share-init`, exports pubkey; Alice shares an entry with Bob via file; Bob receives and the decrypted snapshot matches Alice's original entry.
+13. S3 relay share round-trip: Alice uploads share payload via `--target`; Bob pulls and imports it.
 
 ### 16.4 End-to-End and CLI Contract Tests
 
@@ -883,7 +932,19 @@ Steps:
 1. Diff normalization and structured-delta tests pass.
 2. No unresolved critical defects in security-sensitive paths.
 
-### 17.9 Milestone 9: Release Readiness
+### 17.9 Milestone 9: Entry Sharing
+
+**Goal:** Enable post-quantum-safe encrypted entry sharing between users.
+
+**Scope:** Hybrid ML-KEM-1024 + X448 FFI wrappers, schema migration 2, `share-init`, `share-pubkey`, `share`, `share-receive` commands, share payload codec, S3 relay upload/download.
+
+**Exit criteria:**
+1. Hybrid KEM keypair generation, encapsulation, and decapsulation tests pass.
+2. Full share round-trip (file-based) passes: sender and recipient vault snapshots match.
+3. S3 relay share round-trip passes.
+4. All share negative tests pass (tampered ciphertext, wrong recipient, malformed payload).
+
+### 17.10 Milestone 10: Release Readiness
 
 **Goal:** Ship a documented, reproducible CLI release.
 
@@ -905,6 +966,8 @@ Steps:
 8. `totp <path>` computes live TOTP codes from stored secrets.
 9. `export` produces a plaintext JSON snapshot of all entries.
 10. `backup_on_save = true` in config triggers automatic backup after every write.
+11. Can share an entry snapshot with another user using hybrid ML-KEM-1024 + X448.
+12. Shared entry is decryptable only by the intended recipient; tampered payloads are rejected.
 
 ## 19. Summary
 
@@ -916,4 +979,190 @@ This design defines a Rust-native offline SecBits with:
 4. TOML-driven CLI configuration (root key, username, db path, backup targets, backup_on_save).
 5. Multi-target encrypted backup support for R2/GCS/AWS S3 with optional per-save auto-backup.
 6. TOTP code generation and JSON export built into the CLI.
-7. A detailed, testable implementation plan for starting from an empty repository state.
+7. Post-quantum-safe entry sharing via hybrid ML-KEM-1024 + X448, with file and S3 relay transfer modes.
+8. A detailed, testable implementation plan for starting from an empty repository state.
+
+## 20. Entry Sharing Design
+
+### 20.1 Overview and Goals
+
+Entry sharing allows one SecBits user to deliver an encrypted copy of an entry's current snapshot to another user. The recipient imports it into their own vault as a new independent entry with a fresh commit history.
+
+Design goals:
+
+1. Post-quantum safety: ML-KEM-1024 provides security against quantum adversaries; X448 provides classical security. Both must be broken simultaneously to compromise a share.
+2. Forward secrecy per share: ephemeral X448 scalar is generated fresh for every `share` invocation. Compromise of a recipient's long-term X448 key does not expose past shares.
+3. No server required: share payloads are self-contained encrypted binary files. Any channel (filesystem copy, email, S3 relay, QR code) is sufficient.
+4. No history leakage: only the current `head_snapshot` is shared. The recipient gets no visibility into the sender's commit history.
+5. Recipient-bound: the payload is cryptographically bound to the recipient's public key. No other party can decrypt it, and the recipient can verify the binding fails if the payload is modified.
+6. Private keys at rest are encrypted with the user's master key using the same `encryptBytesToBlob` helper as all other secret material.
+
+### 20.2 Cryptographic Protocol
+
+Uses leancrypto's native hybrid KEM: `lc_kyber_x448_1024`, which combines ML-KEM-1024 and X448 into a single encapsulation/decapsulation API.
+
+**Encapsulation (sender side):**
+
+1. Load recipient hybrid public key `recipient_pk` (`SHARE_PK_LEN` bytes).
+2. Call `lc_kyber_x448_1024_enc(recipient_pk)`:
+   - Internally: encapsulate under ML-KEM-1024 pk → `(mlkem_ct, ss_mlkem)`.
+   - Internally: generate ephemeral X448 scalar, compute `ss_x448 = X448(eph_scalar, recipient_x448_pk)`, output `eph_pub` as X448 component.
+   - Combine: `ss = KDF(ss_mlkem || ss_x448)` internally within leancrypto.
+   - Output: `kem_ct` (`SHARE_CT_LEN` bytes) = `mlkem_ct || eph_pub`, `ss` (`SHARE_SS_LEN` bytes).
+3. Derive wrap key: `(wrap_enc_key[64], wrap_enc_iv[64]) = hkdf_sha3_512(ikm=ss, salt=kem_ct[0..64])`.
+4. Encrypt `doc_key` directly (no extra salt; wrap key is already ephemeral):
+   - `(enc_key_ct, enc_key_tag) = aead_encrypt(wrap_enc_key, wrap_enc_iv, doc_key)`
+   - `enc_doc_key = enc_key_ct || enc_key_tag` (`DOC_KEY_LEN + TAG_LEN = 128` bytes).
+5. Encrypt snapshot with `doc_key` via `encryptBytesToBlob(doc_key, brotli(JSON(head_snapshot)))` → `enc_snapshot`.
+6. Assemble share payload (§20.4).
+
+**Decapsulation (recipient side):**
+
+1. Load own hybrid secret key `own_sk` (decrypted from DB with user master key).
+2. Parse `kem_ct` from payload.
+3. Call `lc_kyber_x448_1024_dec(kem_ct, own_sk)` → `ss`.
+4. Re-derive wrap key: `(wrap_enc_key, wrap_enc_iv) = hkdf_sha3_512(ikm=ss, salt=kem_ct[0..64])`.
+5. Decrypt: `doc_key = aead_decrypt(wrap_enc_key, wrap_enc_iv, enc_key_ct, enc_key_tag)`. Return `ShareDecryptFailed` on auth failure.
+6. Decrypt snapshot: `decryptBytesFromBlob(doc_key, enc_snapshot)` → brotli decompress → JSON parse.
+
+### 20.3 Leancrypto API Wrappers
+
+Add to the `crypto` module (§14.1 wrapper responsibilities apply):
+
+1. `hybrid_kem_keypair() -> (pk[SHARE_PK_LEN], sk[SHARE_SK_LEN])`
+2. `hybrid_kem_enc(recipient_pk: &[u8; SHARE_PK_LEN]) -> (ct[SHARE_CT_LEN], ss[SHARE_SS_LEN])`
+3. `hybrid_kem_dec(ct: &[u8; SHARE_CT_LEN], own_sk: &[u8; SHARE_SK_LEN]) -> ss[SHARE_SS_LEN] | ShareDecryptFailed`
+
+### 20.4 Share Payload Binary Format
+
+All multi-byte integers are big-endian. The file extension is `.sbsh`.
+
+```
+Offset   Size      Field
+------   --------  -----
+0        4         Magic: 0x53425348 ("SBSH")
+4        4         Version: 0x00000001
+8        2         sender_username_len (uint16)
+10       N         sender_username (UTF-8)
+10+N     2         recipient_username_len (uint16)
+12+N     M         recipient_username (UTF-8)
+12+N+M   2         path_hint_len (uint16, suggested path for recipient's vault)
+14+N+M   P         path_hint (UTF-8)
+14+N+M+P SHARE_CT_LEN (1624)  kem_ciphertext
+...      128       enc_doc_key (enc_key_ct[64] || enc_key_tag[64])
+...      4         enc_snapshot_len (uint32)
+...      enc_snapshot_len  enc_snapshot (salt[64] || ciphertext || tag[64])
+```
+
+Parsing rules:
+
+1. Verify magic `0x53425348` and version `0x00000001`; return `InvalidSharePayload` on mismatch.
+2. Validate all length-prefixed fields are within their maximum allowed sizes (usernames ≤ 255 bytes, path_hint ≤ 512 bytes).
+3. Verify `recipient_username` matches the active user's `username`; return `ShareNotForThisUser` if not.
+4. Any truncation or overrun returns `InvalidSharePayload`.
+
+### 20.5 Key Storage
+
+`share_public_key` (plain): raw `SHARE_PK_LEN` bytes stored directly — public keys are not secret.
+
+`share_secret_key_enc`: `encryptBytesToBlob(user_master_key, hybrid_sk)` — same protection as `entry_key`. Blob size = `SALT_LEN + SHARE_SK_LEN + TAG_LEN = 64 + 3224 + 64 = 3352` bytes.
+
+Both columns are NULL until `share-init` is run. Commands that require sharing keys check for NULL and return `ShareKeysNotInitialized`.
+
+### 20.6 Transfer Mechanisms
+
+**File-based (primary — fully offline):**
+
+Alice writes the payload to a local file; Bob receives the file through any channel.
+
+```
+alice$ secbits share mail/google/main \
+         --recipient-key bob.key \
+         --output share_mail_google.sbsh
+
+# Alice sends share_mail_google.sbsh to Bob via any channel.
+
+bob$   secbits share-receive \
+         --input share_mail_google.sbsh \
+         --save-as mail/google/from-alice
+```
+
+**S3 relay (optional — uses existing backup targets):**
+
+Alice uploads the payload to a configured target; Bob pulls it down. The object is encrypted, so storage-side visibility provides no cryptographic advantage to an attacker.
+
+Object key format: `<prefix>shares/<recipient_username>/<timestamp_utc_iso8601>.sbsh`
+
+"Latest" share object for a recipient: lexicographically largest key under `<prefix>shares/<recipient_username>/` (same rule as backup pull).
+
+```
+alice$ secbits share mail/google/main \
+         --recipient-key bob.key \
+         --target r2
+
+bob$   secbits share-receive \
+         --target r2 \
+         --save-as mail/google/from-alice
+```
+
+### 20.7 Detailed Command Flows
+
+**`share-init`:**
+
+1. Verify root master key; derive user master key.
+2. If `share_public_key` is non-NULL in the user row, prompt: "Sharing keys already exist. Regenerate? [y/N]". Exit on no.
+3. Call `hybrid_kem_keypair()` → `(pk, sk)`.
+4. Encrypt: `share_secret_key_enc = encryptBytesToBlob(user_master_key, sk)`.
+5. Update user row: `share_public_key = pk`, `share_secret_key_enc = encrypted_sk`.
+6. Zeroize `sk`.
+7. Print confirmation with public key length.
+
+**`share-pubkey [--output <file>]`:**
+
+1. Verify root master key; load user row.
+2. Return `ShareKeysNotInitialized` if `share_public_key` IS NULL.
+3. Write raw `share_public_key` bytes to `--output <file>` or stdout.
+
+**`share <path> --recipient-key <file> [--output <file> | --target <name>]`:**
+
+1. Verify root master key; derive user master key.
+2. Resolve `<path>` via fuzzy matcher to one `path_hint`.
+3. Load row; unwrap `doc_key`; decrypt and decompress history; extract `head_snapshot`.
+4. Read recipient public key file. Validate size = `SHARE_PK_LEN`; return `InvalidRecipientPublicKey` on mismatch.
+5. Encapsulate: `(kem_ct, ss) = hybrid_kem_enc(recipient_pk)`.
+6. Derive: `(wrap_enc_key, wrap_enc_iv) = hkdf_sha3_512(ikm=ss, salt=kem_ct[0..64])`.
+7. Encrypt: `(enc_key_ct, enc_key_tag) = aead_encrypt(wrap_enc_key, wrap_enc_iv, doc_key)`.
+8. Compress and encrypt snapshot: `enc_snapshot = encryptBytesToBlob(doc_key, brotli(JSON(head_snapshot)))`.
+9. Assemble share payload per §20.4 (using `path_hint` as the suggested recipient path).
+10. Write to `--output <file>` or upload to `<prefix>shares/<recipient_username>/<timestamp>.sbsh` via `--target <name>`.
+11. Zeroize `ss`, `wrap_enc_key`, `wrap_enc_iv`, `doc_key`.
+12. Print confirmation with payload size and destination.
+
+**`share-receive [--input <file> | --target <name> [--object <key>]] [--save-as <path>]`:**
+
+1. Verify root master key; derive user master key.
+2. Load share payload:
+   - `--input <file>`: read from local file.
+   - `--target <name>`: list objects under `<prefix>shares/<active_username>/`, select lexicographically largest (or explicit `--object`), download.
+3. Parse payload header (§20.4 rules). Return `InvalidSharePayload` on parse failure.
+4. Verify `recipient_username` matches active user's `username`. Return `ShareNotForThisUser` if not.
+5. Load and decrypt share secret key: `sk = decryptBytesFromBlob(user_master_key, share_secret_key_enc)`.
+6. Decapsulate: `ss = hybrid_kem_dec(kem_ct, sk)`. Return `ShareDecryptFailed` on failure.
+7. Re-derive: `(wrap_enc_key, wrap_enc_iv) = hkdf_sha3_512(ikm=ss, salt=kem_ct[0..64])`.
+8. Decrypt: `doc_key = aead_decrypt(wrap_enc_key, wrap_enc_iv, enc_key_ct, enc_key_tag)`. Return `ShareDecryptFailed` on auth failure.
+9. Decrypt and decompress snapshot: `decryptBytesFromBlob(doc_key, enc_snapshot)` → brotli decompress → JSON parse.
+10. Determine target `path_hint` for the new entry:
+    - Use `--save-as <path>` if provided.
+    - Otherwise use the `path_hint` from the payload header as default suggestion; prompt if a conflict exists for the active user.
+11. Insert the received snapshot as a new entry (§15.1 flow from step 4 onward), treating the snapshot as the initial state.
+12. Zeroize `ss`, `wrap_enc_key`, `wrap_enc_iv`, `doc_key`, `sk`.
+13. Print confirmation: sender username, suggested path, saved path.
+
+### 20.8 Security Properties
+
+1. **Post-quantum confidentiality**: Breaking confidentiality requires breaking both ML-KEM-1024 (NIST PQC) and X448 simultaneously.
+2. **Classical forward secrecy per share**: a fresh X448 ephemeral scalar is generated inside `lc_kyber_x448_1024_enc` for each call. Long-term X448 key compromise does not expose past share payloads.
+3. **Ciphertext binding**: the wrap key is derived with `salt=kem_ct[0..64]`. Substituting a different ciphertext changes the derived wrap key, causing AEAD authentication of `enc_doc_key` to fail.
+4. **Recipient binding**: the `recipient_username` in the payload is checked before decapsulation. A misdirected payload is rejected before any crypto is attempted.
+5. **No plaintext leakage to relay**: when using S3, only encrypted payloads are uploaded. The relay server learns the recipient username (from the object key path) and payload size only.
+6. **No history exposure**: only `head_snapshot` is included. The sender's commit history, prior passwords, and doc_key are not present in the payload.
