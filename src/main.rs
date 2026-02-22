@@ -1,8 +1,7 @@
 use clap::Parser;
 
 fn main() {
-    if let Err(err) = run() {
-        eprintln!("error: {err}");
+    if run().is_err() {
         std::process::exit(1);
     }
 }

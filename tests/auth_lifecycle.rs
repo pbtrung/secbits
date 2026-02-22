@@ -86,7 +86,7 @@ fn wrong_root_key_fails_with_explicit_error() {
         ])
         .assert()
         .failure()
-        .stderr(contains("wrong root master key"));
+        .stdout(contains("wrong root master key"));
 }
 
 #[test]
@@ -105,5 +105,5 @@ fn decrypt_commands_fail_if_user_not_found() {
         ])
         .assert()
         .failure()
-        .stderr(contains("user not found"));
+        .stdout(contains("user not found"));
 }
