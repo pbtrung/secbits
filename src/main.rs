@@ -1,8 +1,10 @@
 use clap::Parser;
 
 fn main() {
-    if run().is_err() {
-        std::process::exit(1);
+    match run() {
+        Ok(()) => {}
+        Err(secbits::error::AppError::Aborted) => std::process::exit(130),
+        Err(_) => std::process::exit(1),
     }
 }
 
@@ -23,6 +25,9 @@ fn run() -> secbits::Result<()> {
 
     let result = secbits::app::dispatch(cli, config);
     if let Err(err) = &result {
+        if matches!(err, secbits::error::AppError::Aborted) {
+            println!("Aborted.");
+        }
         tracing::error!(error = %err, "command failed");
     }
 

@@ -1,5 +1,8 @@
-use std::fs;
+use std::env;
+use std::fs::{self, OpenOptions};
 use std::io::{self, IsTerminal, Read, Write};
+use std::path::PathBuf;
+use std::process::Command as ProcessCommand;
 
 use base64::{engine::general_purpose, Engine as _};
 use data_encoding::BASE32_NOPAD;
@@ -23,7 +26,7 @@ use crate::db::{Database, EntryRecord};
 use crate::error::AppError;
 use crate::model::{
     append_snapshot, build_initial_history, now_timestamp, parse_history, parse_snapshot,
-    restore_to_commit, serialize_history, EntrySnapshot,
+    restore_to_commit, serialize_history, CustomField, EntrySnapshot,
 };
 use crate::Result;
 
@@ -151,6 +154,7 @@ fn handle_insert(db: &Database, session: &AuthSession, path: &str) -> Result<()>
 
     let mut snapshot = read_snapshot_from_stdin()?;
     snapshot.timestamp = now_timestamp();
+    validate_totp_secrets(&snapshot.totp_secrets)?;
 
     let history = build_initial_history(snapshot)?;
     let history_json = serialize_history(&history)?;
@@ -167,6 +171,7 @@ fn handle_insert(db: &Database, session: &AuthSession, path: &str) -> Result<()>
     db.create_entry(session.user_id, path, &entry_key, &value)?;
     doc_key.zeroize();
 
+    print_snapshot_summary(path, &history.head_snapshot);
     info!(path = %path, "entry inserted");
     Ok(())
 }
@@ -177,6 +182,7 @@ fn handle_edit(db: &Database, session: &AuthSession, path: &str) -> Result<()> {
 
     let mut snapshot = read_snapshot_from_stdin()?;
     snapshot.timestamp = now_timestamp();
+    validate_totp_secrets(&snapshot.totp_secrets)?;
 
     let changed = append_snapshot(&mut history, snapshot)?;
     if !changed {
@@ -185,6 +191,7 @@ fn handle_edit(db: &Database, session: &AuthSession, path: &str) -> Result<()> {
     }
 
     update_entry_history(db, session, &entry, &history)?;
+    print_snapshot_summary(&entry.path_hint, &history.head_snapshot);
     info!(path = %entry.path_hint, "entry edited");
     Ok(())
 }
@@ -421,7 +428,7 @@ fn validate_path_hint(path: &str) -> Result<()> {
 }
 
 fn read_snapshot_from_stdin() -> Result<EntrySnapshot> {
-    if io::stdin().is_terminal() {
+    if io::stdin().is_terminal() || force_interactive_mode() {
         return read_snapshot_interactive();
     }
 
@@ -434,19 +441,47 @@ fn read_snapshot_from_stdin() -> Result<EntrySnapshot> {
         return Err(AppError::HistoryCorrupted);
     }
 
-    parse_snapshot(input.as_bytes())
+    let snapshot = parse_snapshot(input.as_bytes())?;
+    validate_totp_secrets(&snapshot.totp_secrets)?;
+    Ok(snapshot)
 }
 
 fn read_snapshot_interactive() -> Result<EntrySnapshot> {
-    println!("Enter entry fields (leave blank for empty values).");
+    println!("Enter entry fields.");
 
     let title = prompt("title")?;
     let username = prompt("username")?;
-    let password = prompt("password")?;
-    let notes = prompt("notes")?;
-    let urls = parse_csv_list(&prompt("urls (comma-separated)")?);
-    let totp_secrets = parse_csv_list(&prompt("totp secrets (comma-separated)")?);
-    let tags = parse_csv_list(&prompt("tags (comma-separated)")?);
+    let password = prompt_password_confirmed()?;
+
+    let urls = if confirm_optional_group("Add urls? [y/N] ")? {
+        prompt_list("url")?
+    } else {
+        Vec::new()
+    };
+
+    let tags = if confirm_optional_group("Add tags? [y/N] ")? {
+        prompt_list("tag")?
+    } else {
+        Vec::new()
+    };
+
+    let totp_secrets = if confirm_optional_group("Add TOTP secrets? [y/N] ")? {
+        prompt_totp_secrets()?
+    } else {
+        Vec::new()
+    };
+
+    let custom_fields = if confirm_optional_group("Add custom fields? [y/N] ")? {
+        prompt_custom_fields()?
+    } else {
+        Vec::new()
+    };
+
+    let notes = if confirm_optional_group("Add notes? [y/N] ")? {
+        prompt_notes()?
+    } else {
+        String::new()
+    };
 
     Ok(EntrySnapshot {
         title,
@@ -455,7 +490,7 @@ fn read_snapshot_interactive() -> Result<EntrySnapshot> {
         notes,
         urls,
         totp_secrets,
-        custom_fields: Vec::new(),
+        custom_fields,
         tags,
         timestamp: String::new(),
     })
@@ -468,31 +503,230 @@ fn prompt(label: &str) -> Result<String> {
         .map_err(|_| AppError::HistoryCorrupted)?;
 
     let mut line = String::new();
-    io::stdin()
-        .read_line(&mut line)
-        .map_err(|_| AppError::HistoryCorrupted)?;
+    match io::stdin().read_line(&mut line) {
+        Ok(0) => return Err(AppError::Aborted),
+        Ok(_) => {}
+        Err(err) if err.kind() == io::ErrorKind::Interrupted => return Err(AppError::Aborted),
+        Err(_) => return Err(AppError::HistoryCorrupted),
+    }
     Ok(line.trim().to_string())
 }
 
-fn parse_csv_list(input: &str) -> Vec<String> {
-    input
-        .split(',')
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .collect()
+fn prompt_password_confirmed() -> Result<String> {
+    loop {
+        let password = prompt_secret("password")?;
+        let repeat = prompt_secret("repeat password")?;
+        if password == repeat {
+            return Ok(password);
+        }
+
+        println!("Passwords do not match.");
+        if !io::stdin().is_terminal() && !force_interactive_mode() {
+            return Err(AppError::PasswordConfirmationMismatch);
+        }
+    }
+}
+
+fn prompt_secret(label: &str) -> Result<String> {
+    if io::stdin().is_terminal() {
+        let rendered = format!("{label}: ");
+        return rpassword::prompt_password(rendered).map_err(|_| AppError::Aborted);
+    }
+
+    prompt(label)
+}
+
+fn confirm_optional_group(prompt_text: &str) -> Result<bool> {
+    print!("{prompt_text}");
+    io::stdout().flush().map_err(AppError::Io)?;
+
+    let mut line = String::new();
+    match io::stdin().read_line(&mut line) {
+        Ok(0) => return Err(AppError::Aborted),
+        Ok(_) => {}
+        Err(err) if err.kind() == io::ErrorKind::Interrupted => return Err(AppError::Aborted),
+        Err(err) => return Err(AppError::Io(err)),
+    }
+    Ok(matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes"))
+}
+
+fn prompt_list(item_label: &str) -> Result<Vec<String>> {
+    println!("Enter {item_label}s (one per line). Leave blank to finish.");
+    let mut out = Vec::new();
+    loop {
+        let value = prompt(item_label)?;
+        if value.is_empty() {
+            break;
+        }
+        out.push(value);
+    }
+    Ok(out)
+}
+
+fn prompt_totp_secrets() -> Result<Vec<String>> {
+    println!("Enter TOTP secrets (one per line). Leave blank to finish.");
+    let mut out = Vec::new();
+    loop {
+        let secret = prompt_secret("totp secret")?;
+        if secret.is_empty() {
+            break;
+        }
+        let normalized = normalize_totp_secret(&secret)?;
+        out.push(normalized);
+    }
+    Ok(out)
+}
+
+fn prompt_custom_fields() -> Result<Vec<CustomField>> {
+    println!("Enter custom fields. Leave label blank to finish.");
+    let mut fields = Vec::new();
+    let mut next_id = 1_i64;
+
+    loop {
+        let label = prompt("custom field label")?;
+        if label.is_empty() {
+            break;
+        }
+        let value = prompt("custom field value")?;
+        fields.push(CustomField {
+            id: next_id,
+            label,
+            value,
+        });
+        next_id += 1;
+    }
+    Ok(fields)
+}
+
+fn prompt_notes() -> Result<String> {
+    if let Some(editor) = configured_editor() {
+        return prompt_notes_with_editor(&editor);
+    }
+    prompt_notes_multiline()
+}
+
+fn configured_editor() -> Option<String> {
+    env::var("VISUAL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| env::var("EDITOR").ok().filter(|s| !s.trim().is_empty()))
+}
+
+fn prompt_notes_with_editor(editor: &str) -> Result<String> {
+    let path = temp_notes_path();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    fs::write(&path, "").map_err(AppError::Io)?;
+    let command = format!("{editor} {}", path.display());
+    let status = ProcessCommand::new("sh")
+        .arg("-c")
+        .arg(command)
+        .status()
+        .map_err(AppError::Io)?;
+    if !status.success() {
+        secure_delete_file(&path);
+        return Err(AppError::Aborted);
+    }
+
+    let notes = fs::read_to_string(&path).map_err(AppError::Io)?;
+    secure_delete_file(&path);
+    Ok(notes.trim_end_matches('\n').to_string())
+}
+
+fn prompt_notes_multiline() -> Result<String> {
+    println!("notes (Ctrl+D to finish, or leave blank):");
+    let mut lines = Vec::new();
+
+    loop {
+        let mut line = String::new();
+        match io::stdin().read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => lines.push(line),
+            Err(err) if err.kind() == io::ErrorKind::Interrupted => return Err(AppError::Aborted),
+            Err(err) => return Err(AppError::Io(err)),
+        }
+    }
+
+    Ok(lines.concat().trim_end_matches('\n').to_string())
+}
+
+fn temp_notes_path() -> PathBuf {
+    let mut base = env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(env::temp_dir);
+    base.push(format!("secbits-notes-{}.tmp", std::process::id()));
+    base
+}
+
+fn secure_delete_file(path: &PathBuf) {
+    if let Ok(meta) = fs::metadata(path) {
+        if meta.is_file() {
+            if let Ok(mut file) = OpenOptions::new().write(true).open(path) {
+                let zeros = vec![0_u8; meta.len() as usize];
+                let _ = file.write_all(&zeros);
+                let _ = file.flush();
+            }
+        }
+    }
+    let _ = fs::remove_file(path);
+}
+
+fn force_interactive_mode() -> bool {
+    env::var("SECBITS_FORCE_INTERACTIVE")
+        .map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false)
+}
+
+fn validate_totp_secrets(secrets: &[String]) -> Result<()> {
+    for secret in secrets {
+        let _ = normalize_totp_secret(secret)?;
+    }
+    Ok(())
+}
+
+fn normalize_totp_secret(secret: &str) -> Result<String> {
+    let normalized = secret.trim().replace(' ', "").to_ascii_uppercase();
+    if normalized.is_empty() {
+        return Err(AppError::InvalidTotpSecret);
+    }
+    let decoded = BASE32_NOPAD
+        .decode(normalized.as_bytes())
+        .map_err(|_| AppError::InvalidTotpSecret)?;
+    if decoded.len() < 10 {
+        return Err(AppError::InvalidTotpSecret);
+    }
+    Ok(normalized)
+}
+
+fn print_snapshot_summary(path: &str, snapshot: &EntrySnapshot) {
+    let notes_state = if snapshot.notes.is_empty() {
+        "(empty)".to_string()
+    } else {
+        format!("set ({} bytes)", snapshot.notes.len())
+    };
+
+    println!("Saved `{path}`");
+    println!("  title: {}", snapshot.title);
+    println!("  username: {}", snapshot.username);
+    println!("  urls: {}", snapshot.urls.len());
+    println!("  tags: {}", snapshot.tags.len());
+    println!("  totp: {} secret(s)", snapshot.totp_secrets.len());
+    println!("  notes: {notes_state}");
+    println!("  custom fields: {}", snapshot.custom_fields.len());
 }
 
 fn compute_totp(secret: &str, timestamp: i64) -> Result<String> {
-    let secret_clean = secret.trim().replace(' ', "").to_ascii_uppercase();
+    let secret_clean = normalize_totp_secret(secret)?;
     let secret_bytes = BASE32_NOPAD
         .decode(secret_clean.as_bytes())
-        .map_err(|_| AppError::NoTotpSecrets)?;
+        .map_err(|_| AppError::InvalidTotpSecret)?;
 
     let counter = (timestamp / 30) as u64;
     let msg = counter.to_be_bytes();
 
-    let mut mac = HmacSha1::new_from_slice(&secret_bytes).map_err(|_| AppError::NoTotpSecrets)?;
+    let mut mac = HmacSha1::new_from_slice(&secret_bytes).map_err(|_| AppError::InvalidTotpSecret)?;
     mac.update(&msg);
     let hash = mac.finalize().into_bytes();
 
@@ -598,8 +832,8 @@ fn log_command_invocation(command: &Commands) {
         }
         Commands::Ls { prefix } => info!(command = "ls", prefix = ?prefix, "command invoked"),
         Commands::Show { path } => info!(command = "show", path = %path, "command invoked"),
-        Commands::Insert { path } => info!(command = "insert", path = %path, "command invoked"),
-        Commands::Edit { path } => info!(command = "edit", path = %path, "command invoked"),
+        Commands::Insert { path } => debug!(command = "insert", path = %path, "command invoked"),
+        Commands::Edit { path } => debug!(command = "edit", path = %path, "command invoked"),
         Commands::Rm { path } => info!(command = "rm", path = %path, "command invoked"),
         Commands::History { path } => info!(command = "history", path = %path, "command invoked"),
         Commands::Restore { path, commit } => {

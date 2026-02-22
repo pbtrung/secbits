@@ -578,3 +578,86 @@ fn rm_with_y_deletes_entry() {
         .assert()
         .failure();
 }
+
+#[test]
+fn interactive_insert_collects_fields_and_hides_secrets_in_summary() {
+    let (_dir, db_path, config_path) = setup_paths();
+    let root = general_purpose::STANDARD.encode(vec![16_u8; 256]);
+    write_config(&config_path, &db_path, "alice", &root);
+    init(&config_path);
+
+    let interactive_input = concat!(
+        "Mail\n",                              // title
+        "alice\n",                             // username
+        "p1\n",                                // password
+        "p1\n",                                // repeat password
+        "y\n",                                 // add urls
+        "https://example.com\n",
+        "\n",                                  // end urls
+        "y\n",                                 // add tags
+        "work\n",
+        "\n",                                  // end tags
+        "y\n",                                 // add totp
+        "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ\n",
+        "\n",                                  // end totp
+        "y\n",                                 // add custom fields
+        "api-key\n",                           // label
+        "super-secret-value\n",                // value
+        "\n",                                  // end custom fields
+        "y\n",                                 // add notes
+        "line1\n",
+        "line2\n"                              // notes end at EOF
+    );
+
+    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .env("SECBITS_FORCE_INTERACTIVE", "1")
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "insert",
+            "mail/google/main",
+        ])
+        .write_stdin(interactive_input)
+        .assert()
+        .success()
+        .stdout(contains("Saved `mail/google/main`"))
+        .stdout(contains("totp: 1 secret(s)"))
+        .stdout(predicates::str::is_match("p1").unwrap().not())
+        .stdout(predicates::str::is_match("super-secret-value").unwrap().not());
+
+    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "show",
+            "mail/google/main",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("\"title\": \"Mail\""))
+        .stdout(contains("\"totpSecrets\": ["))
+        .stdout(contains("\"customFields\": ["))
+        .stdout(contains("\"notes\": \"line1\\nline2\""));
+}
+
+#[test]
+fn insert_rejects_invalid_totp_secret_in_non_interactive_json() {
+    let (_dir, db_path, config_path) = setup_paths();
+    let root = general_purpose::STANDARD.encode(vec![17_u8; 256]);
+    write_config(&config_path, &db_path, "alice", &root);
+    init(&config_path);
+
+    let payload = r#"{"title":"x","username":"a","password":"p","notes":"","urls":[],"totpSecrets":["NOT-BASE32"],"customFields":[],"tags":[],"timestamp":""}"#;
+
+    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "insert",
+            "mail/google/main",
+        ])
+        .write_stdin(payload)
+        .assert()
+        .failure()
+        .stdout(contains("invalid totp secret").or(contains("command failed")));
+}

@@ -80,6 +80,15 @@ pub enum AppError {
     #[error("export failed")]
     ExportFailed,
 
+    #[error("password confirmation mismatch")]
+    PasswordConfirmationMismatch,
+
+    #[error("invalid totp secret")]
+    InvalidTotpSecret,
+
+    #[error("aborted")]
+    Aborted,
+
     #[error("command not implemented yet: {0}")]
     CommandNotImplemented(&'static str),
 }
