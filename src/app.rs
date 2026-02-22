@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, IsTerminal, Read, Write};
 
 use data_encoding::BASE32_NOPAD;
 use hmac::{Hmac, Mac};
@@ -395,6 +395,10 @@ fn validate_path_hint(path: &str) -> Result<()> {
 }
 
 fn read_snapshot_from_stdin() -> Result<EntrySnapshot> {
+    if io::stdin().is_terminal() {
+        return read_snapshot_interactive();
+    }
+
     let mut input = String::new();
     io::stdin()
         .read_to_string(&mut input)
@@ -405,6 +409,52 @@ fn read_snapshot_from_stdin() -> Result<EntrySnapshot> {
     }
 
     parse_snapshot(input.as_bytes())
+}
+
+fn read_snapshot_interactive() -> Result<EntrySnapshot> {
+    println!("Enter entry fields (leave blank for empty values).");
+
+    let title = prompt("title")?;
+    let username = prompt("username")?;
+    let password = prompt("password")?;
+    let notes = prompt("notes")?;
+    let urls = parse_csv_list(&prompt("urls (comma-separated)")?);
+    let totp_secrets = parse_csv_list(&prompt("totp secrets (comma-separated)")?);
+    let tags = parse_csv_list(&prompt("tags (comma-separated)")?);
+
+    Ok(EntrySnapshot {
+        title,
+        username,
+        password,
+        notes,
+        urls,
+        totp_secrets,
+        custom_fields: Vec::new(),
+        tags,
+        timestamp: String::new(),
+    })
+}
+
+fn prompt(label: &str) -> Result<String> {
+    print!("{label}: ");
+    io::stdout()
+        .flush()
+        .map_err(|_| AppError::HistoryCorrupted)?;
+
+    let mut line = String::new();
+    io::stdin()
+        .read_line(&mut line)
+        .map_err(|_| AppError::HistoryCorrupted)?;
+    Ok(line.trim().to_string())
+}
+
+fn parse_csv_list(input: &str) -> Vec<String> {
+    input
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect()
 }
 
 fn compute_totp(secret: &str, timestamp: i64) -> Result<String> {
