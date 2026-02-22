@@ -53,6 +53,33 @@ pub enum AppError {
     #[error("user not found")]
     UserNotFound,
 
+    #[error("invalid entry key blob")]
+    InvalidEntryKeyBlob,
+
+    #[error("path already exists")]
+    PathAlreadyExists,
+
+    #[error("path not found")]
+    PathNotFound,
+
+    #[error("path is ambiguous: {0}")]
+    PathAmbiguous(String),
+
+    #[error("invalid path hint")]
+    InvalidPathHint,
+
+    #[error("commit not found")]
+    CommitNotFound,
+
+    #[error("history corrupted")]
+    HistoryCorrupted,
+
+    #[error("no totp secrets")]
+    NoTotpSecrets,
+
+    #[error("export failed")]
+    ExportFailed,
+
     #[error("command not implemented yet: {0}")]
     CommandNotImplemented(&'static str),
 }
