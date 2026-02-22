@@ -14,12 +14,13 @@ It is intentionally detailed and prescriptive so implementation can start immedi
 - sqlite (for local storage)
 4. Mimic pass-style UX with path-oriented entries.
 5. Keep commit-history semantics compatible with current logic (hashing, dedup, restore, compact history object).
+6. Support encrypted cloud backups through S3-compatible object storage.
 
 ## 2. Non-Goals
 
 1. No Firebase integration.
 2. No browser UI in phase 1.
-3. No cloud sync in phase 1.
+3. No automatic multi-device cloud sync in phase 1.
 4. No format migration tooling in phase 1 unless explicitly added later.
 
 ## 3. Runtime and Toolchain
@@ -37,6 +38,7 @@ Single binary CLI:
 
 - `secbits` command with subcommands.
 - Local database file (default: `~/.local/share/secbits/secbits.db`).
+- TOML config file (default: `~/.config/secbits/config.toml`).
 - Session state contains decrypted User Master Key only in process memory.
 
 Internal modules:
@@ -49,7 +51,7 @@ Internal modules:
 2. `db`
 - sqlite connection lifecycle
 - schema migrations
-- CRUD for users/data
+- CRUD for users/entries
 
 3. `crypto`
 - thin safe wrappers around leancrypto FFI
@@ -67,6 +69,36 @@ Internal modules:
 6. `app`
 - domain flows (login/init/insert/show/edit/history/restore)
 
+7. `backup`
+- cloud backup pack/unpack
+- S3-compatible upload/download flows
+
+## 4.1 CLI TOML Config
+
+Config file format: TOML.
+
+```toml
+root_master_key_b64 = "BASE64_ROOT_MASTER_KEY"
+db_path = "/home/user/.local/share/secbits/secbits.db"
+
+[s3]
+provider = "r2" # one of: r2, gcs, aws
+endpoint = "https://<account>.r2.cloudflarestorage.com" # optional for aws
+region = "auto" # example: us-east-1 for aws/gcs
+bucket = "secbits-backups"
+prefix = "prod/"
+access_key_id = "..."
+secret_access_key = "..."
+session_token = "" # optional
+```
+
+Rules:
+
+1. `root_master_key_b64` must decode and satisfy root key length validation.
+2. `db_path` points to the local SQLite database file used by the CLI.
+3. `[s3]` is required for cloud backup commands and supports R2, GCS, and AWS S3 via the S3 API.
+4. Secrets in config must be protected by filesystem permissions (`0600`) or environment override strategy.
+
 ## 5. SQLite Schema
 
 Exact schema requested:
@@ -78,8 +110,8 @@ CREATE TABLE users (
   username TEXT NOT NULL UNIQUE
 );
 
-CREATE TABLE data (
-  data_id INTEGER PRIMARY KEY,
+CREATE TABLE entries (
+  entry_id INTEGER PRIMARY KEY,
   user_id INTEGER NOT NULL,
   path_hint TEXT NOT NULL UNIQUE,
   entry_key BLOB NOT NULL,
@@ -87,12 +119,12 @@ CREATE TABLE data (
   FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_data_user_id ON data(user_id);
+CREATE INDEX idx_entries_user_id ON entries(user_id);
 ```
 
 Notes:
 
-1. `user_id` and `data_id` are integer primary keys.
+1. `user_id` and `entry_id` are integer primary keys.
 2. `path_hint` stores pass-style path (`mail/google/main`) and is globally unique.
 3. `entry_key` stores wrapped per-entry doc key bytes.
 4. `value` stores encrypted history blob bytes.
@@ -149,9 +181,9 @@ Validation rules:
 5. AEAD-decrypt and authenticate.
 6. On auth failure: return `Wrong root master key`.
 
-## 7. Data-at-Rest Columns in `data`
+## 7. Data-at-Rest Columns in `entries`
 
-`data` stores wrapped key and encrypted payload in separate columns:
+`entries` stores wrapped key and encrypted payload in separate columns:
 
 1. `entry_key = encryptBytesToBlob(user_master_key, doc_key)`
 2. `value = encryptBytesToBlob(doc_key, brotli(JSON(history_object)))`
@@ -276,6 +308,14 @@ Command set (phase 1):
 10. `secbits logout`
 - Explicitly zeroize in-memory user master key.
 
+11. `secbits backup push`
+- Create encrypted snapshot of local DB and upload to configured S3-compatible bucket.
+- Object key format: `<prefix><username>/<timestamp>.secbits.enc`.
+
+12. `secbits backup pull [--object <key>]`
+- Download latest (or specified) encrypted backup object.
+- Verify/decrypt using `root_master_key_b64` and restore local DB after confirmation.
+
 ## 10. Authentication and Session Semantics
 
 1. Session key is process memory only.
@@ -300,6 +340,11 @@ Representative errors:
 7. `PathAlreadyExists`
 8. `PathNotFound`
 9. `HistoryCorrupted`
+10. `ConfigFileNotFound`
+11. `InvalidConfigField`
+12. `BackupUploadFailed`
+13. `BackupDownloadFailed`
+14. `BackupDecryptFailed`
 
 All crypto/auth errors should be explicit and non-ambiguous for operators.
 
@@ -311,6 +356,8 @@ All crypto/auth errors should be explicit and non-ambiguous for operators.
 4. Disable core dumps in production guidance where feasible.
 5. Restrict database file permissions (`0600`).
 6. `path_hint` is metadata, not secret; all secret material stays encrypted in `entry_key` and `value`.
+7. Encrypt cloud backup payloads before upload; never upload plaintext SQLite files.
+8. Use server-side TLS and object-store IAM scoped to backup bucket/prefix only.
 
 ## 13. Dependency Plan
 
@@ -325,6 +372,8 @@ Rust crates (initial):
 7. `zeroize` for key material cleanup.
 8. `thiserror` / `anyhow` for error handling.
 9. FFI binding crate(s) for leancrypto and brotli system libs.
+10. `toml` for CLI config parsing.
+11. S3-compatible client crate (`aws-sdk-s3` or equivalent with custom endpoint support).
 
 ## 14. FFI Integration Strategy
 
@@ -378,6 +427,24 @@ Use system brotli libs through FFI crate or direct bindings.
 7. Reconstruct commits/snapshots.
 8. Render latest snapshot.
 
+### 15.3 `backup push`
+
+1. Load and validate TOML config.
+2. Open `db_path` and read SQLite file bytes.
+3. Generate backup nonce/salt and derive backup encryption key from root master key.
+4. Encrypt + authenticate backup payload.
+5. Upload encrypted object to configured S3-compatible backend (R2/GCS/AWS S3).
+6. Return object key and checksum.
+
+### 15.4 `backup pull`
+
+1. Load and validate TOML config.
+2. Resolve backup object key (latest or explicit `--object`).
+3. Download encrypted object from S3-compatible backend.
+4. Decrypt + authenticate with root master key.
+5. Write restored SQLite bytes to `db_path` with safe replace flow.
+6. Confirm restore success.
+
 ## 16. Testing Strategy
 
 ### 16.1 Unit Tests
@@ -402,6 +469,7 @@ Use system brotli libs through FFI crate or direct bindings.
 1. `init -> login -> insert -> show -> edit -> history -> restore`.
 2. Multi-entry pass-style path listing.
 3. DB persistence across process restarts.
+4. `backup push -> delete local db copy -> backup pull` disaster-recovery path.
 
 ## 17. Implementation Milestones
 
@@ -411,9 +479,11 @@ Use system brotli libs through FFI crate or direct bindings.
 4. Implement auth key lifecycle (`init`, `login`).
 5. Implement `entry_key` + history codec.
 6. Implement CRUD and pass-style commands.
-7. Add full test suite.
-8. Harden error handling and zeroization.
-9. Package and document operational setup.
+7. Implement TOML config loading and validation.
+8. Implement S3-compatible cloud backup commands.
+9. Add full test suite.
+10. Harden error handling and zeroization.
+11. Package and document operational setup.
 
 ## 18. Open Decisions (Track Explicitly)
 
@@ -427,6 +497,9 @@ Use system brotli libs through FFI crate or direct bindings.
 3. Should import/export JSON be added in phase 1?
 - Recommended phase 2.
 
+4. Backup schedule policy: manual only or optional timer-based automation?
+- Default recommendation: manual in phase 1.
+
 ## 19. Minimal Acceptance Criteria
 
 1. Can create user and verify root master key offline.
@@ -434,6 +507,7 @@ Use system brotli libs through FFI crate or direct bindings.
 3. Entry data at rest is encrypted and authenticated.
 4. History supports dedup, listing, and restore.
 5. All crypto invariants match this document.
+6. Can push and pull encrypted backups using configured S3-compatible storage.
 
 ## 20. Summary
 
@@ -442,4 +516,6 @@ This design defines a Rust-native offline SecBits with:
 1. strict retention of existing enc/dec/auth behavior,
 2. sqlite-backed local persistence,
 3. pass-style path UX,
-4. and a detailed, testable implementation plan for starting from an empty repository state.
+4. TOML-driven CLI configuration (root key, db path, cloud backend),
+5. encrypted cloud backup support for R2/GCS/AWS S3,
+6. and a detailed, testable implementation plan for starting from an empty repository state.
