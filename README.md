@@ -285,6 +285,40 @@ On save:
 2. Create new HEAD commit with target snapshot and fresh timestamp.
 3. Preserve old commits (non-destructive history extension).
 
+### 8.6 Diff Accuracy Improvements
+
+To improve change detection and history quality, implement semantic diff rules:
+
+1. Canonicalize before diff:
+- Stable object key ordering.
+- Normalize whitespace where appropriate.
+- Normalize array ordering for fields where order is not semantically important.
+
+2. Field-specific diff strategies:
+- `notes`: line-based diff (word-based for short values).
+- `customFields`: match by stable `id`, not by array index.
+- `tags`, `urls`, `totpSecrets`: set-style diff (`added`, `removed`) instead of whole-field replace.
+
+3. Store structured delta in commits:
+- Keep per-field operations like `set`, `unset`, `add`, `remove`.
+- Keep `changed[]` as summary, but use structured delta for accurate restore/explain.
+
+4. Semantic equality rules:
+- Case-insensitive compare for tags/domains if aligned with UX.
+- URL normalization policy before compare (host case, trailing slash policy).
+- Optional Unicode normalization for stable text comparisons.
+
+5. Field-level hashing:
+- Compute and store field hashes for tracked fields in commit metadata.
+- Continue storing top-level commit hash for identity.
+
+6. Test corpus for diff correctness:
+- Array reorder without semantic change.
+- Whitespace-only edits.
+- `customFields` reorder vs true content change.
+- URL normalization equivalence cases.
+- Unicode normalization edge cases.
+
 ## 9. Pass-Style CLI Design
 
 ### 9.1 How CLI Reads TOML Config
@@ -472,6 +506,7 @@ Rust crates (initial):
 10. `toml` for CLI config parsing.
 11. S3-compatible client crate (`aws-sdk-s3` or equivalent with custom endpoint support).
 12. `regex` for rg-like path query matching (smart-case regex + literal fallback).
+13. Optional: `url` and Unicode normalization crate for semantic diff normalization rules.
 
 ## 14. FFI Integration Strategy
 
@@ -557,6 +592,8 @@ Use system brotli libs through FFI crate or direct bindings.
 5. History encrypt/decrypt round-trip.
 6. Commit hash/dedup correctness.
 7. Delta reconstruction and restore.
+8. Canonicalization and semantic equality rules for diffing.
+9. Field-level hash stability and change detection.
 
 ### 16.2 Negative Tests
 
@@ -572,6 +609,7 @@ Use system brotli libs through FFI crate or direct bindings.
 3. DB persistence across process restarts.
 4. `backup push -> delete local db copy -> backup pull` disaster-recovery path.
 5. Multi-target push (`--all`) and provider-selective pull (`--target r2|aws|gcs`) coverage.
+6. Diff behavior on reorder/whitespace/normalization scenarios.
 
 ## 17. Implementation Milestones
 
@@ -584,9 +622,10 @@ Use system brotli libs through FFI crate or direct bindings.
 7. Implement TOML config loading and validation.
 8. Implement S3-compatible cloud backup commands.
 9. Implement multi-target profile selection logic for backup push/pull.
-10. Add full test suite.
-11. Harden error handling and zeroization.
-12. Package and document operational setup.
+10. Implement semantic diff engine and structured delta persistence.
+11. Add full test suite.
+12. Harden error handling and zeroization.
+13. Package and document operational setup.
 
 ## 18. Open Decisions (Track Explicitly)
 
