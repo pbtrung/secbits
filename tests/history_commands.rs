@@ -186,10 +186,11 @@ fn fuzzy_path_reports_ambiguous() {
 
 #[test]
 fn export_outputs_json_array() {
-    let (_dir, db_path, config_path) = setup_paths();
+    let (dir, db_path, config_path) = setup_paths();
     let root = general_purpose::STANDARD.encode(vec![4_u8; 256]);
     write_config(&config_path, &db_path, "alice", &root);
     init(&config_path);
+    let export_path = dir.path().join("export.json");
 
     let payload = r#"{"title":"x","username":"a","password":"p","notes":"","urls":[],"totpSecrets":[],"customFields":[],"tags":[],"timestamp":""}"#;
 
@@ -209,23 +210,24 @@ fn export_outputs_json_array() {
             "--config",
             config_path.to_str().expect("config path"),
             "export",
+            "--output",
+            export_path.to_str().expect("export path"),
         ])
         .assert()
         .success()
-        .stdout(
-            contains("[")
-                .and(contains("\"path\": \"mail/google/main\""))
-                .and(contains("\"user_master_key\":"))
-                .and(contains("\"entry_key\":")),
-        );
+        .stdout(contains("Warning: export output is plaintext secrets"));
 
     let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8 stdout");
-    let json_text = stdout
-        .split("\nWarning: export output is plaintext secrets")
-        .next()
-        .expect("json output before warning")
-        .trim();
-    let parsed: Value = serde_json::from_str(json_text).expect("valid export json");
+    assert!(
+        !stdout.contains("\"path\":"),
+        "export command must not print JSON to stdout"
+    );
+    let json_text = fs::read_to_string(&export_path).expect("read export file");
+    assert!(json_text.contains("\"path\": \"mail/google/main\""));
+    assert!(json_text.contains("\"user_master_key\":"));
+    assert!(json_text.contains("\"entry_key\":"));
+
+    let parsed: Value = serde_json::from_str(&json_text).expect("valid export json");
     let first = parsed
         .as_array()
         .and_then(|arr| arr.first())
@@ -248,6 +250,24 @@ fn export_outputs_json_array() {
         user_master_key.len() == 64 && entry_key.len() == 64,
         "decrypted user_master_key and entry_key must both be 64 bytes"
     );
+}
+
+#[test]
+fn export_requires_output_filename() {
+    let (_dir, db_path, config_path) = setup_paths();
+    let root = general_purpose::STANDARD.encode(vec![7_u8; 256]);
+    write_config(&config_path, &db_path, "alice", &root);
+    init(&config_path);
+
+    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "export",
+        ])
+        .assert()
+        .failure()
+        .stderr(contains("--output <file>"));
 }
 
 // §16.2 #8: insert with an empty path must fail with InvalidPathHint.

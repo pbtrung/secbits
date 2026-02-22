@@ -55,7 +55,7 @@ pub enum Commands {
     },
     Export {
         #[arg(long, value_name = "file")]
-        output: Option<PathBuf>,
+        output: PathBuf,
     },
     Backup {
         #[command(subcommand)]

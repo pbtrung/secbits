@@ -105,7 +105,7 @@ fn dispatch_authenticated(
         Commands::History { path } => handle_history(db, &session, path),
         Commands::Restore { path, commit } => handle_restore(db, &session, path, commit),
         Commands::Totp { path } => handle_totp(db, &session, path),
-        Commands::Export { output } => handle_export(db, &session, output.as_ref()),
+        Commands::Export { output } => handle_export(db, &session, output),
         Commands::Backup { command } => {
             let command_name = match command {
                 BackupCommands::Push { .. } => "backup push",
@@ -266,7 +266,7 @@ fn handle_totp(db: &Database, session: &AuthSession, path: &str) -> Result<()> {
 fn handle_export(
     db: &Database,
     session: &AuthSession,
-    output: Option<&std::path::PathBuf>,
+    output: &std::path::PathBuf,
 ) -> Result<()> {
     let entries = db.list_entries_for_user(session.user_id)?;
     let mut out = Vec::new();
@@ -293,13 +293,8 @@ fn handle_export(
 
     let text = serde_json::to_string_pretty(&out).map_err(|_| AppError::ExportFailed)?;
 
-    if let Some(path) = output {
-        fs::write(path, text).map_err(|_| AppError::ExportFailed)?;
-        println!("Warning: export output is plaintext secrets");
-    } else {
-        println!("{}", text);
-        println!("Warning: export output is plaintext secrets");
-    }
+    fs::write(output, text).map_err(|_| AppError::ExportFailed)?;
+    println!("Warning: export output is plaintext secrets");
 
     Ok(())
 }

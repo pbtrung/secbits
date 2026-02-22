@@ -483,10 +483,10 @@ Valid `path_hint` values must satisfy:
    - Extract `totpSecrets` from the latest snapshot. Return `NoTotpSecrets` if empty.
    - Compute and display the current TOTP code(s) (RFC 6238, 30-second window, 6 digits) with seconds remaining in the current window.
 
-10. `secbits export [--output <file>]`
+10. `secbits export --output <file>`
     - Decrypt all entries for the active user.
-    - Serialize each entry's `path_hint` and `head_snapshot` fields into a JSON array.
-    - Write to `<file>` or stdout if `--output` is not provided.
+    - Serialize each entry into JSON with `path`, plaintext base64 `user_master_key`, plaintext base64 unwrapped `entry_key` (64-byte doc key), and `head_snapshot` fields.
+    - Write JSON to `<file>` only (`--output` is required).
     - Print a warning that the output is plaintext.
 
 11. `secbits backup push [--target <name> | --all]`
@@ -905,7 +905,7 @@ Steps:
 4. Build a JSON array where each element includes plaintext base64 keys plus snapshot fields:
    `{ "path": "<path_hint>", "user_master_key": "<base64>", "entry_key": "<base64>", <head_snapshot fields...> }`.
    Here, `entry_key` is the unwrapped 64-byte per-entry key (doc key), not the wrapped DB blob.
-5. Write JSON to `--output <file>` or stdout if `--output` is not provided. Return `ExportFailed` on I/O error.
+5. Write JSON to `--output <file>` only. Return `ExportFailed` on I/O error.
 6. Print a warning that the output file contains plaintext secrets and should be handled accordingly.
 
 ## 16. Testing Strategy
@@ -971,9 +971,10 @@ Steps:
 8. `backup pull` overwrites local DB; verify the confirmation prompt and that cancellation leaves the existing DB intact.
 9. `totp` on an entry with multiple `totpSecrets` displays all codes.
 10. `export` produces a valid JSON array containing all entries for the active user only.
-11. `backup_on_save = true`: `insert` automatically triggers a backup push on success.
-12. Full share round-trip: Alice runs `share-init`, exports pubkey; Bob runs `share-init`, exports pubkey; Alice shares an entry with Bob via file; Bob receives and the decrypted snapshot matches Alice's original entry.
-13. S3 relay share round-trip: Alice uploads share payload via `--target`; Bob pulls and imports it.
+11. `export` without `--output <file>` fails CLI argument validation.
+12. `backup_on_save = true`: `insert` automatically triggers a backup push on success.
+13. Full share round-trip: Alice runs `share-init`, exports pubkey; Bob runs `share-init`, exports pubkey; Alice shares an entry with Bob via file; Bob receives and the decrypted snapshot matches Alice's original entry.
+14. S3 relay share round-trip: Alice uploads share payload via `--target`; Bob pulls and imports it.
 
 ### 16.4 End-to-End and CLI Contract Tests
 
