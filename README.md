@@ -1082,7 +1082,18 @@ Steps:
 15. `insert` and `edit` command-invocation log demoted to DEBUG; no INFO banner interrupts interactive prompts.
 16. Ctrl-C cancels cleanly with `Aborted.` output and no database write; terminal echo is restored.
 
-### 17.7 Milestone 7: Config and Backup Targets
+### 17.7 Milestone 7: Interactive Entry Input UX
+
+**Goal:** Finalize the interactive entry-input flow defined in §9.4 as a first-class milestone.
+
+**Scope:** Masked input, password confirmation, multi-value collection, multi-line notes, custom field loop, optional-field gating, and post-write summary behavior.
+
+**Exit criteria:**
+1. All §9.4 interactive behaviors are covered by integration tests.
+2. Interactive prompts avoid leaking secrets to logs/stdout.
+3. Cancel/error paths leave terminal state and database contents consistent.
+
+### 17.8 Milestone 8: Config and Backup Targets
 
 **Goal:** Enable deterministic TOML-driven runtime config and encrypted backups.
 
@@ -1094,7 +1105,7 @@ Steps:
 3. `backup pull` safe replace is atomic; partial failure leaves existing DB intact.
 4. `backup_on_save = true` triggers backup after `insert`, `edit`, and `restore`.
 
-### 17.8 Milestone 8: Diff Accuracy and Quality Hardening
+### 17.9 Milestone 9: Diff Accuracy and Quality Hardening
 
 **Goal:** Improve diff precision and finalize operational quality.
 
@@ -1104,7 +1115,7 @@ Steps:
 1. Diff normalization and structured-delta tests pass.
 2. No unresolved critical defects in security-sensitive paths.
 
-### 17.9 Milestone 9: Entry Sharing
+### 17.10 Milestone 10: Entry Sharing
 
 **Goal:** Enable post-quantum-safe encrypted entry sharing between users.
 
@@ -1116,7 +1127,7 @@ Steps:
 3. S3 relay share round-trip passes.
 4. All share negative tests pass (tampered ciphertext, wrong recipient, malformed payload).
 
-### 17.10 Milestone 10: Release Readiness
+### 17.11 Milestone 11: Release Readiness
 
 **Goal:** Ship a documented, reproducible CLI release.
 
