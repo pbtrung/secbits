@@ -14,6 +14,18 @@ pub enum AppError {
     #[error("unsupported schema version: {0}")]
     UnsupportedSchemaVersion(i64),
 
+    #[error("invalid root master key format")]
+    InvalidRootMasterKeyFormat,
+
+    #[error("root master key too short")]
+    RootMasterKeyTooShort,
+
+    #[error("wrong root master key")]
+    WrongRootMasterKey,
+
+    #[error("invalid stored user master key blob")]
+    InvalidStoredUserMasterKeyBlob,
+
     #[error("invalid encrypted blob")]
     InvalidBlob,
 
@@ -25,6 +37,9 @@ pub enum AppError {
 
     #[error("leancrypto operation failed with code {0}")]
     CryptoOperationFailed(i32),
+
+    #[error("leancrypto AEAD algorithm mismatch: expected Ascon-Keccak")]
+    CryptoAlgorithmMismatch,
 
     #[error("invalid key material")]
     InvalidKeyMaterial,

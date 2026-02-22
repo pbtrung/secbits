@@ -1,6 +1,7 @@
 use std::ptr;
 use std::sync::Once;
 
+use base64::{engine::general_purpose, Engine as _};
 use leancrypto_sys::ffi::leancrypto;
 use rand::rngs::OsRng;
 use rand::TryRngCore;
@@ -18,7 +19,50 @@ pub const TAG_LEN: usize = 64;
 pub const HKDF_OUT_LEN: usize = ENC_KEY_LEN + ENC_IV_LEN;
 pub const MASTER_BLOB_LEN: usize = SALT_LEN + USER_MASTER_KEY_LEN + TAG_LEN;
 
-const HKDF_INFO: &[u8] = b"secbits:enc-material:v1";
+pub fn validate_root_master_key_b64(root_master_key_b64: &str) -> Result<Vec<u8>> {
+    let decoded = general_purpose::STANDARD
+        .decode(root_master_key_b64.trim())
+        .map_err(|_| AppError::InvalidRootMasterKeyFormat)?;
+
+    if decoded.len() < 256 {
+        return Err(AppError::RootMasterKeyTooShort);
+    }
+
+    Ok(decoded)
+}
+
+pub fn create_user_master_key_blob(root_master_key: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
+    let mut user_master_key = [0_u8; USER_MASTER_KEY_LEN];
+    OsRng
+        .try_fill_bytes(&mut user_master_key)
+        .map_err(|_| AppError::KeyDerivationFailed)?;
+
+    let blob = encrypt_bytes_to_blob(root_master_key, &user_master_key)?;
+    if blob.len() != MASTER_BLOB_LEN {
+        user_master_key.zeroize();
+        return Err(AppError::InvalidStoredUserMasterKeyBlob);
+    }
+
+    Ok((user_master_key.to_vec(), blob))
+}
+
+pub fn verify_user_master_key_blob(root_master_key: &[u8], blob: &[u8]) -> Result<Vec<u8>> {
+    if blob.len() != MASTER_BLOB_LEN {
+        return Err(AppError::InvalidStoredUserMasterKeyBlob);
+    }
+
+    let user_master_key = match decrypt_bytes_from_blob(root_master_key, blob) {
+        Ok(plaintext) => plaintext,
+        Err(AppError::DecryptionFailedAuthentication) => return Err(AppError::WrongRootMasterKey),
+        Err(err) => return Err(err),
+    };
+
+    if user_master_key.len() != USER_MASTER_KEY_LEN {
+        return Err(AppError::InvalidStoredUserMasterKeyBlob);
+    }
+
+    Ok(user_master_key)
+}
 
 pub fn encrypt_bytes_to_blob(key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
     if key.is_empty() {
@@ -95,8 +139,8 @@ fn derive_material(key: &[u8], salt: &[u8]) -> Result<KeyMaterial> {
             key.len(),
             salt.as_ptr(),
             salt.len(),
-            HKDF_INFO.as_ptr(),
-            HKDF_INFO.len(),
+            ptr::null(),
+            0,
             out.as_mut_ptr(),
             out.len(),
         )
@@ -132,10 +176,25 @@ impl AeadContext {
             return Err(AppError::CryptoOperationFailed(rc));
         }
 
+        // Ensure the allocated context is actually Ascon-Keccak.
+        let expected_alg =
+            unsafe { leancrypto::lc_aead_algorithm_type(leancrypto::lc_ascon_keccak_aead) };
+        let actual_alg = unsafe { leancrypto::lc_aead_ctx_algorithm_type(ctx) };
+        if expected_alg == 0 || actual_alg != expected_alg {
+            unsafe {
+                leancrypto::lc_aead_zero_free(ctx);
+            }
+            return Err(AppError::CryptoAlgorithmMismatch);
+        }
+
         Ok(Self { ctx })
     }
 
     fn setkey(&mut self, key: &[u8], iv: &[u8]) -> Result<()> {
+        if key.len() != ENC_KEY_LEN || iv.len() != ENC_IV_LEN {
+            return Err(AppError::InvalidKeyMaterial);
+        }
+
         let rc = unsafe {
             leancrypto::lc_aead_setkey(self.ctx, key.as_ptr(), key.len(), iv.as_ptr(), iv.len())
         };
@@ -148,6 +207,10 @@ impl AeadContext {
     }
 
     fn encrypt(&mut self, plaintext: &[u8], ciphertext: &mut [u8], tag: &mut [u8]) -> Result<()> {
+        if tag.len() != TAG_LEN {
+            return Err(AppError::InvalidBlob);
+        }
+
         let rc = unsafe {
             leancrypto::lc_aead_encrypt(
                 self.ctx,
@@ -169,6 +232,10 @@ impl AeadContext {
     }
 
     fn decrypt(&mut self, ciphertext: &[u8], plaintext: &mut [u8], tag: &[u8]) -> Result<()> {
+        if tag.len() != TAG_LEN {
+            return Err(AppError::InvalidBlob);
+        }
+
         let rc = unsafe {
             leancrypto::lc_aead_decrypt(
                 self.ctx,
@@ -226,8 +293,63 @@ fn ensure_leancrypto_initialized() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{decrypt_bytes_from_blob, encrypt_bytes_to_blob, SALT_LEN, TAG_LEN};
+    use base64::{engine::general_purpose, Engine as _};
+
+    use super::{
+        create_user_master_key_blob, decrypt_bytes_from_blob, encrypt_bytes_to_blob,
+        validate_root_master_key_b64, verify_user_master_key_blob, ENC_IV_LEN, ENC_KEY_LEN,
+        MASTER_BLOB_LEN, SALT_LEN, TAG_LEN,
+    };
     use crate::error::AppError;
+
+    #[test]
+    fn root_master_key_validation_rejects_bad_base64() {
+        let err = validate_root_master_key_b64("not-base64!!").expect_err("must fail");
+        assert!(matches!(err, AppError::InvalidRootMasterKeyFormat));
+    }
+
+    #[test]
+    fn root_master_key_validation_rejects_short_key() {
+        let encoded = general_purpose::STANDARD.encode(vec![0_u8; 32]);
+        let err = validate_root_master_key_b64(&encoded).expect_err("must fail");
+        assert!(matches!(err, AppError::RootMasterKeyTooShort));
+    }
+
+    #[test]
+    fn root_master_key_validation_accepts_long_enough_key() {
+        let encoded = general_purpose::STANDARD.encode(vec![0_u8; 256]);
+        let decoded = validate_root_master_key_b64(&encoded).expect("must succeed");
+        assert_eq!(decoded.len(), 256);
+    }
+
+    #[test]
+    fn user_master_key_setup_and_verify_round_trip() {
+        let root_key = vec![9_u8; 256];
+        let (user_master_key, blob) =
+            create_user_master_key_blob(&root_key).expect("setup succeeds");
+
+        assert_eq!(blob.len(), MASTER_BLOB_LEN);
+
+        let verified = verify_user_master_key_blob(&root_key, &blob).expect("verify succeeds");
+        assert_eq!(verified, user_master_key);
+    }
+
+    #[test]
+    fn wrong_root_master_key_is_rejected() {
+        let root_key = vec![1_u8; 256];
+        let wrong_root_key = vec![2_u8; 256];
+        let (_, blob) = create_user_master_key_blob(&root_key).expect("setup succeeds");
+
+        let err = verify_user_master_key_blob(&wrong_root_key, &blob).expect_err("must fail");
+        assert!(matches!(err, AppError::WrongRootMasterKey));
+    }
+
+    #[test]
+    fn invalid_stored_user_master_key_blob_size_is_rejected() {
+        let root_key = vec![9_u8; 256];
+        let err = verify_user_master_key_blob(&root_key, &[0_u8; 10]).expect_err("must fail");
+        assert!(matches!(err, AppError::InvalidStoredUserMasterKeyBlob));
+    }
 
     #[test]
     fn encrypt_decrypt_round_trip() {
@@ -281,5 +403,12 @@ mod tests {
         let key = [5_u8; 64];
         let err = decrypt_bytes_from_blob(&key, &[0_u8; 10]).expect_err("must fail");
         assert!(matches!(err, AppError::InvalidBlob));
+    }
+
+    #[test]
+    fn constants_match_512_bit_aead_contract() {
+        assert_eq!(ENC_KEY_LEN, 64);
+        assert_eq!(ENC_IV_LEN, 64);
+        assert_eq!(TAG_LEN, 64);
     }
 }

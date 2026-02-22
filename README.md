@@ -145,9 +145,9 @@ Constants:
 - `SALT_LEN = 64`
 - `USER_MASTER_KEY_LEN = 64`
 - `DOC_KEY_LEN = 64`
-- `ENC_KEY_LEN = 64`
+- `ENC_KEY_LEN = 64` (512-bit AEAD key)
 - `ENC_IV_LEN = 64` (512-bit IV as required by the leancrypto Ascon-Keccak-512 API; verify against leancrypto header definitions before finalizing)
-- `TAG_LEN = 64`
+- `TAG_LEN = 64` (512-bit authentication tag)
 - `HKDF_OUT_LEN = 128` (= `ENC_KEY_LEN + ENC_IV_LEN`)
 - `MASTER_BLOB_LEN = 192` (= `SALT_LEN + USER_MASTER_KEY_LEN + TAG_LEN`)
 
@@ -161,7 +161,7 @@ Sharing constants (ML-KEM-1024 + X448 hybrid KEM; verify all sizes against leanc
 Algorithms:
 
 1. HKDF with SHA3-512 via leancrypto.
-2. AEAD Ascon-Keccak-512 via leancrypto. Ciphertext length equals plaintext length (stream cipher mode); authentication is provided by the separate 64-byte tag.
+2. AEAD Ascon-Keccak-512 via leancrypto using 512-bit key, 512-bit IV, and 512-bit tag. Ciphertext length equals plaintext length (stream cipher mode); authentication is provided by the separate 64-byte tag.
 3. Brotli compression before encrypting entry history.
 4. Blob layout: `salt || ciphertext || tag`.
 
@@ -598,6 +598,12 @@ Implement a safe wrapper layer that exposes:
 1. `hkdf_sha3_512(ikm, salt) -> (enc_key[64], enc_iv[64])`
 2. `aead_encrypt(enc_key, enc_iv, plaintext) -> (ciphertext, tag[64])`
 3. `aead_decrypt(enc_key, enc_iv, ciphertext, tag) -> plaintext | auth error`
+
+Ascon-Keccak invocation requirements:
+1. Set AEAD key length to 64 bytes (512 bits).
+2. Set AEAD IV length to 64 bytes (512 bits).
+3. Set AEAD tag length to 64 bytes (512 bits).
+4. Use leancrypto AEAD one-shot encrypt/decrypt calls or equivalent init/update/final sequence with identical semantics.
 
 Wrapper responsibilities:
 
