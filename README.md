@@ -312,6 +312,52 @@ Operational notes:
 2. `backup pull --target <name>` and `backup push --target <name>` require that target to exist in `[targets.<name>]`.
 3. `backup push --all` requires at least one configured target.
 
+### 9.2 Path Resolution (Fuzzy, rg-like)
+
+Path-oriented commands support fuzzy matching against `entries.path_hint` using an `rg`-style matcher.
+
+Matching rules:
+
+1. If input exactly matches one `path_hint`, use it directly.
+2. Otherwise treat input as a case-smart regex query over full path strings.
+3. If regex is invalid, fall back to literal substring matching.
+4. Match output ordering should be deterministic (lexicographic `path_hint`).
+
+Ambiguity handling:
+
+1. No match: return `PathNotFound`.
+2. One match: proceed with that entry.
+3. Multiple matches: return `PathAmbiguous` and print candidate paths for user selection/refinement.
+
+Scope:
+
+1. Applies to: `show`, `edit`, `rm`, `history`, `restore`.
+2. `insert` still requires an exact new path and must reject on exact existing path (`PathAlreadyExists`).
+
+### 9.3 Implementing 9.2 (Dependencies and Algorithm)
+
+Implementation approach:
+
+1. Fetch candidate paths from SQLite:
+- Exact check first: `SELECT path_hint FROM entries WHERE path_hint = ? LIMIT 2`.
+- If no exact match, fetch candidate set (full list or prefix-filtered list) ordered by `path_hint`.
+2. Build matcher:
+- Smart-case mode: if query has uppercase letters, match case-sensitive; otherwise case-insensitive.
+- Try compiling query as regex.
+- If regex compile fails, escape query and use literal substring matching.
+3. Filter candidates in memory and collect matches.
+4. Decide outcome:
+- `0` matches => `PathNotFound`
+- `1` match => resolved `path_hint`
+- `>1` matches => `PathAmbiguous` with sorted candidates
+
+Dependency decision:
+
+1. No external binary dependency is required (do not shell out to `rg`).
+2. No new system/native libraries are required.
+3. Recommended crate dependency: `regex` for reliable regex compilation and matching.
+4. If you want zero extra Rust crates, you can implement only exact + substring matching, but that would no longer meet the regex part of 9.2.
+
 Command set (phase 1):
 
 1. `secbits init --username <name>`
@@ -327,7 +373,7 @@ Command set (phase 1):
 - List `path_hint` values, optionally filtered by prefix.
 
 4. `secbits show <path>`
-- Lookup row by `path_hint`.
+- Resolve `<path>` with fuzzy matcher to one entry.
 - Unwrap `entry_key`, decrypt `value`, and read history.
 - Print latest snapshot.
 
@@ -337,17 +383,21 @@ Command set (phase 1):
 - Create doc key, wrapped `entry_key`, and encrypted `value`.
 
 6. `secbits edit <path>`
+- Resolve `<path>` with fuzzy matcher to one entry.
 - Decrypt latest snapshot.
 - Edit fields.
 - Append commit if changed.
 
 7. `secbits rm <path>`
-- Delete by `path_hint` after confirmation.
+- Resolve `<path>` with fuzzy matcher to one entry.
+- Delete by resolved `path_hint` after confirmation.
 
 8. `secbits history <path>`
+- Resolve `<path>` with fuzzy matcher to one entry.
 - Print commits: hash, parent, timestamp, changed fields.
 
 9. `secbits restore <path> --commit <hash>`
+- Resolve `<path>` with fuzzy matcher to one entry.
 - Apply restore flow and persist new history blob.
 
 10. `secbits logout`
@@ -391,6 +441,7 @@ Representative errors:
 13. `BackupDownloadFailed`
 14. `BackupDecryptFailed`
 15. `BackupTargetNotConfigured`
+16. `PathAmbiguous`
 
 All crypto/auth errors should be explicit and non-ambiguous for operators.
 
@@ -420,6 +471,7 @@ Rust crates (initial):
 9. FFI binding crate(s) for leancrypto and brotli system libs.
 10. `toml` for CLI config parsing.
 11. S3-compatible client crate (`aws-sdk-s3` or equivalent with custom endpoint support).
+12. `regex` for rg-like path query matching (smart-case regex + literal fallback).
 
 ## 14. FFI Integration Strategy
 
@@ -465,13 +517,14 @@ Use system brotli libs through FFI crate or direct bindings.
 ### 15.2 `show`
 
 1. Ensure logged in.
-2. Load row by `path_hint`.
-3. Read `entry_key` and `value`.
-4. Unwrap `doc_key` using user master key and `entry_key`.
-5. Decrypt `value` into compressed history bytes.
-6. Brotli decompress and parse JSON.
-7. Reconstruct commits/snapshots.
-8. Render latest snapshot.
+2. Resolve user-provided `<path>` via fuzzy matcher to one `path_hint`.
+3. Load row by resolved `path_hint`.
+4. Read `entry_key` and `value`.
+5. Unwrap `doc_key` using user master key and `entry_key`.
+6. Decrypt `value` into compressed history bytes.
+7. Brotli decompress and parse JSON.
+8. Reconstruct commits/snapshots.
+9. Render latest snapshot.
 
 ### 15.3 `backup push`
 
