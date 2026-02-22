@@ -620,21 +620,140 @@ Use system brotli libs through FFI crate or direct bindings.
 5. Multi-target push (`--all`) and provider-selective pull (`--target r2|aws|gcs`) coverage.
 6. Diff behavior on reorder/whitespace/normalization scenarios.
 
-## 17. Implementation Milestones
+### 16.4 End-to-End and CLI Contract Tests
 
-1. Bootstrap empty Rust workspace + CLI skeleton.
-2. Add SQLite schema and migration runner.
-3. Add leancrypto+brotli wrappers.
-4. Implement auth key lifecycle (`init`, `login`).
-5. Implement `entry_key` + history codec.
-6. Implement CRUD and pass-style commands.
-7. Implement TOML config loading and validation.
-8. Implement S3-compatible backup commands.
-9. Implement multi-target profile selection logic for backup push/pull.
-10. Implement semantic diff engine and structured delta persistence.
-11. Add full test suite.
-12. Harden error handling and zeroization.
-13. Package and document operational setup.
+1. Snapshot-test human-readable CLI output format for `ls`, `show`, `history`, and errors.
+2. Validate CLI exit codes for success, validation failures, auth failures, and crypto failures.
+3. Verify backward-compatible behavior for key command flags (`--config`, `--target`, `--all`, `--commit`).
+
+### 16.5 Test Execution Plan
+
+1. On every pull request:
+- Run formatting and lint checks.
+- Run all unit tests and negative tests.
+2. On merge to main:
+- Run full integration suite including backup round-trip tests.
+- Run selected deterministic end-to-end CLI contract tests.
+3. Before release:
+- Run full suite on a clean environment with a fresh database path.
+- Run disaster-recovery scenario (`backup push` + local DB removal + `backup pull`).
+
+### 16.6 Quality Gates
+
+1. No failing tests in unit, integration, or CLI contract suites.
+2. All critical security invariants validated by tests (auth failures, tag tamper rejection, key unwrap failures).
+3. No unresolved high-severity defects in auth, encryption, or backup restore flows.
+4. Documentation and command help text match implemented behavior.
+
+## 17. Implementation Plan and Milestones
+
+### 17.1 Milestone 1: Foundation and Project Skeleton
+
+Goal:
+1. Create a buildable, testable Rust CLI baseline with module boundaries.
+
+Scope:
+1. Workspace bootstrap, CLI command wiring, error type scaffolding, logging policy.
+
+Exit criteria:
+1. `secbits --help` shows full command surface.
+2. Basic CI checks and test harness run successfully.
+
+### 17.2 Milestone 2: Storage Layer and Migrations
+
+Goal:
+1. Establish stable local persistence for users and entries.
+
+Scope:
+1. SQLite connection lifecycle, schema creation, migration runner, repository layer.
+
+Exit criteria:
+1. Fresh DB bootstraps automatically.
+2. CRUD storage tests pass for users and entries.
+
+### 17.3 Milestone 3: Crypto and Compression Core
+
+Goal:
+1. Implement production-safe cryptographic and compression primitives.
+
+Scope:
+1. leancrypto wrappers, brotli wrappers, blob layout codec, zeroization hooks.
+
+Exit criteria:
+1. Encrypt/decrypt round-trip tests pass.
+2. Tamper/auth-failure tests pass.
+
+### 17.4 Milestone 4: Authentication Lifecycle
+
+Goal:
+1. Support secure root master key validation and user master key lifecycle.
+
+Scope:
+1. `init`, `login`, in-memory session semantics, auth-related error mapping.
+
+Exit criteria:
+1. Correct key setup/verification behavior validated by unit and integration tests.
+2. Wrong root key reliably fails with explicit error.
+
+### 17.5 Milestone 5: Entry History Engine
+
+Goal:
+1. Deliver robust entry storage with commit history semantics.
+
+Scope:
+1. `entry_key` wrapping, encrypted history payload, commit hash, dedup, restore, structured deltas.
+
+Exit criteria:
+1. History reconstruction and restore tests pass.
+2. Dedup behavior verified across unchanged updates.
+
+### 17.6 Milestone 6: Path UX and Core Commands
+
+Goal:
+1. Provide complete pass-style command workflows with fuzzy path resolution.
+
+Scope:
+1. `ls/show/insert/edit/rm/history/restore/logout`, path matcher, ambiguity handling.
+
+Exit criteria:
+1. Core workflow integration tests pass.
+2. Path resolution behavior meets 9.2 design and implementation rules.
+
+### 17.7 Milestone 7: Config and Backup Targets
+
+Goal:
+1. Enable deterministic TOML-driven runtime config and encrypted backups.
+
+Scope:
+1. Config load order/validation, backup push/pull, multi-target selection logic.
+
+Exit criteria:
+1. Backup round-trip tests pass for selected target and `--all`.
+2. Disaster-recovery scenario passes.
+
+### 17.8 Milestone 8: Diff Accuracy and Quality Hardening
+
+Goal:
+1. Improve diff precision and finalize operational quality.
+
+Scope:
+1. Canonicalization rules, semantic diff logic, field-level hashes, error-hardening.
+
+Exit criteria:
+1. Diff normalization and structured-delta tests pass.
+2. No unresolved critical defects in security-sensitive paths.
+
+### 17.9 Milestone 9: Release Readiness
+
+Goal:
+1. Ship a documented, reproducible CLI release.
+
+Scope:
+1. Packaging, operational docs, command examples, final verification matrix.
+
+Exit criteria:
+1. All quality gates in 16.6 pass.
+2. Release artifact and documentation are complete.
 
 ## 18. Open Decisions (Track Explicitly)
 
