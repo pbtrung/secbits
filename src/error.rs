@@ -14,6 +14,12 @@ pub enum AppError {
     #[error("unsupported schema version: {0}")]
     UnsupportedSchemaVersion(i64),
 
+    #[error("config file not found: {0}")]
+    ConfigFileNotFound(String),
+
+    #[error("invalid config field: {0}")]
+    InvalidConfigField(String),
+
     #[error("invalid root master key format")]
     InvalidRootMasterKeyFormat,
 
@@ -43,6 +49,9 @@ pub enum AppError {
 
     #[error("invalid key material")]
     InvalidKeyMaterial,
+
+    #[error("user not found")]
+    UserNotFound,
 
     #[error("command not implemented yet: {0}")]
     CommandNotImplemented(&'static str),

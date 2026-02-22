@@ -2,6 +2,7 @@ pub mod app;
 pub mod backup;
 pub mod cli;
 pub mod compression;
+pub mod config;
 pub mod crypto;
 pub mod db;
 pub mod error;
