@@ -56,7 +56,7 @@ username = "alice"
 backup_on_save = false  # optional; when true, triggers backup push --all after every successful write command
 log_level = "info"      # optional; one of: trace, debug, info, warn, error
 log_target = false      # optional; include target/module name in log lines
-log_time = false        # optional; include timestamp in log lines
+log_time = false        # optional; include timestamp as [dd/mm/yyyy hh:mm:ss.sss]
 
 [targets.r2]
 provider = "r2"
@@ -96,7 +96,7 @@ Rules:
 4. `backup_on_save` is optional and defaults to `false`. When `true`, triggers `backup push --all` automatically after every successful write command (`insert`, `edit`, `restore`).
 5. `log_level` is optional and defaults to `info`; valid values are `trace`, `debug`, `info`, `warn`, `error`.
 6. `log_target` is optional and defaults to `false`; when `true`, logs include the module/target name.
-7. `log_time` is optional and defaults to `false`; when `true`, logs include timestamps.
+7. `log_time` is optional and defaults to `false`; when `true`, logs include timestamps formatted as `[dd/mm/yyyy hh:mm:ss.sss]`.
 8. `[targets.<name>]` defines one or more S3-compatible backup targets, allowing R2, AWS S3, and GCS to be configured at the same time.
 9. `provider` identifies behavior differences (`r2`, `aws`, `gcs`) while still using S3 API-compatible upload/download flows.
 10. Secrets in config must be protected by filesystem permissions (`0600`) or environment override strategy.
