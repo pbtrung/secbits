@@ -8,10 +8,7 @@ It is intentionally detailed and prescriptive so implementation can start immedi
 
 1. Build a local/offline password manager in Rust.
 2. Preserve the existing encryption, decryption, and authentication/key-lifecycle model.
-3. Use system-installed libraries:
-- leancrypto (for HKDF-SHA3-512 + Ascon-Keccak-512 AEAD)
-- brotli (for pre-encryption compression)
-- sqlite (for local storage)
+3. Use system-installed libraries: leancrypto (HKDF-SHA3-512 + Ascon-Keccak-512 AEAD), brotli (pre-encryption compression), and sqlite (local storage).
 4. Mimic pass-style UX with path-oriented entries.
 5. Keep commit-history semantics compatible with current logic (hashing, dedup, restore, compact history object).
 6. Support encrypted cloud backups through S3-compatible object storage.
@@ -27,10 +24,7 @@ It is intentionally detailed and prescriptive so implementation can start immedi
 
 1. Rust stable (target edition: 2021 or newer).
 2. Linux-first implementation.
-3. Dynamic linking to system libraries:
-- libsqlite3
-- libbrotlienc + libbrotlidec
-- libleancrypto (or project-local build artifact if system package is unavailable)
+3. Dynamic linking to system libraries: `libsqlite3`, `libbrotlienc + libbrotlidec`, and `libleancrypto` (or project-local build artifact if system package is unavailable).
 
 ## 4. High-Level Architecture
 
@@ -43,35 +37,13 @@ Single binary CLI:
 
 Internal modules:
 
-1. `cli`
-- argument parsing
-- interactive prompts
-- command routing
-
-2. `db`
-- sqlite connection lifecycle
-- schema migrations
-- CRUD for users/entries
-
-3. `crypto`
-- thin safe wrappers around leancrypto FFI
-- byte layout encode/decode
-- zeroization helpers
-
-4. `compression`
-- brotli encode/decode wrappers
-
-5. `model`
-- entry payload structs
-- history structs
-- delta reconstruction
-
-6. `app`
-- domain flows (login/init/insert/show/edit/history/restore)
-
-7. `backup`
-- backup pack/unpack
-- S3-compatible upload/download flows
+1. `cli`: argument parsing, interactive prompts, command routing.
+2. `db`: sqlite connection lifecycle, schema migrations, CRUD for users/entries.
+3. `crypto`: thin safe wrappers around leancrypto FFI, byte layout encode/decode, zeroization helpers.
+4. `compression`: brotli encode/decode wrappers.
+5. `model`: entry payload structs, history structs, delta reconstruction.
+6. `app`: domain flows (login/init/insert/show/edit/history/restore).
+7. `backup`: backup pack/unpack, S3-compatible upload/download flows.
 
 ## 4.1 CLI TOML Config
 
@@ -757,18 +729,40 @@ Exit criteria:
 
 ## 18. Open Decisions (Track Explicitly)
 
+### 18.1 Path Uniqueness Scope
+
+Question:
 1. Should `path_hint` uniqueness be global or per-user?
-- Current schema makes it global due to `UNIQUE(path_hint)`.
-- If per-user desired later: replace with `UNIQUE(user_id, path_hint)`.
 
-2. Should TOTP generation be included in CLI output helpers?
-- Model supports it; command surface can add `totp <path>` later.
+Current default:
+1. Global uniqueness (`UNIQUE(path_hint)`).
 
-3. Should import/export JSON be added?
-- Recommended as a future enhancement.
+Alternative:
+1. Per-user uniqueness with `UNIQUE(user_id, path_hint)`.
 
-4. Backup schedule policy: manual only or optional timer-based automation?
-- Default recommendation: manual by default.
+### 18.2 TOTP Helper Command
+
+Question:
+1. Should TOTP generation be included in CLI output helpers?
+
+Current default:
+1. Keep model support only; add `totp <path>` command surface later if required.
+
+### 18.3 Import and Export
+
+Question:
+1. Should JSON import/export be included?
+
+Current default:
+1. Keep as a future enhancement.
+
+### 18.4 Backup Scheduling
+
+Question:
+1. Should backups be manual only or allow timer-based automation?
+
+Current default:
+1. Manual by default.
 
 ## 19. Minimal Acceptance Criteria
 
