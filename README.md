@@ -857,6 +857,9 @@ Steps:
 1. Core workflow integration tests pass.
 2. Path resolution behavior meets §9.2 design and implementation rules.
 3. `InvalidPathHint` validation enforced on `insert`.
+4. Per-user path uniqueness enforced: same `path_hint` allowed across different users, rejected for the same user.
+5. `totp` computes correct codes against known-secret/known-time test vectors.
+6. `export` produces a valid JSON array containing all and only the active user's entries.
 
 ### 17.7 Milestone 7: Config and Backup Targets
 
