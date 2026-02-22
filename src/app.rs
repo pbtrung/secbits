@@ -7,7 +7,7 @@ use hmac::{Hmac, Mac};
 use rand::rngs::OsRng;
 use rand::TryRngCore;
 use regex::RegexBuilder;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sha1::Sha1;
 use tracing::{debug, error, info};
 use zeroize::Zeroize;
@@ -32,6 +32,7 @@ type HmacSha1 = Hmac<Sha1>;
 #[derive(Debug)]
 struct AuthSession {
     user_id: i64,
+    username: String,
     user_master_key: Vec<u8>,
 }
 
@@ -269,29 +270,33 @@ fn handle_export(
     output: &std::path::PathBuf,
 ) -> Result<()> {
     let entries = db.list_entries_for_user(session.user_id)?;
-    let mut out = Vec::new();
+    let mut out_entries = Vec::new();
 
     for entry in entries {
         let history = decrypt_history(session, &entry)?;
         let entry_key_plain = decrypt_bytes_from_blob(&session.user_master_key, &entry.entry_key)
             .map_err(|_| AppError::InvalidEntryKeyBlob)?;
-        let mut value =
-            serde_json::to_value(&history.head_snapshot).map_err(|_| AppError::ExportFailed)?;
-        if let Value::Object(map) = &mut value {
-            map.insert("path".to_string(), Value::String(entry.path_hint));
-            map.insert(
-                "user_master_key".to_string(),
-                Value::String(general_purpose::STANDARD.encode(&session.user_master_key)),
-            );
-            map.insert(
-                "entry_key".to_string(),
-                Value::String(general_purpose::STANDARD.encode(&entry_key_plain)),
-            );
-        }
-        out.push(value);
+        let history_value = serde_json::to_value(&history).map_err(|_| AppError::ExportFailed)?;
+
+        let mut entry_out = Map::new();
+        entry_out.insert("path_hint".to_string(), Value::String(entry.path_hint));
+        entry_out.insert(
+            "entry_key".to_string(),
+            Value::String(general_purpose::STANDARD.encode(&entry_key_plain)),
+        );
+        entry_out.insert("value".to_string(), history_value);
+        out_entries.push(Value::Object(entry_out));
     }
 
-    let text = serde_json::to_string_pretty(&out).map_err(|_| AppError::ExportFailed)?;
+    let mut out = Map::new();
+    out.insert("username".to_string(), Value::String(session.username.clone()));
+    out.insert(
+        "user_master_key".to_string(),
+        Value::String(general_purpose::STANDARD.encode(&session.user_master_key)),
+    );
+    out.insert("entries".to_string(), Value::Array(out_entries));
+
+    let text = serde_json::to_string_pretty(&Value::Object(out)).map_err(|_| AppError::ExportFailed)?;
 
     fs::write(output, text).map_err(|_| AppError::ExportFailed)?;
     println!("Warning: export output is plaintext secrets");
@@ -556,6 +561,7 @@ fn authenticate_session(
 
     Ok(AuthSession {
         user_id: user.user_id,
+        username: user.username,
         user_master_key,
     })
 }

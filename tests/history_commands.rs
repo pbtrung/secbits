@@ -185,7 +185,7 @@ fn fuzzy_path_reports_ambiguous() {
 }
 
 #[test]
-fn export_outputs_json_array() {
+fn export_outputs_db_shaped_json_with_full_history() {
     let (dir, db_path, config_path) = setup_paths();
     let root = general_purpose::STANDARD.encode(vec![4_u8; 256]);
     write_config(&config_path, &db_path, "alice", &root);
@@ -202,6 +202,18 @@ fn export_outputs_json_array() {
             "mail/google/main",
         ])
         .write_stdin(payload)
+        .assert()
+        .success();
+
+    let edited = r#"{"title":"x2","username":"a","password":"p2","notes":"n","urls":[],"totpSecrets":[],"customFields":[],"tags":[],"timestamp":""}"#;
+    Command::new(assert_cmd::cargo::cargo_bin!("secbits"))
+        .args([
+            "--config",
+            config_path.to_str().expect("config path"),
+            "edit",
+            "mail/google/main",
+        ])
+        .write_stdin(edited)
         .assert()
         .success();
 
@@ -223,19 +235,22 @@ fn export_outputs_json_array() {
         "export command must not print JSON to stdout"
     );
     let json_text = fs::read_to_string(&export_path).expect("read export file");
-    assert!(json_text.contains("\"path\": \"mail/google/main\""));
+    assert!(json_text.contains("\"username\": \"alice\""));
+    assert!(json_text.contains("\"path_hint\": \"mail/google/main\""));
     assert!(json_text.contains("\"user_master_key\":"));
     assert!(json_text.contains("\"entry_key\":"));
+    assert!(json_text.contains("\"commits\":"));
 
     let parsed: Value = serde_json::from_str(&json_text).expect("valid export json");
-    let first = parsed
-        .as_array()
-        .and_then(|arr| arr.first())
-        .expect("first export row");
-    let user_master_key_b64 = first
+    let user_master_key_b64 = parsed
         .get("user_master_key")
         .and_then(Value::as_str)
         .expect("user_master_key in export");
+    let entries = parsed
+        .get("entries")
+        .and_then(Value::as_array)
+        .expect("entries array in export");
+    let first = entries.first().expect("first export entry");
     let entry_key_b64 = first
         .get("entry_key")
         .and_then(Value::as_str)
@@ -249,6 +264,26 @@ fn export_outputs_json_array() {
     assert!(
         user_master_key.len() == 64 && entry_key.len() == 64,
         "decrypted user_master_key and entry_key must both be 64 bytes"
+    );
+    assert_eq!(
+        parsed.get("username").and_then(Value::as_str),
+        Some("alice"),
+        "username must be exported at top level"
+    );
+    assert_eq!(
+        first.get("path_hint").and_then(Value::as_str),
+        Some("mail/google/main"),
+        "entry path_hint must be exported"
+    );
+    let commits_len = first
+        .get("value")
+        .and_then(|v| v.get("commits"))
+        .and_then(Value::as_array)
+        .map(|arr| arr.len())
+        .unwrap_or(0);
+    assert!(
+        commits_len >= 2,
+        "export must include full history (expected at least 2 commits after edit)"
     );
 }
 

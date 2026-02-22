@@ -485,7 +485,9 @@ Valid `path_hint` values must satisfy:
 
 10. `secbits export --output <file>`
     - Decrypt all entries for the active user.
-    - Serialize each entry into JSON with `path`, plaintext base64 `user_master_key`, plaintext base64 unwrapped `entry_key` (64-byte doc key), and `head_snapshot` fields.
+    - Serialize one DB-shaped JSON object:
+      - Top level: `username`, plaintext base64 `user_master_key`.
+      - `entries[]`: each item has `path_hint`, plaintext base64 unwrapped `entry_key` (64-byte doc key), and `value` (full decrypted history object).
     - Write JSON to `<file>` only (`--output` is required).
     - Print a warning that the output is plaintext.
 
@@ -901,12 +903,14 @@ Steps:
 
 1. Verify root master key from config; derive user master key.
 2. Fetch all entry rows for the active user ordered by `path_hint`.
-3. For each row: unwrap `doc_key`; decrypt and decompress history; extract `head_snapshot`.
-4. Build a JSON array where each element includes plaintext base64 keys plus snapshot fields:
-   `{ "path": "<path_hint>", "user_master_key": "<base64>", "entry_key": "<base64>", <head_snapshot fields...> }`.
+3. Build one JSON object with top-level user fields from `users`:
+   `{ "username": "<username>", "user_master_key": "<base64>", "entries": [...] }`.
+4. For each `entries` row: unwrap `doc_key`; decrypt and decompress `value` to the full history object.
+5. Append one item to `entries`:
+   `{ "path_hint": "<path_hint>", "entry_key": "<base64>", "value": <full history object> }`.
    Here, `entry_key` is the unwrapped 64-byte per-entry key (doc key), not the wrapped DB blob.
-5. Write JSON to `--output <file>` only. Return `ExportFailed` on I/O error.
-6. Print a warning that the output file contains plaintext secrets and should be handled accordingly.
+6. Write JSON to `--output <file>` only. Return `ExportFailed` on I/O error.
+7. Print a warning that the output file contains plaintext secrets and should be handled accordingly.
 
 ## 16. Testing Strategy
 
@@ -970,7 +974,7 @@ Steps:
 7. Commit overflow: apply 11 distinct edits to one entry; verify history length is exactly 10 and oldest commit's `delta.set` reflects its full snapshot.
 8. `backup pull` overwrites local DB; verify the confirmation prompt and that cancellation leaves the existing DB intact.
 9. `totp` on an entry with multiple `totpSecrets` displays all codes.
-10. `export` produces a valid JSON array containing all entries for the active user only.
+10. `export` produces a valid DB-shaped JSON object with top-level `username`, `user_master_key`, and `entries` for the active user only.
 11. `export` without `--output <file>` fails CLI argument validation.
 12. `backup_on_save = true`: `insert` automatically triggers a backup push on success.
 13. Full share round-trip: Alice runs `share-init`, exports pubkey; Bob runs `share-init`, exports pubkey; Alice shares an entry with Bob via file; Bob receives and the decrypted snapshot matches Alice's original entry.
@@ -1066,7 +1070,7 @@ Steps:
 3. `InvalidPathHint` validation enforced on `insert`.
 4. Per-user path uniqueness enforced: same `path_hint` allowed across different users, rejected for the same user.
 5. `totp` computes correct codes against known-secret/known-time test vectors.
-6. `export` produces a valid JSON array containing all and only the active user's entries.
+6. `export` produces a valid DB-shaped JSON object containing all and only the active user's entries.
 7. `password` and `totpSecrets` fields use masked input (no echo) in interactive mode.
 8. `password` requires confirmation in interactive mode; mismatch returns `PasswordConfirmationMismatch`.
 9. Each TOTP secret is validated for Base32 decodability and minimum length at input time; `InvalidTotpSecret` returned on failure.
@@ -1132,7 +1136,7 @@ Steps:
 6. Can push encrypted backups to one or all configured backup targets.
 7. Can pull encrypted backups from a chosen backup target.
 8. `totp <path>` computes live TOTP codes from stored secrets.
-9. `export` produces a plaintext JSON snapshot of all entries and includes `user_master_key` and unwrapped `entry_key` (both 64-byte keys) as base64 strings.
+9. `export` produces a plaintext DB-shaped JSON object containing top-level `username` + `user_master_key`, and per-entry unwrapped `entry_key` with full history in `value`.
 10. `backup_on_save = true` in config triggers automatic backup after every write.
 11. Can share an entry snapshot with another user using hybrid ML-KEM-1024 + X448.
 12. Shared entry is decryptable only by the intended recipient; tampered payloads are rejected.
