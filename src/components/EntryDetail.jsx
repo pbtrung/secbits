@@ -252,7 +252,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
   };
 
   const addHiddenField = () => {
-    const maxId = draft.customFields.reduce((max, f) => Math.max(max, f.id), 0);
+    const maxId = draft.customFields.reduce((max, f) => Number.isFinite(f.id) ? Math.max(max, f.id) : max, 0);
     setDraft({
       ...draft,
       customFields: [...draft.customFields, { id: maxId + 1, label: '', value: '' }],
@@ -411,7 +411,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
     if (current && !finalTags.includes(current)) {
       finalTags.push(current);
     }
-    onSave({ ...draft, tags: finalTags });
+    onSave({ ...draft, tags: finalTags, urls: draft.urls.filter((u) => u.trim()) });
   };
 
   const handleDelete = () => {
@@ -445,9 +445,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
     !draft.notes.trim() &&
     !draft.urls.some((u) => u.trim()) &&
     draft.totpSecrets.length === 0 &&
-    draft.customFields.length === 0 &&
-    draft.tags.length === 0 &&
-    !tagCurrentInput.trim();
+    draft.customFields.length === 0;
 
   const saveDisabled = hasInvalidFields || allFieldsEmpty;
 

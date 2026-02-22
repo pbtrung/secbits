@@ -153,11 +153,17 @@ function normalizeTags(tags) {
 
 function normalizeCustomFields(customFields) {
   if (!Array.isArray(customFields)) return [];
-  return customFields.map((field, index) => ({
-    id: typeof field?.id === 'number' ? field.id : index + 1,
-    label: typeof field?.label === 'string' ? field.label : '',
-    value: typeof field?.value === 'string' ? field.value : '',
-  }));
+  const seen = new Set();
+  return customFields.map((field, index) => {
+    let id = Number.isFinite(field?.id) ? field.id : index + 1;
+    while (seen.has(id)) id++;
+    seen.add(id);
+    return {
+      id,
+      label: typeof field?.label === 'string' ? field.label : '',
+      value: typeof field?.value === 'string' ? field.value : '',
+    };
+  });
 }
 
 function normalizeTotpSecrets(totpSecrets) {

@@ -1,9 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { initFirebase, signIn, fetchUser, saveUserMasterKey, initUserDataCollection, setUserMasterKey, clearUserMasterKey } from '../firebase';
 import { decodeRootMasterKey, setupUserMasterKey, verifyUserMasterKey } from '../crypto';
 
 const REQUIRED_KEYS = ['apiKey', 'authDomain', 'databaseURL', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
-const SESSION_KEY = 'secbits_config';
 
 function FirebaseSetup({ onReady }) {
   const [error, setError] = useState(null);
@@ -65,22 +64,6 @@ function FirebaseSetup({ onReady }) {
     return { userId, username };
   };
 
-  useEffect(() => {
-    const cached = sessionStorage.getItem(SESSION_KEY);
-    if (!cached) return;
-    setLoading(true);
-    processConfigText(cached)
-      .then(async ({ userId, username }) => {
-        setStatus('Loading entries...');
-        await onReady(userId, username);
-      })
-      .catch(() => {
-        clearUserMasterKey();
-        sessionStorage.removeItem(SESSION_KEY);
-        setLoading(false);
-      });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   const processFile = (file) => {
     setError(null);
     if (!file) return;
@@ -96,7 +79,6 @@ function FirebaseSetup({ onReady }) {
         const { userId, username } = await processConfigText(text);
         setStatus('Loading entries...');
         await onReady(userId, username);
-        sessionStorage.setItem(SESSION_KEY, text);
       } catch (connErr) {
         clearUserMasterKey();
         setError(connErr.message || 'Invalid configuration');

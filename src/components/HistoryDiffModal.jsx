@@ -42,6 +42,7 @@ function computeLineDiff(a, b) {
 // Collapse runs of unchanged lines that are more than CTX lines from any change.
 // Inserts {type:'hunk', skip:N} markers in their place.
 const CTX = 3;
+const MAX_DIFF_LINES = 1000;
 function withContext(lines) {
   const near = new Uint8Array(lines.length);
   for (let i = 0; i < lines.length; i++) {
@@ -88,6 +89,11 @@ function buildDiffSections(fromSnap, toSnap, changedFields) {
     const newVal = toSnap?.[field];
 
     if (field === 'notes') {
+      const oldLines = String(oldVal ?? '').split('\n');
+      const newLines = String(newVal ?? '').split('\n');
+      if (oldLines.length > MAX_DIFF_LINES || newLines.length > MAX_DIFF_LINES) {
+        return [{ field, lines: [{ type: 'large' }] }];
+      }
       const raw = computeLineDiff(oldVal ?? '', newVal ?? '');
       return [{ field, lines: isInit ? raw : withContext(raw) }];
     }
@@ -139,6 +145,7 @@ function CommitDiff({ commits, idx }) {
   const parentCommit = commit?.parent
     ? commits.find((c) => c.hash === commit.parent)
     : null;
+  const parentEvicted = commit?.parent !== null && commit?.parent !== undefined && parentCommit === null;
 
   if (!commit) return null;
 
@@ -148,12 +155,17 @@ function CommitDiff({ commits, idx }) {
     commit.changed,
   );
 
-  if (sections.length === 0) {
+  if (sections.length === 0 && !parentEvicted) {
     return <p className="text-muted small mb-0">No content changes in this commit.</p>;
   }
 
   return (
     <div>
+      {parentEvicted && (
+        <p className="text-muted fst-italic small mb-3">
+          Parent version is no longer in history — showing full snapshot.
+        </p>
+      )}
       {sections.map(({ field, lines }) => (
         <div key={field} className="mb-3">
           <div className="text-muted mb-1 small fw-semibold" style={{ fontFamily: 'sans-serif' }}>
@@ -161,6 +173,13 @@ function CommitDiff({ commits, idx }) {
           </div>
           <div className="border rounded overflow-hidden" style={{ fontFamily: 'monospace', fontSize: '0.78rem', lineHeight: 1.55 }}>
             {lines.map((line, i) => {
+              if (line.type === 'large') {
+                return (
+                  <div key={i} className="px-2 py-1 text-muted fst-italic" style={{ userSelect: 'none' }}>
+                    Notes too large to diff inline.
+                  </div>
+                );
+              }
               if (line.type === 'hunk') {
                 return (
                   <div key={i} className="px-2 text-primary bg-primary bg-opacity-10" style={{ userSelect: 'none' }}>
@@ -309,7 +328,11 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
               <button
                 type="button"
                 className="btn btn-sm btn-outline-warning me-auto"
-                onClick={() => onRestore(selectedCommit.hash)}
+                onClick={() => {
+                  if (window.confirm('Restore this version? The current state will be preserved in history.')) {
+                    onRestore(selectedCommit.hash);
+                  }
+                }}
                 disabled={saving}
               >
                 {saving

@@ -52,7 +52,6 @@ function App() {
 
   const handleLogout = useCallback(() => {
     clearUserMasterKey();
-    sessionStorage.removeItem('secbits_config');
     setSession(null);
   }, []);
 
@@ -306,8 +305,10 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
   }, [isMobile, editingId, confirmUnsavedChanges]);
 
   const handleMobileBack = () => {
-    if (mobileView === 'detail') setMobileView('entries');
-    else if (mobileView === 'entries') setMobileView('tags');
+    if (mobileView === 'detail') {
+      if (!confirmUnsavedChanges()) return;
+      setMobileView('entries');
+    } else if (mobileView === 'entries') setMobileView('tags');
   };
 
   const handleLogoutGuarded = useCallback(() => {
