@@ -287,6 +287,31 @@ On save:
 
 ## 9. Pass-Style CLI Design
 
+### 9.1 How CLI Reads TOML Config
+
+Config load order (first match wins):
+
+1. `--config <path>` global CLI option.
+2. `SECBITS_CONFIG` environment variable.
+3. Default path: `~/.config/secbits/config.toml`.
+
+Read/validation flow:
+
+1. Resolve config path using load order above.
+2. Read file bytes from disk.
+3. Parse TOML into typed config struct.
+4. Validate required fields:
+- `root_master_key_b64` and `db_path` for all commands.
+- `targets.<name>` or at least one target for backup commands.
+5. Expand `~` in paths and normalize `db_path`.
+6. Return explicit error (`ConfigFileNotFound` or `InvalidConfigField`) on failure.
+
+Operational notes:
+
+1. All commands read config at startup.
+2. `backup pull --target <name>` and `backup push --target <name>` require that target to exist in `[targets.<name>]`.
+3. `backup push --all` requires at least one configured target.
+
 Command set (phase 1):
 
 1. `secbits init --username <name>`
