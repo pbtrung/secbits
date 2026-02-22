@@ -1,4 +1,4 @@
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info};
 use zeroize::Zeroize;
 
 use crate::cli::{BackupCommands, Cli, Commands};
@@ -13,21 +13,48 @@ use crate::Result;
 pub fn dispatch(cli: Cli, config: AppConfig) -> Result<()> {
     log_command_invocation(&cli.command);
 
-    let mut root_master_key = validate_root_master_key_b64(&config.root_master_key_b64)?;
+    let mut root_master_key = match validate_root_master_key_b64(&config.root_master_key_b64) {
+        Ok(root_master_key) => root_master_key,
+        Err(err) => {
+            error!(error = %err, "failed to validate root master key from config");
+            return Err(err);
+        }
+    };
     debug!("validated root master key format and length");
 
-    let db = Database::open(&config.db_path)?;
+    let db = match Database::open(&config.db_path) {
+        Ok(db) => db,
+        Err(err) => {
+            error!(error = %err, db_path = %config.db_path.display(), "failed to open database");
+            root_master_key.zeroize();
+            return Err(err);
+        }
+    };
     debug!(db_path = %config.db_path.display(), "opened database");
 
     let result = match &cli.command {
         Commands::Init { username } => {
             info!(username = %username, "handling init command");
-            handle_init(&db, &root_master_key, &config.username, username)
+            let result = handle_init(&db, &root_master_key, &config.username, username);
+            if let Err(err) = &result {
+                error!(error = %err, username = %username, "init command failed");
+            }
+            result
         }
         other => {
             debug!("authenticating session for command");
-            let mut user_master_key =
-                authenticate_session(&db, &config.username, &root_master_key)?;
+            let mut user_master_key = match authenticate_session(
+                &db,
+                &config.username,
+                &root_master_key,
+            ) {
+                Ok(key) => key,
+                Err(err) => {
+                    error!(error = %err, username = %config.username, "session authentication failed");
+                    root_master_key.zeroize();
+                    return Err(err);
+                }
+            };
             debug!("session authenticated");
             let command_name = command_name(other);
             info!(
@@ -50,7 +77,7 @@ fn handle_init(
     command_username: &str,
 ) -> Result<()> {
     if configured_username != command_username {
-        warn!(
+        error!(
             configured_username = %configured_username,
             command_username = %command_username,
             "init username does not match configured username"
@@ -79,11 +106,18 @@ fn handle_init(
 
 fn authenticate_session(db: &Database, username: &str, root_master_key: &[u8]) -> Result<Vec<u8>> {
     let user = db.get_user_by_username(username)?.ok_or_else(|| {
-        warn!(username = %username, "configured user not found");
+        error!(username = %username, "configured user not found");
         AppError::UserNotFound
     })?;
 
-    let user_master_key = verify_user_master_key_blob(root_master_key, &user.user_master_key)?;
+    let user_master_key = match verify_user_master_key_blob(root_master_key, &user.user_master_key)
+    {
+        Ok(user_master_key) => user_master_key,
+        Err(err) => {
+            error!(error = %err, username = %username, "failed to verify user master key blob");
+            return Err(err);
+        }
+    };
     debug!(username = %username, "verified user master key blob");
     Ok(user_master_key)
 }
