@@ -82,6 +82,7 @@ CREATE TABLE data (
   data_id INTEGER PRIMARY KEY,
   user_id INTEGER NOT NULL,
   path_hint TEXT NOT NULL UNIQUE,
+  entry_key BLOB NOT NULL,
   value BLOB NOT NULL,
   FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
@@ -93,8 +94,9 @@ Notes:
 
 1. `user_id` and `data_id` are integer primary keys.
 2. `path_hint` stores pass-style path (`mail/google/main`) and is globally unique.
-3. `value` stores encrypted envelope bytes only.
-4. Secrets must never be written to plaintext columns.
+3. `entry_key` stores wrapped per-entry doc key bytes.
+4. `value` stores encrypted history blob bytes.
+5. Secrets must never be written to plaintext columns.
 
 ## 6. Cryptographic Invariants (Must Match Existing Design)
 
@@ -147,31 +149,18 @@ Validation rules:
 5. AEAD-decrypt and authenticate.
 6. On auth failure: return `Wrong root master key`.
 
-## 7. Data-at-Rest Envelope in `data.value`
+## 7. Data-at-Rest Columns in `data`
 
-`data.value` stores a binary envelope containing both wrapped doc key and encrypted history.
+`data` stores wrapped key and encrypted payload in separate columns:
 
-Format (v1):
-
-```
-magic[4] = "SBV1"
-version[1] = 1
-entry_key_len[4] (u32, big-endian)
-history_len[4] (u32, big-endian)
-entry_key_blob[entry_key_len]
-history_blob[history_len]
-```
-
-Where:
-
-1. `entry_key_blob = encryptBytesToBlob(user_master_key, doc_key)`
-2. `history_blob = encryptBytesToBlob(doc_key, brotli(JSON(history_object)))`
+1. `entry_key = encryptBytesToBlob(user_master_key, doc_key)`
+2. `value = encryptBytesToBlob(doc_key, brotli(JSON(history_object)))`
 
 Rationale:
 
-- Keeps wrapped per-entry doc key semantics from current design.
+- Mirrors the existing app model (`entry_key` + `value`).
+- Keeps wrapped per-entry doc key semantics unchanged.
 - Keeps history encryption and compression semantics unchanged.
-- Fits schema with single encrypted `value` column.
 
 ## 8. Entry Model and Commit History
 
@@ -262,13 +251,13 @@ Command set (phase 1):
 
 4. `secbits show <path>`
 - Lookup row by `path_hint`.
-- Decrypt envelope and history.
+- Unwrap `entry_key`, decrypt `value`, and read history.
 - Print latest snapshot.
 
 5. `secbits insert <path>`
 - Reject if path exists.
 - Read secret fields from prompt/editor.
-- Create doc key, history, encrypted envelope.
+- Create doc key, wrapped `entry_key`, and encrypted `value`.
 
 6. `secbits edit <path>`
 - Decrypt latest snapshot.
@@ -306,7 +295,7 @@ Representative errors:
 2. `RootMasterKeyTooShort`
 3. `WrongRootMasterKey`
 4. `InvalidStoredUserMasterKeyBlob`
-5. `InvalidEnvelopeFormat`
+5. `InvalidEntryKeyBlob`
 6. `DecryptionFailedAuthentication`
 7. `PathAlreadyExists`
 8. `PathNotFound`
@@ -321,7 +310,7 @@ All crypto/auth errors should be explicit and non-ambiguous for operators.
 3. Use constant-time comparisons where relevant.
 4. Disable core dumps in production guidance where feasible.
 5. Restrict database file permissions (`0600`).
-6. `path_hint` is metadata, not secret; all secret material stays encrypted in `value`.
+6. `path_hint` is metadata, not secret; all secret material stays encrypted in `entry_key` and `value`.
 
 ## 13. Dependency Plan
 
@@ -376,15 +365,15 @@ Use system brotli libs through FFI crate or direct bindings.
 7. Brotli compress JSON.
 8. Encrypt compressed history with `doc_key` => `history_blob`.
 9. Wrap `doc_key` with user master key => `entry_key_blob`.
-10. Build envelope and write row.
+10. Write row with `entry_key = entry_key_blob` and `value = history_blob`.
 
 ### 15.2 `show`
 
 1. Ensure logged in.
 2. Load row by `path_hint`.
-3. Parse envelope.
-4. Unwrap `doc_key` using user master key.
-5. Decrypt `history_blob`.
+3. Read `entry_key` and `value`.
+4. Unwrap `doc_key` using user master key and `entry_key`.
+5. Decrypt `value` into compressed history bytes.
 6. Brotli decompress and parse JSON.
 7. Reconstruct commits/snapshots.
 8. Render latest snapshot.
@@ -405,7 +394,7 @@ Use system brotli libs through FFI crate or direct bindings.
 
 1. Wrong root key rejects verify.
 2. Tampered tag rejects decrypt.
-3. Corrupted envelope lengths fail parsing.
+3. Corrupted `entry_key` blob fails unwrap.
 4. Corrupted history JSON fails safely.
 
 ### 16.3 Integration Tests
@@ -420,7 +409,7 @@ Use system brotli libs through FFI crate or direct bindings.
 2. Add SQLite schema and migration runner.
 3. Add leancrypto+brotli wrappers.
 4. Implement auth key lifecycle (`init`, `login`).
-5. Implement envelope + history codec.
+5. Implement `entry_key` + history codec.
 6. Implement CRUD and pass-style commands.
 7. Add full test suite.
 8. Harden error handling and zeroization.
