@@ -26,6 +26,10 @@ input[type="password"].form-control.totp-secret-input {
   letter-spacing: normal;
 }
 
+input[type="password"].form-control.custom-field-secret-input {
+  font-size: 0.82rem;
+}
+
 /* Drag resize handle between columns */
 .resize-handle {
   width: 5px;

@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, deleteApp } from 'firebase/app';
 import {
   getFirestore,
   doc,
@@ -52,7 +52,11 @@ function toFirestoreBytes(value) {
   return Bytes.fromUint8Array(bytes);
 }
 
-export function initFirebase(config, dbName) {
+export async function initFirebase(config, dbName) {
+  if (app) {
+    await deleteApp(app);
+    app = null;
+  }
   app = initializeApp(config);
   db = dbName ? getFirestore(app, dbName) : getFirestore(app);
   auth = getAuth(app);
@@ -169,6 +173,10 @@ function normalizeEntryShape(entry) {
   const { hiddenFields, ...rest } = safe;
   return {
     ...rest,
+    title: typeof safe.title === 'string' ? safe.title : '',
+    username: typeof safe.username === 'string' ? safe.username : '',
+    password: typeof safe.password === 'string' ? safe.password : '',
+    notes: typeof safe.notes === 'string' ? safe.notes : '',
     timestamp: normalizeTimestamp(safe.timestamp),
     tags: normalizeTags(safe.tags),
     totpSecrets: normalizeTotpSecrets(safe.totpSecrets),

@@ -35,7 +35,7 @@ function FirebaseSetup({ onReady }) {
     const rootMasterKeyBytes = decodeRootMasterKey(json.root_master_key);
 
     setStatus('Authenticating...');
-    initFirebase(config, dbName);
+    await initFirebase(config, dbName);
     const userId = await signIn(json.email, json.password);
 
     setStatus('Fetching user...');

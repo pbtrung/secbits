@@ -187,10 +187,10 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
   };
 
   const copyToClipboard = (text, label) => {
-    navigator.clipboard.writeText(text);
+    navigator.clipboard.writeText(text).catch(() => {});
     setCopied(label);
     setTimeout(() => setCopied(null), 1500);
-    setTimeout(() => navigator.clipboard.writeText(''), 30000);
+    setTimeout(() => navigator.clipboard.writeText('').catch(() => {}), 30000);
   };
 
   const updateDraft = (field, value) => {
@@ -230,7 +230,15 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
   const removeTotpSecret = (index) => {
     const totpSecrets = draft.totpSecrets.filter((_, i) => i !== index);
     setDraft({ ...draft, totpSecrets });
-    setTotpErrors((prev) => { const next = { ...prev }; delete next[index]; return next; });
+    setTotpErrors((prev) => {
+      const next = {};
+      Object.entries(prev).forEach(([k, v]) => {
+        const ki = Number(k);
+        if (ki < index) next[ki] = v;
+        else if (ki > index) next[ki - 1] = v;
+      });
+      return next;
+    });
   };
 
   const validateTotpSecret = (index, value) => {
@@ -369,6 +377,35 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
   };
 
   const handleSave = () => {
+    const freshUrlErrors = {};
+    draft.urls.forEach((url, i) => {
+      if (!url) return;
+      if (url.length > URL_MAX) {
+        freshUrlErrors[i] = `URL must be ${URL_MAX} characters or fewer`;
+      } else if (!isHttpUrl(url)) {
+        freshUrlErrors[i] = 'Invalid URL — must start with https:// or http://';
+      }
+    });
+
+    const freshTotpErrors = {};
+    draft.totpSecrets.forEach((secret, i) => {
+      if (secret.length > TOTP_SECRET_MAX) {
+        freshTotpErrors[i] = `TOTP secret must be ${TOTP_SECRET_MAX} characters or fewer`;
+        return;
+      }
+      const cleaned = secret.replace(/[\s=_-]+/g, '').toUpperCase();
+      if (cleaned.length > 0 && !/^[A-Z2-7]+$/.test(cleaned)) {
+        freshTotpErrors[i] = 'Invalid base32 — only A–Z and 2–7';
+      }
+    });
+
+    setUrlErrors(freshUrlErrors);
+    setTotpErrors(freshTotpErrors);
+
+    if (Object.keys(freshUrlErrors).length > 0 || Object.keys(freshTotpErrors).length > 0) {
+      return;
+    }
+
     const finalTags = [...(draft.tags || [])];
     const current = tagCurrentInput.trim().toLowerCase();
     if (current && !finalTags.includes(current)) {
@@ -676,7 +713,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
                 <div className="input-group input-group-sm flex-grow-1">
                   <input
                     type={visiblePasswords[`hf-${field.id}`] ? 'text' : 'password'}
-                    className="form-control"
+                    className="form-control totp-secret-input custom-field-secret-input"
                     value={field.value}
                     onChange={(e) => updateHiddenField(field.id, 'value', e.target.value)}
                     maxLength={CUSTOM_FIELD_VALUE_MAX}
@@ -703,7 +740,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
                 <div className="input-group input-group-sm flex-grow-1">
                   <input
                     type={visiblePasswords[`hf-${field.id}`] ? 'text' : 'password'}
-                    className="form-control"
+                    className="form-control totp-secret-input custom-field-secret-input"
                     value={field.value}
                     readOnly
                   />

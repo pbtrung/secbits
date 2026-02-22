@@ -178,6 +178,7 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
   }, [isMobile, confirmUnsavedChanges]);
 
   const handleNewEntry = useCallback(() => {
+    if (!confirmUnsavedChanges()) return;
     prevSelectedIdRef.current = selectedEntryIdRef.current;
     const newEntry = {
       id: `local-${getNextId()}`,
@@ -195,7 +196,7 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
     setSelectedEntryId(newEntry.id);
     setEditingId(newEntry.id);
     if (isMobile) setMobileView('detail');
-  }, [selectedTag, isMobile]);
+  }, [selectedTag, isMobile, confirmUnsavedChanges]);
 
   const handleSave = useCallback(async (updated) => {
     setSyncError('');
