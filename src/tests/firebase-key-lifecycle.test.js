@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { clearUserMasterKey, getUserMasterKey, setUserMasterKey } from '../firebase.js';
+import { clearUserMasterKey, getUserMasterKey, setUserMasterKey } from '../api.js';
 
 describe('user master key lifecycle', () => {
   beforeEach(() => {

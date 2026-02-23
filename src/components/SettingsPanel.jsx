@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchRawUserDocs, fetchUser, getUserMasterKey } from '../firebase';
+import { fetchRawUserDocs, fetchUser, getUserMasterKey } from '../api';
 import { unwrapEntryKey, decryptEntryHistoryWithDocKey, bytesToB64 } from '../crypto';
 
 function formatBytes(bytes) {

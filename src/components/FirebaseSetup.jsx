@@ -1,8 +1,6 @@
 import { useState, useRef } from 'react';
-import { initFirebase, signIn, fetchUser, saveUserMasterKey, initUserDataCollection, setUserMasterKey, clearUserMasterKey } from '../firebase';
+import { initApi, fetchUser, saveUserMasterKey, initUserDataCollection, setUserMasterKey, clearUserMasterKey } from '../api';
 import { decodeRootMasterKey, setupUserMasterKey, verifyUserMasterKey } from '../crypto';
-
-const REQUIRED_KEYS = ['apiKey', 'authDomain', 'databaseURL', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
 
 function FirebaseSetup({ onReady }) {
   const [error, setError] = useState(null);
@@ -12,30 +10,24 @@ function FirebaseSetup({ onReady }) {
   const fileRef = useRef();
 
   const validate = (config) => {
-    const missing = REQUIRED_KEYS.filter((k) => !config[k]);
-    if (missing.length > 0) {
-      return `Missing required fields: ${missing.join(', ')}`;
-    }
+    if (!config.worker_url) return 'Missing required field: worker_url';
     return null;
   };
 
   const processConfigText = async (text) => {
     clearUserMasterKey();
     const json = JSON.parse(text);
-    const config = json.auth || json;
-    const err = validate(config);
+    const err = validate(json);
     if (err) throw new Error(err);
 
     if (!json.email) throw new Error('Missing required field: email');
     if (!json.password) throw new Error('Missing required field: password');
     if (!json.root_master_key) throw new Error('Missing required field: root_master_key');
 
-    const dbName = json.db_name || '';
     const rootMasterKeyBytes = decodeRootMasterKey(json.root_master_key);
 
     setStatus('Authenticating...');
-    await initFirebase(config, dbName);
-    const userId = await signIn(json.email, json.password);
+    const { userId } = await initApi(json);
 
     setStatus('Fetching user...');
     const userData = await fetchUser(userId);
@@ -114,7 +106,7 @@ function FirebaseSetup({ onReady }) {
           <div className="text-center mb-4">
             <i className="bi bi-shield-lock fs-1 text-primary"></i>
             <h3 className="fw-bold mt-2">SecBits</h3>
-            <p className="text-muted small">Upload your Firebase configuration to get started</p>
+            <p className="text-muted small">Upload your configuration to get started</p>
           </div>
 
           {loading ? (
@@ -157,19 +149,10 @@ function FirebaseSetup({ onReady }) {
             <p className="text-muted small mb-2">Expected JSON format:</p>
             <pre className="bg-light rounded p-2 small mb-0" style={{ fontSize: '0.75rem' }}>
 {`{
-  "db_name": "xxx",
+  "worker_url": "https://secbits-api.<account>.workers.dev",
   "email": "user@example.com",
   "password": "xxx",
-  "root_master_key": "<base64, >=256 bytes>",
-  "auth": {
-    "apiKey": "",
-    "authDomain": "",
-    "databaseURL": "",
-    "projectId": "",
-    "storageBucket": "",
-    "messagingSenderId": "",
-    "appId": ""
-  }
+  "root_master_key": "<base64, >=256 bytes>"
 }`}
             </pre>
           </div>

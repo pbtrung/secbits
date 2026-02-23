@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { __historyFormatTestOnly } from '../firebase.js';
+import { __historyFormatTestOnly } from '../api.js';
 
 const { applySnapshotDelta, buildSnapshotDelta, parseHistoryJson, serializeHistoryForStorage } = __historyFormatTestOnly;
 

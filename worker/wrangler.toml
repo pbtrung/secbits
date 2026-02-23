@@ -1,0 +1,8 @@
+name = "secbits-api"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "secbits-db"
+database_id = "YOUR_DATABASE_ID"   # replace after: wrangler d1 create secbits-db
