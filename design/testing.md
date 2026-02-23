@@ -12,7 +12,7 @@
 6. Login gate enforcement: `decodeRootMasterKey` is the first validation executed at every login; a bug here would either accept weak keys or incorrectly reject valid users.
 7. Entry history integrity: the compress+encrypt path used on every save is distinct from the raw blob path and must be separately verified to round-trip correctly with tamper detection.
 8. Delta correctness: snapshot deltas are the sole basis for version-history reconstruction and restore; incorrect delta logic would silently corrupt the diff viewer and restore results.
-9. Format edge cases: single-commit history and the 10-commit truncation cap are explicit invariants that are easy to break during refactors without a dedicated guard.
+9. Format edge cases: single-commit history and the 20-commit truncation cap are explicit invariants that are easy to break during refactors without a dedicated guard.
 
 ## How the crypto tests work
 
@@ -105,10 +105,10 @@ Each Firestore document stores an `entry_key` field — the per-entry doc key en
 2. Call `serializeHistoryForStorage(history)` → assert `commits[0].delta` is `undefined` and `head_snapshot` matches the commit's snapshot.
 3. Call `parseHistoryJson` on the compact output → assert exactly one commit is returned and its `snapshot` matches the original.
 
-#### 10-commit truncation
+#### 20-commit truncation
 
-1. Build a history with 11 commits (newest first in `commits` array, simulating a chain that just exceeded the cap).
-2. Call `serializeHistoryForStorage(history)` → assert `commits.length === 10` and the oldest (11th) commit is absent from the output.
+1. Build a history with 21 commits (newest first in `commits` array, simulating a chain that just exceeded the cap).
+2. Call `serializeHistoryForStorage(history)` → assert `commits.length === 20` and the oldest (21st) commit is absent from the output.
 
 ## How the leancrypto WASM tests work
 

@@ -215,17 +215,17 @@ describe('single-commit history edge case', () => {
   });
 });
 
-describe('10-commit truncation cap', () => {
-  it('drops the 11th (oldest) commit when history exceeds 10 commits', () => {
-    const commits = Array.from({ length: 11 }, (_, i) => ({
-      hash: `h${11 - i}`,
-      parent: i < 10 ? `h${10 - i}` : null,
+describe('20-commit truncation cap', () => {
+  it('drops the 21st (oldest) commit when history exceeds 20 commits', () => {
+    const commits = Array.from({ length: 21 }, (_, i) => ({
+      hash: `h${21 - i}`,
+      parent: i < 20 ? `h${20 - i}` : null,
       timestamp: `2026-02-21T00:${String(i + 1).padStart(2, '0')}:00.000Z`,
       changed: [],
       snapshot: { ...BASE_SNAPSHOT, password: `pw${i}` },
     }));
-    const compact = serializeHistoryForStorage({ head: 'h11', commits });
-    expect(compact.commits).toHaveLength(10);
+    const compact = serializeHistoryForStorage({ head: 'h21', commits });
+    expect(compact.commits).toHaveLength(20);
     expect(compact.commits.find((c) => c.hash === 'h1')).toBeUndefined();
   });
 });

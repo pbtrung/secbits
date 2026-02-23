@@ -166,7 +166,7 @@ If you cancel while there are unsaved edits, you will be asked to confirm before
 
 ### Field limits
 
-Every field has a hard character limit enforced in the UI. The limits exist because each entry stores up to 10 commits (version history) in a single Firestore `value` field. That field must stay under **999,999 bytes** after Brotli compression and Ascon-Keccak-512 encryption. Keeping individual fields bounded ensures the combined payload of all commits fits comfortably within that ceiling.
+Every field has a hard character limit enforced in the UI. The limits exist because each entry stores up to 20 commits (version history) in a single Firestore `value` field. That field must stay under **999,999 bytes** after Brotli compression and Ascon-Keccak-512 encryption. Keeping individual fields bounded ensures the combined payload of all commits fits comfortably within that ceiling.
 
 | Field | Limit | Reason |
 |---|---|---|
@@ -183,7 +183,7 @@ Every field has a hard character limit enforced in the UI. The limits exist beca
 | TOTP secrets per entry | 10 | Structural limit |
 | Custom fields per entry | 20 | Structural limit |
 | Tags per entry | 20 | Structural limit |
-| Commits per entry | 10 | Oldest commit is dropped when the chain exceeds this length |
+| Commits per entry | 20 | Oldest commit is dropped when the chain exceeds this length |
 
 The UI enforces every limit via `maxLength` on inputs, disabled **Add** buttons when the collection cap is reached, and inline error messages. The Save button is disabled whenever any limit is exceeded.
 
@@ -199,7 +199,7 @@ If a TOTP secret is valid base32, a live 6-digit code with a countdown circle is
 
 ### Version history
 
-Each save appends a new commit to the entry's history (up to 10). Saving without any content change is a no-op, so duplicate commits are not created.
+Each save appends a new commit to the entry's history (up to 20). Saving without any content change is a no-op, so duplicate commits are not created.
 
 Use the **N versions** button in the detail action bar to open the history modal.
 

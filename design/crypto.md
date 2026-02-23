@@ -57,7 +57,7 @@ Total overhead per blob: 128 bytes. The master key blob is always 192 bytes (`sa
 
 ## Entry encryption
 
-Each entry stores a commit chain (up to 10 commits). On every save the history object is serialised, compressed, and encrypted:
+Each entry stores a commit chain (up to 20 commits). On every save the history object is serialised, compressed, and encrypted:
 
 ```text
 { head, head_snapshot, commits[] }  ->  JSON.stringify  ->  Brotli compress

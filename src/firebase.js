@@ -24,7 +24,7 @@ let app = null;
 let db = null;
 let auth = null;
 let userMasterKeyBytes = null;
-const MAX_COMMITS = 10;
+const MAX_COMMITS = 20;
 const MAX_VALUE_BYTES = 999999;
 
 function checkValueSize(value) {
