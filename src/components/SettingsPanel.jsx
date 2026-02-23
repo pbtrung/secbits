@@ -290,7 +290,7 @@ function AboutPage({ userId }) {
                   <tr key={i}>
                     <td className="fw-semibold">{e.title ?? <span className="text-muted fst-italic">—</span>}</td>
                     <td className="text-muted small">{e.username || <span className="fst-italic">—</span>}</td>
-                    <td className="fw-semibold">{formatBytes(e.bytes)}</td>
+                    <td className="fw-semibold">{e.bytes.toLocaleString()} B</td>
                   </tr>
                 ))}
               </tbody>
