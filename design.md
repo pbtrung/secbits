@@ -11,3 +11,4 @@ Architecture, cryptography, security, and testing reference for the SecBits pass
 | [Security Notes](design/security.md) | Threat model, key management, session scope, and CSP policy |
 | [Tech Stack and Project Structure](design/tech-stack.md) | Library choices and annotated source tree |
 | [Testing](design/testing.md) | Why each test area matters, how each test suite works, and the performance load script |
+| [D1 + Workers Migration](design/d1.md) | Plan to replace Firebase with Cloudflare D1 + Workers: schema, API design, auth, and client-side changes |
