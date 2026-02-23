@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { initApi, fetchUser, saveUserMasterKey, initUserDataCollection, setUserMasterKey, clearUserMasterKey } from '../api';
 import { decodeRootMasterKey, setupUserMasterKey, verifyUserMasterKey } from '../crypto';
 
-function FirebaseSetup({ onReady }) {
+function AppSetup({ onReady }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
@@ -162,4 +162,4 @@ function FirebaseSetup({ onReady }) {
   );
 }
 
-export default FirebaseSetup;
+export default AppSetup;

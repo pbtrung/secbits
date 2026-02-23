@@ -314,8 +314,8 @@ npx vitest
 | `generateTOTPForCounter` / `base32Decode` / `generateTOTP` | `src/tests/totp.test.js` | 11 | RFC 6238 SHA-1 known vectors; base32 decode correctness, padding/separator stripping, invalid characters; live-clock 6-digit output |
 | leancrypto WASM primitives | `src/tests/leancrypto.test.js` | 1 (suite) | Ascon-Keccak AEAD, HMAC-SHA3-224, SHA3-512, HKDF-SHA256, SPHINCS+ vectors |
 | `buildExportData` | `src/tests/export-data.test.js` | 1 | Export shape, correct field inclusion, and exclusion of stored user-master-key blob |
-| History storage format / `buildSnapshotDelta` / `applySnapshotDelta` | `src/tests/firebase-history-format.test.js` | 10 | Compact storage round-trip; delta correctness and apply round-trip; single-commit edge case; 20-commit truncation cap |
-| User master key lifecycle | `src/tests/firebase-key-lifecycle.test.js` | 2 | In-memory key store/clear and zeroization on replace |
+| History storage format / `buildSnapshotDelta` / `applySnapshotDelta` | `src/tests/history-format.test.js` | 10 | Compact storage round-trip; delta correctness and apply round-trip; single-commit edge case; 20-commit truncation cap |
+| User master key lifecycle | `src/tests/key-lifecycle.test.js` | 2 | In-memory key store/clear and zeroization on replace |
 | `isHttpUrl` | `src/tests/validation.test.js` | 3 | Accepts http/https URLs; rejects non-http(s) schemes and malformed values |
 
 See [design/testing.md](design/testing.md) for rationale and a detailed breakdown of how each test suite works.

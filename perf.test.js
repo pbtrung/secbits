@@ -28,7 +28,7 @@ const LIMITS = {
 };
 
 const ENTRY_COUNT = 300;
-const MAX_VALUE_BYTES = 999_999;
+const MAX_VALUE_BYTES = 1_900_000;
 const WORDS_FILE = path.resolve(__dirname, 'data/english-words.txt');
 const FETCH_MAX_RETRIES = 5;
 const FETCH_BASE_BACKOFF_MS = 400;
@@ -131,9 +131,7 @@ function readConfig(configPath) {
   const json = JSON.parse(raw);
 
   ensure(json && typeof json === 'object', 'Invalid config JSON');
-  ensure(json.auth && typeof json.auth === 'object', 'Missing required field: auth');
-  ensure(typeof json.auth.apiKey === 'string' && json.auth.apiKey.length > 0, 'Missing required field: auth.apiKey');
-  ensure(typeof json.auth.projectId === 'string' && json.auth.projectId.length > 0, 'Missing required field: auth.projectId');
+  ensure(typeof json.worker_url === 'string' && json.worker_url.length > 0, 'Missing required field: worker_url');
   ensure(typeof json.email === 'string' && json.email.length > 0, 'Missing required field: email');
   ensure(typeof json.password === 'string' && json.password.length > 0, 'Missing required field: password');
   ensure(typeof json.root_master_key === 'string' && json.root_master_key.length > 0, 'Missing required field: root_master_key');
@@ -622,7 +620,7 @@ async function jsonFetch(url, options) {
       const text = await res.text();
       const data = text ? JSON.parse(text) : {};
       if (!res.ok) {
-        const msg = data && data.error && data.error.message ? data.error.message : `HTTP ${res.status}`;
+        const msg = data && data.error ? (typeof data.error === 'string' ? data.error : data.error.message || `HTTP ${res.status}`) : `HTTP ${res.status}`;
         const retriable = res.status === 429 || (res.status >= 500 && res.status <= 599);
         if (retriable && attempt < FETCH_MAX_RETRIES) {
           const delay = FETCH_BASE_BACKOFF_MS * attempt;
@@ -650,75 +648,51 @@ async function jsonFetch(url, options) {
   throw new Error(`Network request failed after retries: ${url}`);
 }
 
-async function signInWithPassword(apiKey, email, password) {
-  const url = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(apiKey)}`;
-  return jsonFetch(url, {
+async function signIn(workerUrl, email, password) {
+  const resp = await jsonFetch(`${workerUrl}/auth/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      email,
-      password,
-      returnSecureToken: true,
-    }),
+    body: JSON.stringify({ email, password }),
   });
+  ensure(resp.userId && resp.token, 'Auth response missing userId/token');
+  return { userId: resp.userId, token: resp.token };
 }
 
-function firestoreBase(projectId, dbName) {
-  const databaseId = dbName && String(dbName).trim() ? String(dbName).trim() : '(default)';
-  return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/${encodeURIComponent(databaseId)}/documents`;
-}
-
-async function getUserDoc(base, uid, idToken) {
-  return jsonFetch(`${base}/users/${encodeURIComponent(uid)}`, {
+async function fetchUserProfile(workerUrl, userId, token) {
+  return jsonFetch(`${workerUrl}/users/${encodeURIComponent(userId)}/profile`, {
     method: 'GET',
-    headers: { authorization: `Bearer ${idToken}` },
+    headers: { authorization: `Bearer ${token}` },
   });
 }
 
-async function patchUserMasterKey(base, uid, idToken, blobBytes) {
-  const url = `${base}/users/${encodeURIComponent(uid)}?updateMask.fieldPaths=user_master_key`;
-  return jsonFetch(url, {
-    method: 'PATCH',
-    headers: {
-      authorization: `Bearer ${idToken}`,
-      'content-type': 'application/json',
-    },
+async function saveUserMasterKey(workerUrl, userId, token, blobBytes) {
+  return jsonFetch(`${workerUrl}/users/${encodeURIComponent(userId)}/profile`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ user_master_key_b64: bytesToB64(blobBytes) }),
+  });
+}
+
+async function writeEntry(workerUrl, userId, token, entryId, entryKeyBytes, valueBytes) {
+  return jsonFetch(`${workerUrl}/users/${encodeURIComponent(userId)}/entries`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
     body: JSON.stringify({
-      fields: {
-        user_master_key: { bytesValue: bytesToB64(blobBytes) },
-      },
+      id: entryId,
+      entry_key_b64: bytesToB64(entryKeyBytes),
+      value_b64: bytesToB64(valueBytes),
     }),
   });
 }
 
-async function writeEntryDoc(base, uid, docId, idToken, entryKeyBytes, valueBytes) {
-  const url = `${base}/users/${encodeURIComponent(uid)}/data/${encodeURIComponent(docId)}`;
-  return jsonFetch(url, {
-    method: 'PATCH',
-    headers: {
-      authorization: `Bearer ${idToken}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      fields: {
-        entry_key: { bytesValue: bytesToB64(entryKeyBytes) },
-        value: { bytesValue: bytesToB64(valueBytes) },
-      },
-    }),
-  });
-}
-
-async function resolveUserMasterKey({ base, uid, idToken, rootMasterKeyBytes }) {
-  const userDoc = await getUserDoc(base, uid, idToken);
-  const fields = userDoc && userDoc.fields ? userDoc.fields : {};
-  const stored = fields.user_master_key && fields.user_master_key.bytesValue
-    ? b64ToBytes(fields.user_master_key.bytesValue)
-    : null;
+async function resolveUserMasterKey({ workerUrl, userId, token, rootMasterKeyBytes }) {
+  const profile = await fetchUserProfile(workerUrl, userId, token);
+  const stored = profile.user_master_key_b64 ? b64ToBytes(profile.user_master_key_b64) : null;
 
   if (!stored) {
     console.log('[AUTH] user_master_key missing; creating and saving a new one');
     const { userMasterKeyBlob, userMasterKey } = await setupUserMasterKey(rootMasterKeyBytes);
-    await patchUserMasterKey(base, uid, idToken, userMasterKeyBlob);
+    await saveUserMasterKey(workerUrl, userId, token, userMasterKeyBlob);
     return userMasterKey;
   }
 
@@ -739,18 +713,14 @@ async function main() {
   const rootMasterKeyBytes = decodeRootMasterKey(config.root_master_key);
 
   console.log(`[START] Config: ${configPath}`);
-  console.log('[AUTH] signing in with Firebase email/password');
-  const authResp = await signInWithPassword(config.auth.apiKey, config.email, config.password);
-  const uid = authResp.localId;
-  const idToken = authResp.idToken;
-  ensure(uid && idToken, 'Authentication response missing uid/idToken');
-  console.log(`[AUTH] signed in as uid=${uid}`);
+  console.log('[AUTH] signing in');
+  const { userId, token } = await signIn(config.worker_url, config.email, config.password);
+  console.log(`[AUTH] signed in as userId=${userId}`);
 
-  const base = firestoreBase(config.auth.projectId, config.db_name || '');
   const userMasterKey = await resolveUserMasterKey({
-    base,
-    uid,
-    idToken,
+    workerUrl: config.worker_url,
+    userId,
+    token,
     rootMasterKeyBytes,
   });
 
@@ -776,7 +746,7 @@ async function main() {
       throw new Error(`Entry ${entry.id} value blob too large: ${valueBlob.length} bytes`);
     }
 
-    await writeEntryDoc(base, uid, entry.id, idToken, entryKeyBlob, valueBlob);
+    await writeEntry(config.worker_url, userId, token, entry.id, entryKeyBlob, valueBlob);
 
     const entryMs = performance.now() - entryStart;
     const elapsed = performance.now() - startedAt;
@@ -796,7 +766,7 @@ async function main() {
   const avgVersions = totalVersions / ENTRY_COUNT;
 
   console.log('');
-  console.log('[DONE] Firestore performance dataset inserted successfully');
+  console.log('[DONE] Performance dataset inserted successfully');
   console.log(`- Entries inserted: ${ENTRY_COUNT}`);
   console.log(`- Total versions: ${totalVersions}`);
   console.log(`- Avg versions/entry: ${avgVersions.toFixed(2)}`);

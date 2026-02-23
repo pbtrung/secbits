@@ -1,6 +1,6 @@
 // ─── Per-field character limits ──────────────────────────────────────────────
-// These keep encrypted payloads small enough to stay under Firestore's
-// 999,999-byte document value cap even with version history.
+// These keep encrypted payloads small enough to stay well under D1's
+// 1,900,000-byte value column cap even with full version history.
 
 export const TITLE_MAX               = 200;
 export const USERNAME_MAX            = 200;

@@ -17,7 +17,7 @@ Root Master Key (from config file, >=256 bytes)
                     |
                     +-- HKDF-SHA3-512 -> encKey (64B) + encIv (64B)
                     +-- JSON -> Brotli compress -> Ascon-Keccak-512 encrypt + AEAD tag
-                    +-- stored as Firestore Bytes in value field
+                    +-- base64-encoded and stored as BLOB in the `value` field
 ```
 
 ## Algorithms
@@ -45,12 +45,12 @@ Total overhead per blob: 128 bytes. The master key blob is always 192 bytes (`sa
 
 1. `decodeRootMasterKey()` validates the base64 root master key from the config file (must decode to >=256 bytes).
 2. A random 64-byte User Master Key is generated, then AEAD-encrypted using keys derived via HKDF-SHA3-512 from the root master key.
-3. The 192-byte blob (`salt || encUserMasterKey || tag`) is written to `users/{userId}/user_master_key` in Firestore.
+3. The 192-byte blob (`salt || encUserMasterKey || tag`) is saved via `POST /users/:userId/profile`.
 4. The plaintext User Master Key is kept in memory for the rest of the session.
 
 **Returning user:**
 
-1. The stored 192-byte blob is fetched from Firestore.
+1. The stored 192-byte blob is fetched from the Worker (`GET /users/:userId/profile`).
 2. HKDF-SHA3-512 re-derives encKey and encIv from the root master key and the stored salt.
 3. Ascon-Keccak-512 AEAD decryption verifies the tag and recovers the User Master Key. A wrong root master key causes authentication failure here.
 4. The User Master Key is kept in memory for the session.
@@ -63,10 +63,10 @@ Each entry stores a commit chain (up to 20 commits). On every save the history o
 { head, head_snapshot, commits[] }  ->  JSON.stringify  ->  Brotli compress
     ->  Ascon-Keccak-512 AEAD encrypt (with entry's doc key)
     ->  AEAD tag appended
-    ->  stored as Firestore Bytes in value field
+    ->  base64-encoded and stored as BLOB in the `value` field
 ```
 
-The entry's doc key is itself AEAD-encrypted using the `userMasterKey` and stored in the `entry_key` field of the same Firestore document.
+The entry's doc key is itself AEAD-encrypted using the `userMasterKey` and stored in the `entry_key` field of the same D1 row.
 
 ## Commit structure
 
@@ -92,7 +92,7 @@ The `head` field at the top of the history object always points to the most rece
 
 ## Compact history storage format
 
-To reduce Firestore payload size, only the latest snapshot is stored in full:
+To reduce storage size, only the latest snapshot is stored in full:
 
 ```json
 {

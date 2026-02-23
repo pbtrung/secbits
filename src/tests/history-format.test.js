@@ -3,7 +3,7 @@ import { __historyFormatTestOnly } from '../api.js';
 
 const { applySnapshotDelta, buildSnapshotDelta, parseHistoryJson, serializeHistoryForStorage } = __historyFormatTestOnly;
 
-describe('firebase history storage format', () => {
+describe('history storage format', () => {
   it('stores head snapshot + deltas and reconstructs full snapshots', () => {
     const history = {
       head: 'h3',

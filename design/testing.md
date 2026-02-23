@@ -45,7 +45,7 @@ These tests exercise the full first-login and returning-user flows.
 
 ## How the entry key wrap/unwrap tests work
 
-Each Firestore document stores an `entry_key` field — the per-entry doc key encrypted under the user master key. These tests verify that second key-wrapping layer independently of the higher-level entry CRUD.
+Each entry stores an `entry_key` field — the per-entry doc key encrypted under the user master key. These tests verify that second key-wrapping layer independently of the higher-level entry CRUD.
 
 1. Generate a random 64-byte `userMasterKey` and a random 64-byte `docKey`.
 2. Call `wrapEntryKey(userMasterKey, docKey)` → assert the returned blob is 192 bytes (`SALT(64) + ciphertext(64) + TAG(64)`).
@@ -122,10 +122,10 @@ The test runner lives in `src/tests/leancrypto.test.js` and can run standalone (
 
 ## Performance and load testing
 
-`perf.test.js` is a standalone Node.js script (not a Vitest test) that generates and inserts encrypted test entries directly into Firestore via the REST API. It reproduces the full app crypto and storage flow in Node: user-master-key verification/setup, doc-key wrapping, compact history serialization, and encrypted `entry_key`/`value` writes.
+`perf.test.js` is a standalone Node.js script (not a Vitest test) that generates and inserts encrypted test entries directly into the Worker API. It reproduces the full app crypto and storage flow in Node: user-master-key verification/setup, doc-key wrapping, compact history serialization, and encrypted `entry_key`/`value` writes.
 
 ```bash
 node perf.test.js secbits-config.json
 ```
 
-The script reads a random English word pool from `data/english-words.txt` to build realistic entry payloads. It emits per-entry progress logs (index, versions, payload sizes, elapsed time, ETA) and retries failed Firestore writes with exponential backoff.
+The script reads a random English word pool from `data/english-words.txt` to build realistic entry payloads. It emits per-entry progress logs (index, versions, payload sizes, elapsed time, ETA) and retries failed Worker writes with exponential backoff.

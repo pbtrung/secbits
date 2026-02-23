@@ -27,5 +27,7 @@ yarn-error.log*
 /dist
 
 # config
-firebase-config.json
 worker/wrangler.toml
+
+# wrangler local dev state
+worker/.wrangler/

@@ -69,11 +69,11 @@ secbits/
     │   ├── leancrypto.test.js        # WASM primitive tests (Vitest + standalone Node)
     │   ├── leancrypto.sphincs-vectors.js # SPHINCS+ fixture vectors
     │   ├── export-data.test.js       # buildExportData shape and field tests
-    │   ├── firebase-history-format.test.js # Compact history format; delta helpers; single-commit and truncation edge cases
-    │   ├── firebase-key-lifecycle.test.js  # User master key store/clear/replace tests
+    │   ├── history-format.test.js          # Compact history format; delta helpers; single-commit and truncation edge cases
+    │   ├── key-lifecycle.test.js           # User master key store/clear/replace tests
     │   └── validation.test.js        # URL validation tests
     └── components/
-        ├── FirebaseSetup.jsx         # Config upload, Worker auth, key setup
+        ├── AppSetup.jsx               # Config upload, Worker auth, key setup
         ├── EntryDetail.jsx           # View and edit a single entry
         ├── EntryList.jsx             # Scrollable list of entries
         ├── TagsSidebar.jsx           # Tag filter sidebar + user controls

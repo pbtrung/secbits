@@ -4,7 +4,7 @@
 
 | Feature | Description |
 |---|---|
-| End-to-end encryption | Ascon-Keccak-512 AEAD; Firebase stores only ciphertext |
+| End-to-end encryption | Ascon-Keccak-512 AEAD; the server stores only ciphertext |
 | Per-entry document keys | Each entry uses its own randomly generated key |
 | Version history | Git-like commit chain per entry: content-addressed commits, changed-field annotations, modal diff viewer, one-click restore |
 | TOTP generation | Live 6-digit codes with countdown timer |

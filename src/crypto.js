@@ -196,7 +196,7 @@ export function decodeRootMasterKey(rootMasterKeyB64) {
 
 /**
  * First-time setup: generate random User Master Key (64 bytes), encrypt it with
- * keys derived from the root master key, return the blob to store in Firestore.
+ * keys derived from the root master key, return the blob to store in D1.
  * Also returns the plaintext User Master Key for session use.
  */
 export async function setupUserMasterKey(rootMasterKeyBytes) {

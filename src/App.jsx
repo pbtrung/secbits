@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import FirebaseSetup from './components/FirebaseSetup';
+import AppSetup from './components/AppSetup';
 import TagsSidebar from './components/TagsSidebar';
 import EntryList from './components/EntryList';
 import EntryDetail from './components/EntryDetail';
@@ -45,7 +45,7 @@ function App() {
         userId,
         userName,
         initialEntries: [],
-        initialSyncError: 'Failed to load entries from Firebase.',
+        initialSyncError: 'Failed to load entries.',
       });
     }
   }, []);
@@ -56,7 +56,7 @@ function App() {
   }, []);
 
   if (!session) {
-    return <FirebaseSetup onReady={handleReady} />;
+    return <AppSetup onReady={handleReady} />;
   }
 
   return (
@@ -213,7 +213,7 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
       }
       setEditingId(null);
     } catch (err) {
-      setSyncError(err?.message || 'Failed to save entry to Firebase.');
+      setSyncError(err?.message || 'Failed to save entry.');
     } finally {
       setSaving(false);
     }
@@ -257,7 +257,7 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
       setEditingId(null);
       if (isMobile) setMobileView('entries');
     } catch {
-      setSyncError('Failed to delete entry from Firebase.');
+      setSyncError('Failed to delete entry.');
     } finally {
       setDeleting(false);
     }
