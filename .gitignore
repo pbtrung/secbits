@@ -28,3 +28,4 @@ yarn-error.log*
 
 # config
 firebase-config.json
+worker/wrangler.toml

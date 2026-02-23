@@ -1,0 +1,8 @@
+name = "your-worker-name"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "your-database-name"
+database_id = "YOUR_DATABASE_ID"   # from: wrangler d1 create <database-name>
