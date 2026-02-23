@@ -104,11 +104,15 @@ function AboutPage({ userId }) {
     fetchRawUserDocs(userId)
       .then((docs) => {
         let totalBytes = 0;
+        let maxEntryBytes = 0;
         docs.forEach((doc) => {
-          if (doc.value) totalBytes += valueByteLength(doc.value);
-          if (doc.entry_key) totalBytes += valueByteLength(doc.entry_key);
+          let entryBytes = 0;
+          if (doc.value) entryBytes += valueByteLength(doc.value);
+          if (doc.entry_key) entryBytes += valueByteLength(doc.entry_key);
+          totalBytes += entryBytes;
+          if (entryBytes > maxEntryBytes) maxEntryBytes = entryBytes;
         });
-        setStats({ count: docs.length, totalBytes });
+        setStats({ count: docs.length, totalBytes, maxEntryBytes });
         setLoading(false);
       })
       .catch(() => {
@@ -137,6 +141,10 @@ function AboutPage({ userId }) {
               <tr>
                 <td className="text-muted">Total stored size</td>
                 <td className="fw-semibold">{formatBytes(stats.totalBytes)}</td>
+              </tr>
+              <tr>
+                <td className="text-muted">Largest entry</td>
+                <td className="fw-semibold">{formatBytes(stats.maxEntryBytes)}</td>
               </tr>
             </tbody>
           </table>
