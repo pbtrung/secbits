@@ -101,24 +101,41 @@ function AboutPage({ userId }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchRawUserDocs(userId)
-      .then((docs) => {
+    const load = async () => {
+      try {
+        const docs = await fetchRawUserDocs(userId);
+        const userMasterKey = getUserMasterKey();
+        const entries = [];
         let totalBytes = 0;
-        let maxEntryBytes = 0;
-        docs.forEach((doc) => {
+        for (const doc of docs) {
           let entryBytes = 0;
           if (doc.value) entryBytes += valueByteLength(doc.value);
           if (doc.entry_key) entryBytes += valueByteLength(doc.entry_key);
           totalBytes += entryBytes;
-          if (entryBytes > maxEntryBytes) maxEntryBytes = entryBytes;
-        });
-        setStats({ count: docs.length, totalBytes, maxEntryBytes });
-        setLoading(false);
-      })
-      .catch(() => {
+          let title = null;
+          let username = null;
+          const entryKeyBytes = valueToBytes(doc.entry_key);
+          if (entryKeyBytes && userMasterKey && valueToBytes(doc.value)) {
+            try {
+              const docKeyBytes = await unwrapEntryKey(userMasterKey, entryKeyBytes);
+              const history = await decryptEntryHistoryWithDocKey(docKeyBytes, doc.value);
+              title = history?.head_snapshot?.title ?? null;
+              username = history?.head_snapshot?.username ?? null;
+            } catch {
+              // leave title/username null
+            }
+          }
+          entries.push({ bytes: entryBytes, title, username });
+        }
+        entries.sort((a, b) => b.bytes - a.bytes);
+        setStats({ count: docs.length, totalBytes, top5: entries.slice(0, 5) });
+      } catch {
         setStats(null);
+      } finally {
         setLoading(false);
-      });
+      }
+    };
+    load();
   }, [userId]);
 
   return (
@@ -132,7 +149,7 @@ function AboutPage({ userId }) {
         </div>
       ) : stats ? (
         <div>
-          <table className="table table-sm">
+          <table className="table table-sm mb-3">
             <tbody>
               <tr>
                 <td className="text-muted">Entries</td>
@@ -142,12 +159,31 @@ function AboutPage({ userId }) {
                 <td className="text-muted">Total stored size</td>
                 <td className="fw-semibold">{formatBytes(stats.totalBytes)}</td>
               </tr>
-              <tr>
-                <td className="text-muted">Largest entry</td>
-                <td className="fw-semibold">{formatBytes(stats.maxEntryBytes)}</td>
-              </tr>
             </tbody>
           </table>
+          {stats.top5.length > 0 && (
+            <>
+              <div className="text-muted small fw-semibold mb-1">Top {stats.top5.length} largest entries</div>
+              <table className="table table-sm">
+                <thead>
+                  <tr>
+                    <th className="text-muted fw-normal">Title</th>
+                    <th className="text-muted fw-normal">Username</th>
+                    <th className="text-muted fw-normal">Size</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.top5.map((e, i) => (
+                    <tr key={i}>
+                      <td className="fw-semibold">{e.title ?? <span className="text-muted fst-italic">—</span>}</td>
+                      <td className="text-muted small">{e.username || <span className="fst-italic">—</span>}</td>
+                      <td className="fw-semibold">{formatBytes(e.bytes)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
         </div>
       ) : (
         <div className="text-danger small">Failed to load stats.</div>
