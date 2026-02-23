@@ -105,30 +105,84 @@ function AboutPage({ userId }) {
       try {
         const docs = await fetchRawUserDocs(userId);
         const userMasterKey = getUserMasterKey();
-        const entries = [];
+
         let totalBytes = 0;
+        let decryptedCount = 0;
+        let withPassword = 0, withUsername = 0, withNotes = 0;
+        let withUrls = 0, totalUrls = 0;
+        let withTotp = 0, totalTotp = 0;
+        let withCustomFields = 0, totalCustomFields = 0;
+        let withTags = 0;
+        let totalCommits = 0, maxCommits = 0, neverEdited = 0;
+        const tagCounts = new Map();
+        const entries = [];
+
         for (const doc of docs) {
           let entryBytes = 0;
           if (doc.value) entryBytes += valueByteLength(doc.value);
           if (doc.entry_key) entryBytes += valueByteLength(doc.entry_key);
           totalBytes += entryBytes;
+
           let title = null;
           let username = null;
+
           const entryKeyBytes = valueToBytes(doc.entry_key);
           if (entryKeyBytes && userMasterKey && valueToBytes(doc.value)) {
             try {
               const docKeyBytes = await unwrapEntryKey(userMasterKey, entryKeyBytes);
               const history = await decryptEntryHistoryWithDocKey(docKeyBytes, doc.value);
-              title = history?.head_snapshot?.title ?? null;
-              username = history?.head_snapshot?.username ?? null;
+              const snap = history?.head_snapshot ?? {};
+
+              title = snap.title || null;
+              username = snap.username || null;
+              decryptedCount++;
+
+              if (snap.password) withPassword++;
+              if (snap.username) withUsername++;
+              if (snap.notes) withNotes++;
+              if (snap.urls?.length) { withUrls++; totalUrls += snap.urls.length; }
+              if (snap.totpSecrets?.length) { withTotp++; totalTotp += snap.totpSecrets.length; }
+              if (snap.customFields?.length) { withCustomFields++; totalCustomFields += snap.customFields.length; }
+              if (snap.tags?.length) {
+                withTags++;
+                snap.tags.forEach(t => tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1));
+              }
+
+              const commitCount = history?.commits?.length ?? 1;
+              totalCommits += commitCount;
+              if (commitCount > maxCommits) maxCommits = commitCount;
+              if (commitCount === 1) neverEdited++;
             } catch {
-              // leave title/username null
+              // skip field stats for this entry
             }
           }
+
           entries.push({ bytes: entryBytes, title, username });
         }
+
         entries.sort((a, b) => b.bytes - a.bytes);
-        setStats({ count: docs.length, totalBytes, top5: entries.slice(0, 5) });
+
+        const topTags = [...tagCounts.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([tag, count]) => ({ tag, count }));
+
+        setStats({
+          count: docs.length,
+          totalBytes,
+          avgBytes: docs.length ? Math.round(totalBytes / docs.length) : 0,
+          decryptedCount,
+          withPassword, withUsername, withNotes,
+          withUrls, totalUrls,
+          withTotp, totalTotp,
+          withCustomFields, totalCustomFields,
+          withTags,
+          avgCommits: decryptedCount ? (totalCommits / decryptedCount).toFixed(1) : '—',
+          maxCommits,
+          neverEdited,
+          topTags,
+          top5: entries.slice(0, 5),
+        });
       } catch {
         setStats(null);
       } finally {
@@ -149,6 +203,7 @@ function AboutPage({ userId }) {
         </div>
       ) : stats ? (
         <div>
+          <div className="text-muted small fw-semibold mb-1">Overview</div>
           <table className="table table-sm mb-3">
             <tbody>
               <tr>
@@ -159,31 +214,88 @@ function AboutPage({ userId }) {
                 <td className="text-muted">Total stored size</td>
                 <td className="fw-semibold">{formatBytes(stats.totalBytes)}</td>
               </tr>
+              <tr>
+                <td className="text-muted">Avg entry size</td>
+                <td className="fw-semibold">{formatBytes(stats.avgBytes)}</td>
+              </tr>
             </tbody>
           </table>
-          {stats.top5.length > 0 && (
-            <>
-              <div className="text-muted small fw-semibold mb-1">Top {stats.top5.length} largest entries</div>
-              <table className="table table-sm">
-                <thead>
-                  <tr>
-                    <th className="text-muted fw-normal">Title</th>
-                    <th className="text-muted fw-normal">Username</th>
-                    <th className="text-muted fw-normal">Size</th>
+
+          {stats.decryptedCount > 0 && (<>
+            <div className="text-muted small fw-semibold mb-1">Field coverage</div>
+            <table className="table table-sm mb-3">
+              <tbody>
+                {[
+                  ['Password', stats.withPassword, null],
+                  ['Username', stats.withUsername, null],
+                  ['Notes', stats.withNotes, null],
+                  ['URLs', stats.withUrls, stats.totalUrls > 0 ? `${stats.totalUrls} total` : null],
+                  ['TOTP secrets', stats.withTotp, stats.totalTotp > 0 ? `${stats.totalTotp} total` : null],
+                  ['Custom fields', stats.withCustomFields, stats.totalCustomFields > 0 ? `${stats.totalCustomFields} total` : null],
+                  ['Tags', stats.withTags, null],
+                ].map(([label, n, note]) => (
+                  <tr key={label}>
+                    <td className="text-muted">{label}</td>
+                    <td className="fw-semibold">
+                      {n} / {stats.decryptedCount}
+                      {note && <span className="text-muted fw-normal ms-2 small">({note})</span>}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {stats.top5.map((e, i) => (
-                    <tr key={i}>
-                      <td className="fw-semibold">{e.title ?? <span className="text-muted fst-italic">—</span>}</td>
-                      <td className="text-muted small">{e.username || <span className="fst-italic">—</span>}</td>
-                      <td className="fw-semibold">{formatBytes(e.bytes)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </>
-          )}
+                ))}
+              </tbody>
+            </table>
+
+            <div className="text-muted small fw-semibold mb-1">Version history</div>
+            <table className="table table-sm mb-3">
+              <tbody>
+                <tr>
+                  <td className="text-muted">Avg commits per entry</td>
+                  <td className="fw-semibold">{stats.avgCommits}</td>
+                </tr>
+                <tr>
+                  <td className="text-muted">Max commits on one entry</td>
+                  <td className="fw-semibold">{stats.maxCommits}</td>
+                </tr>
+                <tr>
+                  <td className="text-muted">Never edited</td>
+                  <td className="fw-semibold">{stats.neverEdited}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            {stats.topTags.length > 0 && (<>
+              <div className="text-muted small fw-semibold mb-1">Top tags</div>
+              <div className="mb-3">
+                {stats.topTags.map(({ tag, count }) => (
+                  <span key={tag} className="badge bg-secondary me-1 mb-1">
+                    {tag} <span className="opacity-75">({count})</span>
+                  </span>
+                ))}
+              </div>
+            </>)}
+          </>)}
+
+          {stats.top5.length > 0 && (<>
+            <div className="text-muted small fw-semibold mb-1">Top {stats.top5.length} largest entries</div>
+            <table className="table table-sm">
+              <thead>
+                <tr>
+                  <th className="text-muted fw-normal">Title</th>
+                  <th className="text-muted fw-normal">Username</th>
+                  <th className="text-muted fw-normal">Size</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.top5.map((e, i) => (
+                  <tr key={i}>
+                    <td className="fw-semibold">{e.title ?? <span className="text-muted fst-italic">—</span>}</td>
+                    <td className="text-muted small">{e.username || <span className="fst-italic">—</span>}</td>
+                    <td className="fw-semibold">{formatBytes(e.bytes)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>)}
         </div>
       ) : (
         <div className="text-danger small">Failed to load stats.</div>
