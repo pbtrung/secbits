@@ -669,7 +669,7 @@ async function saveUserMasterKey(workerUrl, userId, token, blobBytes) {
   return jsonFetch(`${workerUrl}/users/${encodeURIComponent(userId)}/profile`, {
     method: 'POST',
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ user_master_key_b64: bytesToB64(blobBytes) }),
+    body: JSON.stringify({ user_master_key: bytesToB64(blobBytes) }),
   });
 }
 
@@ -679,15 +679,15 @@ async function writeEntry(workerUrl, userId, token, entryId, entryKeyBytes, valu
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
     body: JSON.stringify({
       id: entryId,
-      entry_key_b64: bytesToB64(entryKeyBytes),
-      value_b64: bytesToB64(valueBytes),
+      entry_key: bytesToB64(entryKeyBytes),
+      value: bytesToB64(valueBytes),
     }),
   });
 }
 
 async function resolveUserMasterKey({ workerUrl, userId, token, rootMasterKeyBytes }) {
   const profile = await fetchUserProfile(workerUrl, userId, token);
-  const stored = profile.user_master_key_b64 ? b64ToBytes(profile.user_master_key_b64) : null;
+  const stored = profile.user_master_key ? b64ToBytes(profile.user_master_key) : null;
 
   if (!stored) {
     console.log('[AUTH] user_master_key missing; creating and saving a new one');
