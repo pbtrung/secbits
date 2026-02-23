@@ -149,7 +149,7 @@ function FirebaseSetup({ onReady }) {
             <p className="text-muted small mb-2">Expected JSON format:</p>
             <pre className="bg-light rounded p-2 small mb-0" style={{ fontSize: '0.75rem' }}>
 {`{
-  "worker_url": "https://secbits-api.<account>.workers.dev",
+  "worker_url": "https://<worker>.<account>.workers.dev",
   "email": "user@example.com",
   "password": "xxx",
   "root_master_key": "<base64, >=256 bytes>"
