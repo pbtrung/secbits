@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { __historyFormatTestOnly } from '../firebase.js';
 
-const { parseHistoryJson, serializeHistoryForStorage } = __historyFormatTestOnly;
+const { applySnapshotDelta, buildSnapshotDelta, parseHistoryJson, serializeHistoryForStorage } = __historyFormatTestOnly;
 
 describe('firebase history storage format', () => {
   it('stores head snapshot + deltas and reconstructs full snapshots', () => {
@@ -83,6 +83,7 @@ describe('firebase history storage format', () => {
   });
 
   it('returns empty history for non-compact payloads', () => {
+
     const nonCompact = {
       head: 'h2',
       commits: [
@@ -126,5 +127,105 @@ describe('firebase history storage format', () => {
     const parsed = parseHistoryJson(nonCompact);
     expect(parsed.head).toBe('h2');
     expect(parsed.commits).toHaveLength(0);
+  });
+});
+
+const BASE_SNAPSHOT = {
+  title: 'entry',
+  username: 'alice',
+  password: 'p1',
+  notes: 'note',
+  urls: ['https://a.example'],
+  totpSecrets: [],
+  customFields: [],
+  tags: [],
+  timestamp: '2026-02-21T00:01:00.000Z',
+};
+
+describe('buildSnapshotDelta', () => {
+  it('detects a changed field', () => {
+    const B = { ...BASE_SNAPSHOT, password: 'p2' };
+    const delta = buildSnapshotDelta(BASE_SNAPSHOT, B);
+    expect(delta.set.password).toBe('p2');
+    expect(delta.unset).toHaveLength(0);
+  });
+
+  it('detects a removed key', () => {
+    const B = { ...BASE_SNAPSHOT };
+    delete B.notes;
+    const delta = buildSnapshotDelta(BASE_SNAPSHOT, B);
+    expect(delta.unset).toContain('notes');
+    expect(Object.prototype.hasOwnProperty.call(delta.set, 'notes')).toBe(false);
+  });
+
+  it('produces empty set and unset for identical snapshots', () => {
+    const delta = buildSnapshotDelta(BASE_SNAPSHOT, BASE_SNAPSHOT);
+    expect(delta.set).toEqual({});
+    expect(delta.unset).toEqual([]);
+  });
+
+  it('apply round-trip reconstructs B from A and delta', () => {
+    const B = { ...BASE_SNAPSHOT, password: 'p2', notes: 'new note' };
+    const result = applySnapshotDelta(BASE_SNAPSHOT, buildSnapshotDelta(BASE_SNAPSHOT, B));
+    expect(result.password).toBe(B.password);
+    expect(result.notes).toBe(B.notes);
+    expect(result.title).toBe(B.title);
+    expect(result.username).toBe(B.username);
+    expect(result.tags).toEqual(B.tags);
+    expect(result.urls).toEqual(B.urls);
+  });
+
+  it('null delta returns snapshot unchanged (normalized)', () => {
+    const result = applySnapshotDelta(BASE_SNAPSHOT, null);
+    expect(result.title).toBe(BASE_SNAPSHOT.title);
+    expect(result.password).toBe(BASE_SNAPSHOT.password);
+  });
+});
+
+describe('single-commit history edge case', () => {
+  const snapshot = {
+    title: 'only entry',
+    username: '',
+    password: 'pw',
+    notes: '',
+    urls: [],
+    totpSecrets: [],
+    customFields: [],
+    tags: [],
+    timestamp: '2026-02-21T00:01:00.000Z',
+  };
+  const history = {
+    head: 'h1',
+    commits: [{ hash: 'h1', parent: null, timestamp: '2026-02-21T00:01:00.000Z', changed: [], snapshot }],
+  };
+
+  it('HEAD commit has no delta and head_snapshot equals the commit snapshot', () => {
+    const compact = serializeHistoryForStorage(history);
+    expect(compact.commits[0].delta).toBeUndefined();
+    expect(compact.head_snapshot.title).toBe(snapshot.title);
+    expect(compact.head_snapshot.password).toBe(snapshot.password);
+  });
+
+  it('parseHistoryJson on single-commit compact returns one commit with correct snapshot', () => {
+    const compact = serializeHistoryForStorage(history);
+    const parsed = parseHistoryJson(compact);
+    expect(parsed.commits).toHaveLength(1);
+    expect(parsed.commits[0].snapshot.title).toBe(snapshot.title);
+    expect(parsed.commits[0].snapshot.password).toBe(snapshot.password);
+  });
+});
+
+describe('10-commit truncation cap', () => {
+  it('drops the 11th (oldest) commit when history exceeds 10 commits', () => {
+    const commits = Array.from({ length: 11 }, (_, i) => ({
+      hash: `h${11 - i}`,
+      parent: i < 10 ? `h${10 - i}` : null,
+      timestamp: `2026-02-21T00:${String(i + 1).padStart(2, '0')}:00.000Z`,
+      changed: [],
+      snapshot: { ...BASE_SNAPSHOT, password: `pw${i}` },
+    }));
+    const compact = serializeHistoryForStorage({ head: 'h11', commits });
+    expect(compact.commits).toHaveLength(10);
+    expect(compact.commits.find((c) => c.hash === 'h1')).toBeUndefined();
   });
 });

@@ -46,6 +46,7 @@ export default defineConfig(({ mode }) => ({
     ],
     alias: {
       '/leancrypto/leancrypto.js': path.resolve(__dirname, 'public/leancrypto/leancrypto.js'),
+      'brotli-wasm': path.resolve(__dirname, 'node_modules/brotli-wasm/index.node.js'),
     },
     server: {
       deps: {
