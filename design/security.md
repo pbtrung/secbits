@@ -2,9 +2,9 @@
 
 # Security Notes
 
-**The master key is everything.** Anyone with your config file and access to your Firestore database can decrypt all your data. Keep the config file off shared machines and out of version control.
+**The master key is everything.** Anyone with your config file can decrypt all your data if they also compromise the Worker or D1 database. Keep the config file off shared machines and out of version control.
 
-**Firebase never sees plaintext.** All encryption and decryption happens in the browser. Firestore only stores ciphertext blobs.
+**The Worker never sees plaintext.** All encryption and decryption happens in the browser. The Worker and D1 only store ciphertext blobs.
 
 **Per-entry keys.** Each entry is encrypted with its own randomly generated document key. Compromise of one entry's key does not affect others.
 
@@ -12,8 +12,10 @@
 
 **No separate MAC step.** Authentication is built into the AEAD cipher; there is no HMAC post-processing step. The tag covers both the ciphertext and the associated key material.
 
-**Email/Password auth.** Firebase Email/Password Authentication is used to satisfy Firestore security rules. Only the pre-created account can sign in.
+**Email/Password auth.** Credentials are verified in the Worker using PBKDF2-SHA256 (100,000 iterations) against the stored hash. On success a short-lived HS256 JWT (8-hour expiry, signed with `JWT_SECRET`) is issued. All subsequent requests carry this token; the Worker rejects any request whose JWT `sub` does not match the route's `:userId`.
 
-**Session scope.** The session is held in JS memory only. Nothing is written to `sessionStorage`, `localStorage`, or any other browser store. A hard reload (F5) returns to the config upload screen. The logout button explicitly clears the in-memory key. Browser session-restore features may preserve the in-memory state across a browser restart, but this is browser behaviour outside the app's control.
+**`wrangler.toml` is gitignored.** It contains the D1 `database_id` and worker name. A template (`worker/wrangler.toml.example`) is committed instead. `JWT_SECRET` is stored as a Wrangler secret and never appears in any file.
 
-**Content Security Policy.** A CSP meta tag in `index.html` restricts scripts, connections, styles, fonts, and images to known-good origins.
+**Session scope.** The session is held in JS memory only. Nothing is written to `sessionStorage`, `localStorage`, or any other browser store. A hard reload (F5) returns to the config upload screen. The logout button explicitly clears the in-memory key and JWT token. Browser session-restore features may preserve the in-memory state across a browser restart, but this is browser behaviour outside the app's control.
+
+**Content Security Policy.** A CSP meta tag in `index.html` restricts scripts, connections, styles, fonts, and images to known-good origins. `connect-src` allows only `'self'` and `https://*.workers.dev`.

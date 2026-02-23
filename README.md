@@ -1,42 +1,74 @@
 # SecBits
 
-A self-hosted, end-to-end encrypted password manager. All data is encrypted on the client before it reaches Firebase. See [Design Docs](design.md) for architecture, cryptography, features, and security notes.
+A self-hosted, end-to-end encrypted password manager. All data is encrypted on the client before it reaches the server. See [Design Docs](design.md) for architecture, cryptography, features, and security notes.
 
 ## Table of Contents
 
-1. [Firebase Setup](#firebase-setup)
+1. [Backend Setup (Worker + D1)](#backend-setup-worker--d1)
 2. [Config File Format](#config-file-format)
 3. [Building and Deploying](#building-and-deploying)
 4. [Usage Guide](#usage-guide)
 5. [Testing](#testing)
 
-## Firebase Setup
+## Backend Setup (Worker + D1)
 
-### 1. Create a Firebase project
+The backend is a Cloudflare Worker backed by a D1 (SQLite) database. The Worker handles authentication and all entry CRUD. The frontend is a static site that talks to the Worker over HTTPS.
 
-1. Go to [console.firebase.google.com](https://console.firebase.google.com) and create a new project.
-2. Enable **Firestore Database** (choose a region; **Native mode**).
-3. Enable **Email/Password Authentication**: Authentication > Sign-in method > Email/Password > Enable.
+### 1. Install Wrangler
 
-### 2. Register a web app
+```bash
+npm install -g wrangler
+wrangler login
+```
 
-In Project Settings > General > Your apps > Add app (Web). Copy the `firebaseConfig` object. You will need these values.
+### 2. Create the D1 database
 
-### 3. Set Firestore security rules
+```bash
+cd worker
+wrangler d1 create <database-name>
+```
 
-The repository includes `firestore.rules` with the production-ready rules for this app. Copy its contents into **Firestore > Rules** in the Firebase Console and publish.
+Copy `worker/wrangler.toml.example` to `worker/wrangler.toml` and fill in `name`, `database_name`, and `database_id` from the command output.
 
-The rules restrict every path to the authenticated owner (matched by Firebase Auth UID). For the user profile document they enforce that only the expected fields (`username`, `user_master_key`) can be written on create. For password entry documents they require exactly the two encrypted fields (`entry_key`, `value`) plus a 999,999-byte size cap, with a narrow exception for the internal init placeholder document.
+### 3. Apply the schema
 
-### 4. Create a Firebase Auth user and Firestore document
+```bash
+wrangler d1 execute <database-name> --file schema.sql
+```
 
-1. In **Authentication > Users**, click **Add user** and enter the email and password you will use to log in.
-2. Copy the **UID** shown for the new user.
-3. In **Firestore**, manually create a document at `users/{uid}` (using the UID from step 2) with a string field `username` set to any display name you want.
+### 4. Create your user
 
-### 5. Generate a root master key
+```bash
+cd ..
+node scripts/create-user.mjs --email you@example.com --password yourpassword --username YourName
+```
 
-Run this in a browser console or Node.js to generate a strong random root master key:
+Copy the printed `wrangler d1 execute` command and run it from the `worker/` directory.
+
+### 5. Set the JWT secret
+
+```bash
+cd worker
+wrangler secret put JWT_SECRET
+```
+
+Enter any long random string when prompted. To generate one:
+
+```bash
+openssl rand -base64 48
+```
+
+### 6. Deploy the Worker
+
+```bash
+wrangler deploy
+```
+
+Note the Worker URL printed — `https://<worker-name>.<account>.workers.dev`. You will need it for the config file.
+
+### 7. Generate a root master key
+
+Run this in a browser console or Node.js:
 
 ```js
 const bytes = crypto.getRandomValues(new Uint8Array(256));
@@ -44,7 +76,7 @@ const b64 = btoa(String.fromCharCode(...bytes));
 console.log(b64);
 ```
 
-Copy the output. This is your `root_master_key`. **Store it safely.** It cannot be recovered if lost. Treat it like a private key.
+This is your `root_master_key`. **Store it safely — it cannot be recovered if lost.** All your encrypted data is derived from it.
 
 ## Config File Format
 
@@ -52,31 +84,19 @@ Save the following as a `.json` file (e.g. `secbits-config.json`). **Keep this f
 
 ```json
 {
-  "db_name": "",
-  "email": "user@example.com",
-  "password": "your-firebase-auth-password",
-  "root_master_key": "<base64-encoded key, >=256 bytes when decoded>",
-  "auth": {
-    "apiKey": "...",
-    "authDomain": "your-project.firebaseapp.com",
-    "databaseURL": "https://your-project-default-rtdb.firebaseio.com",
-    "projectId": "your-project-id",
-    "storageBucket": "your-project.appspot.com",
-    "messagingSenderId": "...",
-    "appId": "..."
-  }
+  "worker_url": "https://<worker>.<account>.workers.dev",
+  "email": "you@example.com",
+  "password": "your-password",
+  "root_master_key": "<base64-encoded key, >=256 bytes when decoded>"
 }
 ```
 
 | Field | Required | Description |
 |---|---|---|
-| `db_name` | No | Named Firestore database (leave `""` for the default database) |
-| `email` | Yes | Email address of your Firebase Auth user |
-| `password` | Yes | Password of your Firebase Auth user |
-| `root_master_key` | Yes | Base64-encoded random key, must decode to >=256 bytes |
-| `auth` | Yes | Firebase web app config object from the Firebase console |
-
-> **Note:** `databaseURL` is required by the Firebase SDK even if you are not using Realtime Database. If your project config does not include it, set it to `"https://your-project-default-rtdb.firebaseio.com"` as a placeholder.
+| `worker_url` | Yes | URL of your deployed Cloudflare Worker |
+| `email` | Yes | Email address used when creating the user with `create-user.mjs` |
+| `password` | Yes | Password used when creating the user with `create-user.mjs` |
+| `root_master_key` | Yes | Base64-encoded random key, must decode to ≥256 bytes |
 
 ## Building and Deploying
 
@@ -90,7 +110,19 @@ Node.js 18 or later and npm 9 or later.
 npm install
 ```
 
-### Development server
+### Local development
+
+Run the Worker locally (from `worker/`):
+
+```bash
+cd worker
+wrangler d1 execute <database-name> --local --file schema.sql   # first time only
+wrangler dev
+```
+
+The Worker listens on `http://localhost:8787`. For local dev, temporarily add `http://localhost:8787` to `connect-src` in `index.html`'s CSP, and set `worker_url` in your config file to `http://localhost:8787`.
+
+Run the frontend (from repo root):
 
 ```bash
 npm run dev
@@ -104,35 +136,39 @@ Opens at `http://localhost:5173` with hot module replacement.
 npm run build
 ```
 
-Output goes to `dist/`. Preview the production build locally:
+Output goes to `dist/`. Preview locally:
 
 ```bash
 npm run preview
 ```
 
-### Deploying
-
-The `dist/` directory is a standard static site. Deploy it to any static host.
-
-**Firebase Hosting:**
+### Deploying the Worker
 
 ```bash
-npm install -g firebase-tools
-firebase login
-firebase init hosting   # set public dir to "dist", SPA rewrite to index.html
-npm run build
-firebase deploy
+cd worker
+wrangler deploy
 ```
 
-**Netlify / Vercel / Cloudflare Pages:**
+### Deploying the frontend
 
-Set the build command to `npm run build` and the output directory to `dist`. No server-side rendering is needed.
+The `dist/` directory is a standard static site.
+
+**Cloudflare Pages:**
+
+```bash
+npm run build
+wrangler pages deploy dist --project-name secbits
+```
+
+Or connect the repo to Cloudflare Pages in the dashboard: build command `npm run build`, output directory `dist`.
+
+**Netlify / Vercel:**
+
+Set the build command to `npm run build` and the output directory to `dist`.
 
 **NGINX / Apache:**
 
-Copy the contents of `dist/` to your web root. Configure the server to serve `index.html` for all routes (SPA routing).
-
-> The app is fully client-side. There is no backend process to run.
+Copy `dist/` to your web root. Configure the server to serve `index.html` for all routes (SPA routing).
 
 ## Usage Guide
 
@@ -140,14 +176,14 @@ Copy the contents of `dist/` to your web root. Configure the server to serve `in
 
 1. Open the app in your browser.
 2. Drag and drop (or click to browse) your config `.json` file onto the upload area.
-3. The app verifies your master key against Firestore, then loads your entries before leaving the auth screen. On first login a new encryption key pair is generated and stored.
+3. The app authenticates against the Worker, then loads your entries. On first login a new user master key is generated and stored in D1.
 4. The session is held in memory for the lifetime of the page. You will not be asked to upload the config again unless you hard-reload (F5) or log out.
 
 ### Creating an entry
 
 1. Click the **+** button in the entry list panel.
 2. Fill in the fields you need. All fields are optional except the title.
-3. Click **Save**. The entry is encrypted and synced to Firestore.
+3. Click **Save**. The entry is encrypted client-side and sent to the Worker.
 
 If you cancel while there are unsaved edits, you will be asked to confirm before the new entry is discarded.
 
@@ -166,7 +202,7 @@ If you cancel while there are unsaved edits, you will be asked to confirm before
 
 ### Field limits
 
-Every field has a hard character limit enforced in the UI. The limits exist because each entry stores up to 20 commits (version history) in a single Firestore `value` field. That field must stay under **999,999 bytes** after Brotli compression and Ascon-Keccak-512 encryption. Keeping individual fields bounded ensures the combined payload of all commits fits comfortably within that ceiling.
+Every field has a hard character limit enforced in the UI. The limits exist because each entry stores up to 20 commits (version history) in a single D1 `value` column. That column must stay under **1,900,000 bytes** after Brotli compression and Ascon-Keccak-512 encryption. Keeping individual fields bounded ensures the combined payload of all commits fits comfortably within that ceiling.
 
 | Field | Limit | Reason |
 |---|---|---|
@@ -187,7 +223,7 @@ Every field has a hard character limit enforced in the UI. The limits exist beca
 
 The UI enforces every limit via `maxLength` on inputs, disabled **Add** buttons when the collection cap is reached, and inline error messages. The Save button is disabled whenever any limit is exceeded.
 
-Implementation note: `src/limits.js` defines UI field/collection limits, while the commit-chain cap (`10`) is enforced in `src/firebase.js` where history read/write/truncation happens.
+Implementation note: `src/limits.js` defines UI field/collection limits, while the commit-chain cap (20) is enforced in `src/api.js`.
 
 ### Copying values
 
@@ -230,13 +266,13 @@ Select a tag in the left sidebar to filter entries. Use the search bar to search
 Click the gear icon at the bottom of the tag sidebar to open Settings.
 
 - **Export:** downloads a decrypted JSON file (`secbits-export-YYYY-MM-DD.json`) containing all entries, the decrypted user master key, and per-entry doc keys. Keep this file secure.
-- **About:** shows the total number of entries and their combined encrypted storage size.
+- **About:** shows entry count, total stored size, field coverage, version history stats, top tags, and the 5 largest entries.
 
-Export JSON includes `user_id`, `username`, `user_master_key_b64`, and decrypted `data`. Each exported entry in `data` includes `entry_key_b64` (the decrypted per-entry doc key) and `value`. Export JSON does **not** include `stored_user_master_key_blob_b64`.
+Export JSON includes `user_id`, `username`, `user_master_key_b64`, and decrypted `data`. Each exported entry in `data` includes `entry_key_b64` (the decrypted per-entry doc key) and `value`.
 
 ### Logging out
 
-Click the logout button (arrow icon) at the bottom of the tag sidebar. The in-memory session key is cleared immediately.
+Click the logout button (arrow icon) at the bottom of the tag sidebar. The in-memory session key and auth token are cleared immediately.
 
 ## Testing
 
@@ -266,12 +302,6 @@ Optional watch mode while developing:
 npx vitest
 ```
 
-Run the standalone load test (not Vitest):
-
-```bash
-node perf.test.js secbits-config.json
-```
-
 ### What is covered
 
 | Area | File | Tests | What is validated |
@@ -284,7 +314,7 @@ node perf.test.js secbits-config.json
 | `generateTOTPForCounter` / `base32Decode` / `generateTOTP` | `src/tests/totp.test.js` | 11 | RFC 6238 SHA-1 known vectors; base32 decode correctness, padding/separator stripping, invalid characters; live-clock 6-digit output |
 | leancrypto WASM primitives | `src/tests/leancrypto.test.js` | 1 (suite) | Ascon-Keccak AEAD, HMAC-SHA3-224, SHA3-512, HKDF-SHA256, SPHINCS+ vectors |
 | `buildExportData` | `src/tests/export-data.test.js` | 1 | Export shape, correct field inclusion, and exclusion of stored user-master-key blob |
-| History storage format / `buildSnapshotDelta` / `applySnapshotDelta` | `src/tests/firebase-history-format.test.js` | 10 | Compact storage round-trip; delta correctness and apply round-trip; single-commit edge case; 10-commit truncation cap |
+| History storage format / `buildSnapshotDelta` / `applySnapshotDelta` | `src/tests/firebase-history-format.test.js` | 10 | Compact storage round-trip; delta correctness and apply round-trip; single-commit edge case; 20-commit truncation cap |
 | User master key lifecycle | `src/tests/firebase-key-lifecycle.test.js` | 2 | In-memory key store/clear and zeroization on replace |
 | `isHttpUrl` | `src/tests/validation.test.js` | 3 | Accepts http/https URLs; rejects non-http(s) schemes and malformed values |
 
