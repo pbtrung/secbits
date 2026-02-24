@@ -325,7 +325,7 @@ function BackupPage({ userId }) {
           Export all entries as a decrypted JSON file for local backup or migration.
         </div>
         <button
-          className="btn btn-outline-secondary btn-sm"
+          className="btn btn-primary btn-sm"
           onClick={handleExport}
           disabled={exporting || runningBackup}
         >
@@ -347,7 +347,7 @@ function BackupPage({ userId }) {
             <div className="fw-semibold mb-1">Manual backup</div>
             <div className="text-muted small mb-2">Upload encrypted backup to all configured targets.</div>
             <button
-              className="btn btn-outline-secondary btn-sm"
+              className="btn btn-primary btn-sm"
               disabled={runningBackup || exporting}
               onClick={handleBackupNow}
             >
@@ -489,7 +489,7 @@ function RestorePage({ userId, onRestoreComplete }) {
       )}
 
       <button
-        className="btn btn-outline-warning"
+        className="btn btn-primary btn-sm"
         onClick={handleRestore}
         disabled={runningRestore || (usingFile && !localFile)}
       >
