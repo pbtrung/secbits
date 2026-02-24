@@ -56,3 +56,18 @@ export async function deleteEntry(db, userId, entryId) {
   ).bind(entryId, userId).run();
   return result.meta?.changes ?? 0;
 }
+
+export async function replaceEntriesForUser(db, userId, entries) {
+  const stmts = [
+    db.prepare('DELETE FROM entries WHERE user_id = ?').bind(userId),
+  ];
+
+  for (const entry of entries) {
+    stmts.push(
+      db.prepare('INSERT INTO entries (id, user_id, entry_key, value) VALUES (?, ?, ?, ?)')
+        .bind(entry.id, userId, entry.entryKeyBlob, entry.valueBlob),
+    );
+  }
+
+  await db.batch(stmts);
+}

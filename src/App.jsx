@@ -7,6 +7,7 @@ import ResizeHandle from './components/ResizeHandle';
 import SettingsList from './components/SettingsList';
 import SettingsPanel from './components/SettingsPanel';
 import { clearUserMasterKey, fetchUserEntries, createUserEntry, updateUserEntry, deleteUserEntry, restoreEntryVersion } from './api';
+import { triggerAutoBackup } from './backup';
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -14,7 +15,7 @@ function useIsMobile() {
     const onResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, []);
+  }, [userId]);
   return isMobile;
 }
 
@@ -48,7 +49,7 @@ function App() {
         initialSyncError: 'Failed to load entries.',
       });
     }
-  }, []);
+  }, [userId]);
 
   const handleLogout = useCallback(() => {
     clearUserMasterKey();
@@ -207,9 +208,11 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
         const created = await createUserEntry(updated);
         setEntries((prev) => prev.map((e) => (e.id === updated.id ? created : e)));
         setSelectedEntryId(created.id);
+        triggerAutoBackup(userId);
       } else {
         const persisted = await updateUserEntry(updated.id, updated);
         setEntries((prev) => prev.map((e) => (e.id === updated.id ? persisted : e)));
+        triggerAutoBackup(userId);
       }
       setEditingId(null);
     } catch (err) {
@@ -235,6 +238,7 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
         customFields: Array.isArray(restored.customFields) ? restored.customFields : (Array.isArray(restored.hiddenFields) ? restored.hiddenFields : []),
         tags: Array.isArray(restored.tags) ? restored.tags : [],
       } : e)));
+      triggerAutoBackup(userId);
       return true;
     } catch (err) {
       setSyncError(err?.message || 'Failed to restore entry.');
@@ -251,6 +255,7 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
     try {
       if (!isLocalEntryId(id)) {
         await deleteUserEntry(id);
+        triggerAutoBackup(userId);
       }
       setEntries((prev) => prev.filter((e) => e.id !== id));
       setSelectedEntryId((prev) => (prev === id ? null : prev));
@@ -261,7 +266,7 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
     } finally {
       setDeleting(false);
     }
-  }, [isMobile]);
+  }, [isMobile, userId]);
 
   const handleEdit = useCallback((id) => {
     setEditingId(id);
@@ -282,6 +287,29 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
 
   const handleSelectSetting = useCallback((page) => {
     setSettingsPage(page);
+  }, []);
+
+  const handleRestoreComplete = useCallback(async () => {
+    try {
+      const { entries: data, failedCount } = await fetchUserEntries();
+      const filtered = data.map((e) => ({
+        title: '',
+        username: '',
+        password: '',
+        notes: '',
+        ...e,
+        urls: Array.isArray(e.urls) ? e.urls : [],
+        totpSecrets: Array.isArray(e.totpSecrets) ? e.totpSecrets : [],
+        customFields: Array.isArray(e.customFields) ? e.customFields : (Array.isArray(e.hiddenFields) ? e.hiddenFields : []),
+        tags: Array.isArray(e.tags) ? e.tags : [],
+      }));
+      setEntries(filtered);
+      setSelectedEntryId(null);
+      setEditingId(null);
+      setSyncError(failedCount > 0 ? `${failedCount} entry(ies) could not be decrypted and were skipped. Check your master key.` : '');
+    } catch {
+      setSyncError('Restore completed, but failed to reload entries.');
+    }
   }, []);
 
   const handleCancelEdit = useCallback(() => {
@@ -471,7 +499,7 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
             {mobileView === 'detail' && (
               <div className="h-100 overflow-auto bg-light">
                 {settingsMode ? (
-                  <SettingsPanel page={settingsPage} userId={userId} />
+                  <SettingsPanel page={settingsPage} userId={userId} onRestoreComplete={handleRestoreComplete} />
                 ) : (
                   detailPane
                 )}
@@ -514,7 +542,7 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
             <ResizeHandle onResize={handleResizeEntries} />
             <div className="flex-grow-1 overflow-auto bg-light" style={{ minWidth: 300 }}>
               {settingsMode ? (
-                <SettingsPanel page={settingsPage} userId={userId} />
+                <SettingsPanel page={settingsPage} userId={userId} onRestoreComplete={handleRestoreComplete} />
               ) : (
                 detailPane
               )}

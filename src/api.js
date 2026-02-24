@@ -12,6 +12,8 @@ let idToken = null;
 let refreshToken = null;
 let idTokenExp = 0;
 let userMasterKeyBytes = null;
+let rootMasterKeyBytes = null;
+let backupTargets = [];
 const MAX_COMMITS = 20;
 const MAX_VALUE_BYTES = 1_900_000;
 const TOKEN_REFRESH_SKEW_SECONDS = 300;
@@ -135,6 +137,7 @@ async function ensureFreshIdToken() {
 export async function initApi(config) {
   workerUrl = config.worker_url.replace(/\/$/, '');
   firebaseApiKey = config.firebase_api_key;
+  backupTargets = Array.isArray(config.backup) ? config.backup.slice() : [];
   if (!firebaseApiKey) throw new Error('Missing required field: firebase_api_key');
 
   const res = await fetch(
@@ -177,13 +180,32 @@ export function getUserMasterKey() {
   return userMasterKeyBytes;
 }
 
+export function setRootMasterKey(keyBytes) {
+  if (!(keyBytes instanceof Uint8Array)) {
+    throw new Error('Root master key must be bytes');
+  }
+  zeroizeBytes(rootMasterKeyBytes);
+  rootMasterKeyBytes = keyBytes.slice();
+}
+
+export function getRootMasterKey() {
+  return rootMasterKeyBytes;
+}
+
+export function getBackupTargets() {
+  return backupTargets.slice();
+}
+
 export function clearUserMasterKey() {
   zeroizeBytes(userMasterKeyBytes);
+  zeroizeBytes(rootMasterKeyBytes);
   userMasterKeyBytes = null;
+  rootMasterKeyBytes = null;
   idToken = null;
   refreshToken = null;
   idTokenExp = 0;
   firebaseApiKey = null;
+  backupTargets = [];
   workerUrl = null;
 }
 
@@ -572,6 +594,13 @@ export async function restoreEntryVersion(entryId, commitHash) {
 
 export async function deleteUserEntry(entryId) {
   await apiDelete(`/entries/${entryId}`);
+}
+
+export async function replaceUserEntries(rawEntries) {
+  if (!Array.isArray(rawEntries)) {
+    throw new Error('rawEntries must be an array');
+  }
+  await apiPost('/entries/replace', { entries: rawEntries });
 }
 
 export const __historyFormatTestOnly = {

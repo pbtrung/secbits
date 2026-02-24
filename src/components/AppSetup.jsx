@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { initApi, fetchUser, saveUserMasterKey, setUserMasterKey, clearUserMasterKey } from '../api';
+import { initApi, fetchUser, saveUserMasterKey, setRootMasterKey, setUserMasterKey, clearUserMasterKey } from '../api';
 import { decodeRootMasterKey, setupUserMasterKey, verifyUserMasterKey } from '../crypto';
 
 function AppSetup({ onReady }) {
@@ -27,6 +27,7 @@ function AppSetup({ onReady }) {
     if (!json.root_master_key) throw new Error('Missing required field: root_master_key');
 
     const rootMasterKeyBytes = decodeRootMasterKey(json.root_master_key);
+    setRootMasterKey(rootMasterKeyBytes);
 
     setStatus('Authenticating...');
     const { userId } = await initApi(json);

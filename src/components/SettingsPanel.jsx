@@ -1,6 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchRawUserDocs, fetchUser, getUserMasterKey } from '../api';
+import { fetchRawUserDocs, fetchUser, getBackupTargets, getUserMasterKey } from '../api';
 import { unwrapEntryKey, decryptEntryHistoryWithDocKey, bytesToB64 } from '../crypto';
+import {
+  buildExportData as buildBackupExportData,
+  describeTarget,
+  getAutoBackupEnabled,
+  getLastBackupAt,
+  runBackupNow,
+  runRestore,
+  setAutoBackupEnabled,
+} from '../backup';
 
 function formatBytes(bytes) {
   if (bytes === 0) return '0 B';
@@ -23,14 +32,7 @@ function valueByteLength(value) {
   return new Blob([JSON.stringify(value ?? null)]).size;
 }
 
-export function buildExportData({ userId, userData, userMasterKey, decryptedDocs }) {
-  return {
-    user_id: userId,
-    username: userData?.username || null,
-    user_master_key_b64: userMasterKey ? bytesToB64(userMasterKey) : null,
-    data: decryptedDocs,
-  };
-}
+export const buildExportData = buildBackupExportData;
 
 function ExportPage({ userId }) {
   const [exporting, setExporting] = useState(false);
@@ -304,8 +306,189 @@ function AboutPage({ userId }) {
   );
 }
 
-function SettingsPanel({ page, userId }) {
+function BackupPage({ userId, onRestoreComplete }) {
+  const [runningBackup, setRunningBackup] = useState(false);
+  const [runningRestore, setRunningRestore] = useState(false);
+  const [status, setStatus] = useState('');
+  const [resultRows, setResultRows] = useState([]);
+  const [autoEnabled, setAutoEnabled] = useState(getAutoBackupEnabled);
+  const [lastBackup, setLastBackup] = useState(getLastBackupAt);
+  const [sourceMode, setSourceMode] = useState('target');
+  const [targetIndex, setTargetIndex] = useState(0);
+  const [localFile, setLocalFile] = useState(null);
+
+  const targets = (getBackupTargets() || [])
+    .filter((t) => t && typeof t === 'object' && t.target && t.bucket);
+
+  const handleToggleAuto = (enabled) => {
+    setAutoEnabled(enabled);
+    setAutoBackupEnabled(enabled);
+  };
+
+  const handleBackupNow = async () => {
+    setRunningBackup(true);
+    setStatus('');
+    try {
+      const { results } = await runBackupNow(userId);
+      setResultRows(results);
+      setLastBackup(getLastBackupAt());
+      const okCount = results.filter((r) => r.ok).length;
+      setStatus(okCount > 0 ? `Backup completed (${okCount}/${results.length} target(s) succeeded).` : 'Backup failed on all targets.');
+    } catch (err) {
+      setStatus(err?.message || 'Backup failed.');
+      setResultRows([]);
+    } finally {
+      setRunningBackup(false);
+    }
+  };
+
+  const handleRestore = async () => {
+    setRunningRestore(true);
+    setStatus('');
+    try {
+      const source = sourceMode === 'target'
+        ? { type: 'target', index: targetIndex }
+        : { type: 'file', file: localFile };
+      const result = await runRestore({
+        userId,
+        source,
+        confirm: ({ entryCount }) => window.confirm(
+          `This will replace all current entries. This cannot be undone.\n\nEntries in backup: ${entryCount}\n\nProceed with restore?`,
+        ),
+      });
+      setStatus(`Restore completed (${result.restoredCount} entries).`);
+      onRestoreComplete?.();
+    } catch (err) {
+      if (err?.message === 'Restore canceled') {
+        setStatus('Restore canceled.');
+      } else {
+        setStatus(err?.message || 'Restore failed.');
+      }
+    } finally {
+      setRunningRestore(false);
+    }
+  };
+
+  return (
+    <div className="p-4" style={{ maxWidth: 700 }}>
+      <h5 className="fw-bold mb-3">
+        <i className="bi bi-cloud-arrow-up me-2"></i>Backup
+      </h5>
+      {targets.length === 0 ? (
+        <div className="alert alert-warning small mb-0">
+          No backup targets are configured in your config file.
+        </div>
+      ) : (
+        <>
+          <div className="mb-4">
+            <div className="d-flex align-items-center justify-content-between mb-2">
+              <div>
+                <div className="fw-semibold">Manual backup</div>
+                <div className="text-muted small">Upload encrypted backup to all configured targets.</div>
+              </div>
+              <button className="btn btn-primary" disabled={runningBackup || runningRestore} onClick={handleBackupNow}>
+                {runningBackup ? (
+                  <><span className="spinner-border spinner-border-sm me-1"></span>Backing up...</>
+                ) : (
+                  <><i className="bi bi-cloud-upload me-1"></i>Backup now</>
+                )}
+              </button>
+            </div>
+            {resultRows.length > 0 && (
+              <div className="small mt-2">
+                {resultRows.map((row, idx) => (
+                  <div key={idx} className={row.ok ? 'text-success' : 'text-danger'}>
+                    {row.ok ? 'OK' : 'ERR'} · {row.label}{row.ok ? '' : ` — ${row.error}`}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="text-muted small mt-2">
+              Last backup: {lastBackup ? new Date(lastBackup).toLocaleString() : 'Never this session'}
+            </div>
+          </div>
+
+          <div className="mb-4">
+            <div className="form-check form-switch">
+              <input
+                className="form-check-input"
+                type="checkbox"
+                id="autoBackupToggle"
+                checked={autoEnabled}
+                onChange={(e) => handleToggleAuto(e.target.checked)}
+                disabled={runningBackup || runningRestore}
+              />
+              <label className="form-check-label" htmlFor="autoBackupToggle">
+                Auto-backup after save
+              </label>
+            </div>
+            <div className="text-muted small mt-1">
+              When enabled, backups are triggered after successful create, update, restore, and delete operations.
+            </div>
+          </div>
+
+          <div>
+            <div className="fw-semibold mb-2">Restore</div>
+            <div className="mb-2">
+              <select
+                className="form-select form-select-sm"
+                value={sourceMode === 'target' ? `target:${targetIndex}` : 'file'}
+                onChange={(e) => {
+                  if (e.target.value === 'file') {
+                    setSourceMode('file');
+                  } else {
+                    const idx = Number(e.target.value.split(':')[1] || 0);
+                    setSourceMode('target');
+                    setTargetIndex(Number.isFinite(idx) ? idx : 0);
+                  }
+                }}
+                disabled={runningBackup || runningRestore}
+              >
+                {targets.map((target, idx) => (
+                  <option key={idx} value={`target:${idx}`}>
+                    {describeTarget(target)}
+                  </option>
+                ))}
+                <option value="file">Local file</option>
+              </select>
+            </div>
+            {sourceMode === 'file' && (
+              <div className="mb-2">
+                <input
+                  type="file"
+                  className="form-control form-control-sm"
+                  accept=".bak,application/octet-stream"
+                  onChange={(e) => setLocalFile(e.target.files?.[0] || null)}
+                  disabled={runningBackup || runningRestore}
+                />
+              </div>
+            )}
+            <button
+              className="btn btn-outline-warning"
+              onClick={handleRestore}
+              disabled={runningBackup || runningRestore || (sourceMode === 'file' && !localFile)}
+            >
+              {runningRestore ? (
+                <><span className="spinner-border spinner-border-sm me-1"></span>Restoring...</>
+              ) : (
+                <><i className="bi bi-arrow-counterclockwise me-1"></i>Restore</>
+              )}
+            </button>
+          </div>
+        </>
+      )}
+      {status && (
+        <div className="mt-3 small">
+          {status}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SettingsPanel({ page, userId, onRestoreComplete }) {
   if (page === 'export') return <ExportPage userId={userId} />;
+  if (page === 'backup') return <BackupPage userId={userId} onRestoreComplete={onRestoreComplete} />;
   if (page === 'about') return <AboutPage userId={userId} />;
 
   return (

@@ -8,6 +8,7 @@ import {
   createEntry,
   updateEntry,
   deleteEntry,
+  replaceEntriesForUser,
 } from './db.js';
 
 const MAX_VALUE_BYTES = 1_900_000;
@@ -147,6 +148,43 @@ export default {
           return err('Failed to create entry', 400, origin);
         }
         return json({ ok: true }, 201, origin);
+      }
+
+      if (method === 'POST' && path === '/entries/replace') {
+        let body;
+        try {
+          body = await request.json();
+        } catch {
+          return err('Invalid JSON', 400, origin);
+        }
+
+        const rows = Array.isArray(body?.entries) ? body.entries : null;
+        if (!rows) return err('entries must be an array', 400, origin);
+
+        const parsed = [];
+        for (const row of rows) {
+          if (!row || typeof row !== 'object') return err('Invalid entry payload', 400, origin);
+          const { id, entry_key: entryKeyB64, value: valueB64 } = row;
+          if (!id || !entryKeyB64 || !valueB64) return err('Missing fields', 400, origin);
+
+          let entryKeyBlob;
+          let valueBlob;
+          try {
+            entryKeyBlob = b64ToBuf(entryKeyB64);
+            valueBlob = b64ToBuf(valueB64);
+          } catch {
+            return err('Invalid base64', 400, origin);
+          }
+          if (valueBlob.length >= MAX_VALUE_BYTES) return err('Entry too large', 413, origin);
+          parsed.push({
+            id: String(id),
+            entryKeyBlob,
+            valueBlob,
+          });
+        }
+
+        await replaceEntriesForUser(env.DB, userId, parsed);
+        return json({ ok: true, replaced: parsed.length }, 200, origin);
       }
 
       const entryMatch = path.match(/^\/entries\/([^/]+)$/);
