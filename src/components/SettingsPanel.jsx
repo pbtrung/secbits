@@ -11,6 +11,12 @@ import {
   setAutoBackupEnabled,
 } from '../backup';
 
+function formatTimestamp(ts) {
+  const d = new Date(ts);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 function formatBytes(bytes) {
   if (bytes === 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB'];
@@ -367,7 +373,7 @@ function BackupPage({ userId }) {
               </div>
             )}
             <div className="text-muted small mt-2">
-              Last backup: {lastBackup ? new Date(lastBackup).toLocaleString() : 'Never this session'}
+              Last backup: {lastBackup ? formatTimestamp(lastBackup) : 'Never this session'}
             </div>
           </div>
 
