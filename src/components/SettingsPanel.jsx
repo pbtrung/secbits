@@ -344,23 +344,19 @@ function BackupPage({ userId }) {
       ) : (
         <>
           <div className="mb-4">
-            <div className="d-flex align-items-center justify-content-between mb-2">
-              <div>
-                <div className="fw-semibold">Manual backup</div>
-                <div className="text-muted small">Upload encrypted backup to all configured targets.</div>
-              </div>
-              <button
-                className="btn btn-primary"
-                disabled={runningBackup || exporting}
-                onClick={handleBackupNow}
-              >
-                {runningBackup ? (
-                  <><span className="spinner-border spinner-border-sm me-1"></span>Backing up...</>
-                ) : (
-                  <><i className="bi bi-cloud-upload me-1"></i>Backup now</>
-                )}
-              </button>
-            </div>
+            <div className="fw-semibold mb-1">Manual backup</div>
+            <div className="text-muted small mb-2">Upload encrypted backup to all configured targets.</div>
+            <button
+              className="btn btn-outline-secondary btn-sm"
+              disabled={runningBackup || exporting}
+              onClick={handleBackupNow}
+            >
+              {runningBackup ? (
+                <><span className="spinner-border spinner-border-sm me-1"></span>Backing up...</>
+              ) : (
+                <><i className="bi bi-cloud-upload me-1"></i>Backup now</>
+              )}
+            </button>
             {resultRows.length > 0 && (
               <div className="small mt-2">
                 {resultRows.map((row, idx) => (
