@@ -6,6 +6,7 @@ import {
   describeTarget,
   getAutoBackupEnabled,
   getLastBackupAt,
+  normalizeTargets,
   runBackupNow,
   runRestore,
   setAutoBackupEnabled,
@@ -254,8 +255,7 @@ function BackupPage({ userId }) {
   const [autoEnabled, setAutoEnabled] = useState(getAutoBackupEnabled);
   const [lastBackup, setLastBackup] = useState(getLastBackupAt);
 
-  const targets = (getBackupTargets() || [])
-    .filter((t) => t && typeof t === 'object' && t.target && t.bucket);
+  const targets = normalizeTargets(getBackupTargets() || []);
 
   const handleExport = useCallback(async () => {
     setExporting(true);
@@ -414,8 +414,7 @@ function RestorePage({ userId, onRestoreComplete }) {
   const [targetIndex, setTargetIndex] = useState(0);
   const [localFile, setLocalFile] = useState(null);
 
-  const targets = (getBackupTargets() || [])
-    .filter((t) => t && typeof t === 'object' && t.target && t.bucket);
+  const targets = normalizeTargets(getBackupTargets() || []);
 
   const usingFile = targets.length === 0 || sourceMode === 'file';
 

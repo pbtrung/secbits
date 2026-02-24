@@ -79,7 +79,7 @@ function getTargetRegion(target) {
   return 'auto';
 }
 
-function normalizeTargets(targets) {
+export function normalizeTargets(targets) {
   return targets
     .filter((target) => target && typeof target === 'object')
     .map((target) => ({
