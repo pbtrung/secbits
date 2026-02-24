@@ -134,6 +134,8 @@ function readConfig(configPath) {
   ensure(typeof json.worker_url === 'string' && json.worker_url.length > 0, 'Missing required field: worker_url');
   ensure(typeof json.email === 'string' && json.email.length > 0, 'Missing required field: email');
   ensure(typeof json.password === 'string' && json.password.length > 0, 'Missing required field: password');
+  ensure(typeof json.firebase_api_key === 'string' && json.firebase_api_key.length > 0, 'Missing required field: firebase_api_key');
+  ensure(typeof json.firebase_project_id === 'string' && json.firebase_project_id.length > 0, 'Missing required field: firebase_project_id');
   ensure(typeof json.root_master_key === 'string' && json.root_master_key.length > 0, 'Missing required field: root_master_key');
 
   return { config: json, configPath: resolved };
@@ -648,35 +650,84 @@ async function jsonFetch(url, options) {
   throw new Error(`Network request failed after retries: ${url}`);
 }
 
-async function signIn(workerUrl, email, password) {
-  const resp = await jsonFetch(`${workerUrl}/auth/login`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  ensure(resp.userId && resp.token, 'Auth response missing userId/token');
-  return { userId: resp.userId, token: resp.token };
+function decodeJwtPayload(token) {
+  const parts = token.split('.');
+  if (parts.length < 2) return null;
+  const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+  const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+  try {
+    return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
+  } catch {
+    return null;
+  }
 }
 
-async function fetchUserProfile(workerUrl, userId, token) {
-  return jsonFetch(`${workerUrl}/users/${encodeURIComponent(userId)}/profile`, {
+async function firebaseSignIn(firebaseApiKey, email, password) {
+  const resp = await jsonFetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(firebaseApiKey)}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password, returnSecureToken: true }),
+    }
+  );
+  ensure(resp.localId && resp.idToken && resp.refreshToken, 'Firebase auth response missing localId/idToken/refreshToken');
+  const payload = decodeJwtPayload(resp.idToken);
+  return {
+    userId: resp.localId,
+    idToken: resp.idToken,
+    refreshToken: resp.refreshToken,
+    idTokenExp: Number(payload && payload.exp ? payload.exp : 0),
+  };
+}
+
+async function refreshIdTokenIfNeeded(auth, firebaseApiKey) {
+  const now = Math.floor(Date.now() / 1000);
+  if (!auth.refreshToken || !auth.idToken || auth.idTokenExp - now > 300) return;
+
+  const resp = await jsonFetch(
+    `https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(firebaseApiKey)}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: auth.refreshToken,
+      }).toString(),
+    }
+  );
+
+  ensure(resp.id_token && resp.refresh_token, 'Firebase refresh response missing id_token/refresh_token');
+  auth.idToken = resp.id_token;
+  auth.refreshToken = resp.refresh_token;
+  auth.idTokenExp = Number(decodeJwtPayload(resp.id_token)?.exp || 0);
+}
+
+async function fetchUserProfile(workerUrl, auth, firebaseApiKey) {
+  await refreshIdTokenIfNeeded(auth, firebaseApiKey);
+  return jsonFetch(`${workerUrl}/me/profile`, {
     method: 'GET',
-    headers: { authorization: `Bearer ${token}` },
+    headers: { authorization: `Bearer ${auth.idToken}` },
   });
 }
 
-async function saveUserMasterKey(workerUrl, userId, token, blobBytes) {
-  return jsonFetch(`${workerUrl}/users/${encodeURIComponent(userId)}/profile`, {
+async function saveUserMasterKey(workerUrl, auth, firebaseApiKey, blobBytes, username) {
+  await refreshIdTokenIfNeeded(auth, firebaseApiKey);
+  return jsonFetch(`${workerUrl}/me/profile`, {
     method: 'POST',
-    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ user_master_key: bytesToB64(blobBytes) }),
+    headers: { authorization: `Bearer ${auth.idToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      user_master_key: bytesToB64(blobBytes),
+      ...(typeof username === 'string' && username.trim().length > 0 ? { username: username.trim() } : {}),
+    }),
   });
 }
 
-async function writeEntry(workerUrl, userId, token, entryId, entryKeyBytes, valueBytes) {
-  return jsonFetch(`${workerUrl}/users/${encodeURIComponent(userId)}/entries`, {
+async function writeEntry(workerUrl, auth, firebaseApiKey, entryId, entryKeyBytes, valueBytes) {
+  await refreshIdTokenIfNeeded(auth, firebaseApiKey);
+  return jsonFetch(`${workerUrl}/entries`, {
     method: 'POST',
-    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    headers: { authorization: `Bearer ${auth.idToken}`, 'content-type': 'application/json' },
     body: JSON.stringify({
       id: entryId,
       entry_key: bytesToB64(entryKeyBytes),
@@ -685,14 +736,14 @@ async function writeEntry(workerUrl, userId, token, entryId, entryKeyBytes, valu
   });
 }
 
-async function resolveUserMasterKey({ workerUrl, userId, token, rootMasterKeyBytes }) {
-  const profile = await fetchUserProfile(workerUrl, userId, token);
+async function resolveUserMasterKey({ workerUrl, auth, firebaseApiKey, rootMasterKeyBytes, username }) {
+  const profile = await fetchUserProfile(workerUrl, auth, firebaseApiKey);
   const stored = profile.user_master_key ? b64ToBytes(profile.user_master_key) : null;
 
   if (!stored) {
     console.log('[AUTH] user_master_key missing; creating and saving a new one');
     const { userMasterKeyBlob, userMasterKey } = await setupUserMasterKey(rootMasterKeyBytes);
-    await saveUserMasterKey(workerUrl, userId, token, userMasterKeyBlob);
+    await saveUserMasterKey(workerUrl, auth, firebaseApiKey, userMasterKeyBlob, username);
     return userMasterKey;
   }
 
@@ -713,15 +764,16 @@ async function main() {
   const rootMasterKeyBytes = decodeRootMasterKey(config.root_master_key);
 
   console.log(`[START] Config: ${configPath}`);
-  console.log('[AUTH] signing in');
-  const { userId, token } = await signIn(config.worker_url, config.email, config.password);
-  console.log(`[AUTH] signed in as userId=${userId}`);
+  console.log('[AUTH] signing in to Firebase');
+  const auth = await firebaseSignIn(config.firebase_api_key, config.email, config.password);
+  console.log(`[AUTH] signed in as firebase uid=${auth.userId}`);
 
   const userMasterKey = await resolveUserMasterKey({
     workerUrl: config.worker_url,
-    userId,
-    token,
+    auth,
+    firebaseApiKey: config.firebase_api_key,
     rootMasterKeyBytes,
+    username: config.username,
   });
 
   const startedAt = performance.now();
@@ -746,7 +798,7 @@ async function main() {
       throw new Error(`Entry ${entry.id} value blob too large: ${valueBlob.length} bytes`);
     }
 
-    await writeEntry(config.worker_url, userId, token, entry.id, entryKeyBlob, valueBlob);
+    await writeEntry(config.worker_url, auth, config.firebase_api_key, entry.id, entryKeyBlob, valueBlob);
 
     const entryMs = performance.now() - entryStart;
     const elapsed = performance.now() - startedAt;
