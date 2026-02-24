@@ -1,4 +1,3 @@
-import brotli from 'brotli-wasm';
 import {
   fetchRawUserDocs,
   fetchUser,
@@ -27,11 +26,19 @@ const ENTRY_ID_LEN = 42;
 
 let runningAutoBackup = null;
 let rerunAutoBackup = false;
+let brotliModulePromise = null;
 
 function valueToBytes(value) {
   if (value instanceof Uint8Array) return value;
   if (value && typeof value.toUint8Array === 'function') return value.toUint8Array();
   return null;
+}
+
+async function getBrotli() {
+  if (!brotliModulePromise) {
+    brotliModulePromise = import('brotli-wasm').then((m) => m.default);
+  }
+  return brotliModulePromise;
 }
 
 function b64ToBytes(b64) {
@@ -268,12 +275,14 @@ export function buildExportData({ userId, userData, userMasterKey, decryptedDocs
 }
 
 async function encryptBackupExport(exportData, rootMasterKey) {
+  const brotli = await getBrotli();
   const jsonBytes = textBytes(JSON.stringify(exportData));
   const compressed = brotli.compress(jsonBytes);
   return encryptBytesToBlob(rootMasterKey, compressed);
 }
 
 async function decryptBackupExport(encryptedBlob, rootMasterKey) {
+  const brotli = await getBrotli();
   if (encryptedBlob.byteLength > MAX_RESTORE_BYTES) {
     throw new Error(`Backup file too large (${encryptedBlob.byteLength} B > ${MAX_RESTORE_BYTES} B limit)`);
   }
