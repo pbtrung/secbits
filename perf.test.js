@@ -723,16 +723,12 @@ async function saveUserMasterKey(workerUrl, auth, firebaseApiKey, blobBytes, use
   });
 }
 
-async function writeEntry(workerUrl, auth, firebaseApiKey, entryId, entryKeyBytes, valueBytes) {
+async function replaceAllEntries(workerUrl, auth, firebaseApiKey, entries) {
   await refreshIdTokenIfNeeded(auth, firebaseApiKey);
-  return jsonFetch(`${workerUrl}/entries`, {
+  return jsonFetch(`${workerUrl}/entries/replace`, {
     method: 'POST',
     headers: { authorization: `Bearer ${auth.idToken}`, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      id: entryId,
-      entry_key: bytesToB64(entryKeyBytes),
-      value: bytesToB64(valueBytes),
-    }),
+    body: JSON.stringify({ entries }),
   });
 }
 
@@ -776,13 +772,15 @@ async function main() {
     username: config.username,
   });
 
-  const startedAt = performance.now();
+  // ── Phase 1: generate + encrypt ─────────────────────────────────────────────
+  console.log(`[PHASE 1] Generating and encrypting ${ENTRY_COUNT} entries`);
+  const genStart = performance.now();
   let totalVersions = 0;
   let totalPayloadBytes = 0;
+  const payload = [];
 
   for (let i = 0; i < ENTRY_COUNT; i++) {
     const idx = i + 1;
-    const entryStart = performance.now();
 
     const entry = generateEntry(i);
     validateEntry(entry, i);
@@ -798,32 +796,47 @@ async function main() {
       throw new Error(`Entry ${entry.id} value blob too large: ${valueBlob.length} bytes`);
     }
 
-    await writeEntry(config.worker_url, auth, config.firebase_api_key, entry.id, entryKeyBlob, valueBlob);
-
-    const entryMs = performance.now() - entryStart;
-    const elapsed = performance.now() - startedAt;
-    const avgPerEntry = elapsed / idx;
-    const remaining = avgPerEntry * (ENTRY_COUNT - idx);
     const payloadBytes = entryKeyBlob.length + valueBlob.length;
     totalPayloadBytes += payloadBytes;
+    payload.push({
+      id: entry.id,
+      entry_key: bytesToB64(entryKeyBlob),
+      value: bytesToB64(valueBlob),
+    });
 
+    const elapsed = performance.now() - genStart;
+    const avg = elapsed / idx;
+    const eta = avg * (ENTRY_COUNT - idx);
     console.log(
-      `[ADD ${idx}/${ENTRY_COUNT}] id=${entry.id} versions=${entry.versions.length} ` +
-      `entry_key=${entryKeyBlob.length}B value=${valueBlob.length}B total=${payloadBytes}B ` +
-      `entry_time=${formatDurationMs(entryMs)} elapsed=${formatDurationMs(elapsed)} eta=${formatDurationMs(remaining)}`
+      `[GEN ${idx}/${ENTRY_COUNT}] id=${entry.id} versions=${entry.versions.length} ` +
+      `entry_key=${entryKeyBlob.length}B value=${valueBlob.length}B ` +
+      `elapsed=${formatDurationMs(elapsed)} eta=${formatDurationMs(eta)}`
     );
   }
 
-  const totalMs = performance.now() - startedAt;
+  const genMs = performance.now() - genStart;
+  console.log(`[PHASE 1] Done in ${formatDurationMs(genMs)}`);
+
+  // ── Phase 2: bulk upload ──────────────────────────────────────────────────
+  console.log(`[PHASE 2] Uploading ${ENTRY_COUNT} entries via POST /entries/replace`);
+  const uploadStart = performance.now();
+  const result = await replaceAllEntries(config.worker_url, auth, config.firebase_api_key, payload);
+  const uploadMs = performance.now() - uploadStart;
+  ensure(result && result.replaced === ENTRY_COUNT, `Expected replaced=${ENTRY_COUNT}, got ${result && result.replaced}`);
+  console.log(`[PHASE 2] Done in ${formatDurationMs(uploadMs)} (${result.replaced} entries replaced)`);
+
+  const totalMs = genMs + uploadMs;
   const avgVersions = totalVersions / ENTRY_COUNT;
 
   console.log('');
   console.log('[DONE] Performance dataset inserted successfully');
-  console.log(`- Entries inserted: ${ENTRY_COUNT}`);
-  console.log(`- Total versions: ${totalVersions}`);
-  console.log(`- Avg versions/entry: ${avgVersions.toFixed(2)}`);
-  console.log(`- Total encrypted payload written: ${totalPayloadBytes} bytes`);
-  console.log(`- Total write time: ${formatDurationMs(totalMs)}`);
+  console.log(`- Entries inserted:               ${ENTRY_COUNT}`);
+  console.log(`- Total versions:                 ${totalVersions}`);
+  console.log(`- Avg versions/entry:             ${avgVersions.toFixed(2)}`);
+  console.log(`- Total encrypted payload:        ${totalPayloadBytes} bytes`);
+  console.log(`- Phase 1 (generate + encrypt):   ${formatDurationMs(genMs)}`);
+  console.log(`- Phase 2 (bulk upload):          ${formatDurationMs(uploadMs)}`);
+  console.log(`- Total time:                     ${formatDurationMs(totalMs)}`);
 
   // Best-effort zeroization.
   userMasterKey.fill(0);
