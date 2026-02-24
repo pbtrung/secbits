@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { fetchRawUserDocs, fetchUser, getBackupTargets, getUserMasterKey } from '../api';
 import { unwrapEntryKey, decryptEntryHistoryWithDocKey, bytesToB64 } from '../crypto';
 import {
-  buildExportData as buildBackupExportData,
+  buildExportData,
   describeTarget,
   getAutoBackupEnabled,
   getLastBackupAt,
@@ -30,72 +30,6 @@ function valueByteLength(value) {
   const bytes = valueToBytes(value);
   if (bytes) return bytes.length;
   return new Blob([JSON.stringify(value ?? null)]).size;
-}
-
-export const buildExportData = buildBackupExportData;
-
-function ExportPage({ userId }) {
-  const [exporting, setExporting] = useState(false);
-
-  const handleExport = useCallback(async () => {
-    setExporting(true);
-    try {
-      const [docs, userData] = await Promise.all([
-        fetchRawUserDocs(),
-        fetchUser(),
-      ]);
-      const userMasterKey = getUserMasterKey();
-      const decryptedDocs = [];
-      for (const d of docs) {
-        const entry = { id: d.id };
-        const entryKeyBytes = valueToBytes(d.entry_key);
-        if (entryKeyBytes && userMasterKey) {
-          const docKeyBytes = await unwrapEntryKey(userMasterKey, entryKeyBytes);
-          entry.entry_key_b64 = bytesToB64(docKeyBytes);
-          if (valueToBytes(d.value)) {
-            entry.value = await decryptEntryHistoryWithDocKey(docKeyBytes, d.value);
-          } else {
-            entry.value = d.value;
-          }
-        } else {
-          entry.entry_key_b64 = entryKeyBytes ? bytesToB64(entryKeyBytes) : d.entry_key;
-          entry.value = d.value;
-        }
-        decryptedDocs.push(entry);
-      }
-      const exportData = buildExportData({ userId, userData, userMasterKey, decryptedDocs });
-      const json = JSON.stringify(exportData, null, 2);
-      const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `secbits-export-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      alert('Failed to export data.');
-    } finally {
-      setExporting(false);
-    }
-  }, [userId]);
-
-  return (
-    <div className="p-4" style={{ maxWidth: 500 }}>
-      <h5 className="fw-bold mb-3">
-        <i className="bi bi-download me-2"></i>Export
-      </h5>
-      <p className="text-muted small">
-        Export all entries from your database as a decrypted JSON file.
-      </p>
-      <button className="btn btn-primary" onClick={handleExport} disabled={exporting}>
-        {exporting ? (
-          <><span className="spinner-border spinner-border-sm me-1"></span>Exporting...</>
-        ) : (
-          <><i className="bi bi-download me-1"></i>Export All Data</>
-        )}
-      </button>
-    </div>
-  );
 }
 
 function AboutPage({ userId }) {
@@ -306,19 +240,56 @@ function AboutPage({ userId }) {
   );
 }
 
-function BackupPage({ userId, onRestoreComplete }) {
+function BackupPage({ userId }) {
+  const [exporting, setExporting] = useState(false);
   const [runningBackup, setRunningBackup] = useState(false);
-  const [runningRestore, setRunningRestore] = useState(false);
   const [status, setStatus] = useState('');
   const [resultRows, setResultRows] = useState([]);
   const [autoEnabled, setAutoEnabled] = useState(getAutoBackupEnabled);
   const [lastBackup, setLastBackup] = useState(getLastBackupAt);
-  const [sourceMode, setSourceMode] = useState('target');
-  const [targetIndex, setTargetIndex] = useState(0);
-  const [localFile, setLocalFile] = useState(null);
 
   const targets = (getBackupTargets() || [])
     .filter((t) => t && typeof t === 'object' && t.target && t.bucket);
+
+  const handleExport = useCallback(async () => {
+    setExporting(true);
+    try {
+      const [docs, userData] = await Promise.all([
+        fetchRawUserDocs(),
+        fetchUser(),
+      ]);
+      const userMasterKey = getUserMasterKey();
+      const decryptedDocs = [];
+      for (const d of docs) {
+        const entry = { id: d.id };
+        const entryKeyBytes = valueToBytes(d.entry_key);
+        if (entryKeyBytes && userMasterKey) {
+          const docKeyBytes = await unwrapEntryKey(userMasterKey, entryKeyBytes);
+          entry.entry_key_b64 = bytesToB64(docKeyBytes);
+          entry.value = valueToBytes(d.value)
+            ? await decryptEntryHistoryWithDocKey(docKeyBytes, d.value)
+            : d.value;
+        } else {
+          entry.entry_key_b64 = entryKeyBytes ? bytesToB64(entryKeyBytes) : d.entry_key;
+          entry.value = d.value;
+        }
+        decryptedDocs.push(entry);
+      }
+      const exportObj = buildExportData({ userId, userData, userMasterKey, decryptedDocs });
+      const json = JSON.stringify(exportObj, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `secbits-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert('Failed to export data.');
+    } finally {
+      setExporting(false);
+    }
+  }, [userId]);
 
   const handleToggleAuto = (enabled) => {
     setAutoEnabled(enabled);
@@ -342,38 +313,30 @@ function BackupPage({ userId, onRestoreComplete }) {
     }
   };
 
-  const handleRestore = async () => {
-    setRunningRestore(true);
-    setStatus('');
-    try {
-      const source = sourceMode === 'target'
-        ? { type: 'target', index: targetIndex }
-        : { type: 'file', file: localFile };
-      const result = await runRestore({
-        userId,
-        source,
-        confirm: ({ entryCount }) => window.confirm(
-          `This will replace all current entries. This cannot be undone.\n\nEntries in backup: ${entryCount}\n\nProceed with restore?`,
-        ),
-      });
-      setStatus(`Restore completed (${result.restoredCount} entries).`);
-      onRestoreComplete?.();
-    } catch (err) {
-      if (err?.message === 'Restore canceled') {
-        setStatus('Restore canceled.');
-      } else {
-        setStatus(err?.message || 'Restore failed.');
-      }
-    } finally {
-      setRunningRestore(false);
-    }
-  };
-
   return (
     <div className="p-4" style={{ maxWidth: 700 }}>
       <h5 className="fw-bold mb-3">
         <i className="bi bi-cloud-arrow-up me-2"></i>Backup
       </h5>
+
+      <div className="mb-4">
+        <div className="fw-semibold mb-1">Export</div>
+        <div className="text-muted small mb-2">
+          Export all entries as a decrypted JSON file for local backup or migration.
+        </div>
+        <button
+          className="btn btn-outline-secondary btn-sm"
+          onClick={handleExport}
+          disabled={exporting || runningBackup}
+        >
+          {exporting ? (
+            <><span className="spinner-border spinner-border-sm me-1"></span>Exporting...</>
+          ) : (
+            <><i className="bi bi-download me-1"></i>Export all data</>
+          )}
+        </button>
+      </div>
+
       {targets.length === 0 ? (
         <div className="alert alert-warning small mb-0">
           No backup targets are configured in your config file.
@@ -386,7 +349,11 @@ function BackupPage({ userId, onRestoreComplete }) {
                 <div className="fw-semibold">Manual backup</div>
                 <div className="text-muted small">Upload encrypted backup to all configured targets.</div>
               </div>
-              <button className="btn btn-primary" disabled={runningBackup || runningRestore} onClick={handleBackupNow}>
+              <button
+                className="btn btn-primary"
+                disabled={runningBackup || exporting}
+                onClick={handleBackupNow}
+              >
                 {runningBackup ? (
                   <><span className="spinner-border spinner-border-sm me-1"></span>Backing up...</>
                 ) : (
@@ -408,7 +375,7 @@ function BackupPage({ userId, onRestoreComplete }) {
             </div>
           </div>
 
-          <div className="mb-4">
+          <div>
             <div className="form-check form-switch">
               <input
                 className="form-check-input"
@@ -416,7 +383,7 @@ function BackupPage({ userId, onRestoreComplete }) {
                 id="autoBackupToggle"
                 checked={autoEnabled}
                 onChange={(e) => handleToggleAuto(e.target.checked)}
-                disabled={runningBackup || runningRestore}
+                disabled={runningBackup || exporting}
               />
               <label className="form-check-label" htmlFor="autoBackupToggle">
                 Auto-backup after save
@@ -426,57 +393,117 @@ function BackupPage({ userId, onRestoreComplete }) {
               When enabled, backups are triggered after successful create, update, restore, and delete operations.
             </div>
           </div>
-
-          <div>
-            <div className="fw-semibold mb-2">Restore</div>
-            <div className="mb-2">
-              <select
-                className="form-select form-select-sm"
-                value={sourceMode === 'target' ? `target:${targetIndex}` : 'file'}
-                onChange={(e) => {
-                  if (e.target.value === 'file') {
-                    setSourceMode('file');
-                  } else {
-                    const idx = Number(e.target.value.split(':')[1] || 0);
-                    setSourceMode('target');
-                    setTargetIndex(Number.isFinite(idx) ? idx : 0);
-                  }
-                }}
-                disabled={runningBackup || runningRestore}
-              >
-                {targets.map((target, idx) => (
-                  <option key={idx} value={`target:${idx}`}>
-                    {describeTarget(target)}
-                  </option>
-                ))}
-                <option value="file">Local file</option>
-              </select>
-            </div>
-            {sourceMode === 'file' && (
-              <div className="mb-2">
-                <input
-                  type="file"
-                  className="form-control form-control-sm"
-                  accept=".bak,application/octet-stream"
-                  onChange={(e) => setLocalFile(e.target.files?.[0] || null)}
-                  disabled={runningBackup || runningRestore}
-                />
-              </div>
-            )}
-            <button
-              className="btn btn-outline-warning"
-              onClick={handleRestore}
-              disabled={runningBackup || runningRestore || (sourceMode === 'file' && !localFile)}
-            >
-              {runningRestore ? (
-                <><span className="spinner-border spinner-border-sm me-1"></span>Restoring...</>
-              ) : (
-                <><i className="bi bi-arrow-counterclockwise me-1"></i>Restore</>
-              )}
-            </button>
-          </div>
         </>
       )}
+
+      {status && (
+        <div className="mt-3 small">
+          {status}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RestorePage({ userId, onRestoreComplete }) {
+  const [runningRestore, setRunningRestore] = useState(false);
+  const [status, setStatus] = useState('');
+  const [sourceMode, setSourceMode] = useState('target');
+  const [targetIndex, setTargetIndex] = useState(0);
+  const [localFile, setLocalFile] = useState(null);
+
+  const targets = (getBackupTargets() || [])
+    .filter((t) => t && typeof t === 'object' && t.target && t.bucket);
+
+  const usingFile = targets.length === 0 || sourceMode === 'file';
+
+  const handleRestore = async () => {
+    setRunningRestore(true);
+    setStatus('');
+    try {
+      const source = usingFile
+        ? { type: 'file', file: localFile }
+        : { type: 'target', index: targetIndex };
+      const result = await runRestore({
+        userId,
+        source,
+        confirm: ({ entryCount }) => window.confirm(
+          `This will replace all current entries. This cannot be undone.\n\nEntries in backup: ${entryCount}\n\nProceed with restore?`,
+        ),
+      });
+      setStatus(`Restore completed (${result.restoredCount} entries).`);
+      onRestoreComplete?.();
+    } catch (err) {
+      if (err?.message === 'Restore canceled') {
+        setStatus('Restore canceled.');
+      } else {
+        setStatus(err?.message || 'Restore failed.');
+      }
+    } finally {
+      setRunningRestore(false);
+    }
+  };
+
+  return (
+    <div className="p-4" style={{ maxWidth: 500 }}>
+      <h5 className="fw-bold mb-3">
+        <i className="bi bi-arrow-counterclockwise me-2"></i>Restore
+      </h5>
+      <p className="text-muted small">
+        Restore all entries from an encrypted backup.{' '}
+        <strong>This replaces all current entries and cannot be undone.</strong>
+      </p>
+
+      {targets.length > 0 && (
+        <div className="mb-2">
+          <select
+            className="form-select form-select-sm"
+            value={usingFile ? 'file' : `target:${targetIndex}`}
+            onChange={(e) => {
+              if (e.target.value === 'file') {
+                setSourceMode('file');
+              } else {
+                const idx = Number(e.target.value.split(':')[1] || 0);
+                setSourceMode('target');
+                setTargetIndex(Number.isFinite(idx) ? idx : 0);
+              }
+            }}
+            disabled={runningRestore}
+          >
+            {targets.map((target, idx) => (
+              <option key={idx} value={`target:${idx}`}>
+                {describeTarget(target)}
+              </option>
+            ))}
+            <option value="file">Local file</option>
+          </select>
+        </div>
+      )}
+
+      {usingFile && (
+        <div className="mb-2">
+          <input
+            type="file"
+            className="form-control form-control-sm"
+            accept=".bak,application/octet-stream"
+            onChange={(e) => setLocalFile(e.target.files?.[0] || null)}
+            disabled={runningRestore}
+          />
+        </div>
+      )}
+
+      <button
+        className="btn btn-outline-warning"
+        onClick={handleRestore}
+        disabled={runningRestore || (usingFile && !localFile)}
+      >
+        {runningRestore ? (
+          <><span className="spinner-border spinner-border-sm me-1"></span>Restoring...</>
+        ) : (
+          <><i className="bi bi-arrow-counterclockwise me-1"></i>Restore</>
+        )}
+      </button>
+
       {status && (
         <div className="mt-3 small">
           {status}
@@ -487,8 +514,8 @@ function BackupPage({ userId, onRestoreComplete }) {
 }
 
 function SettingsPanel({ page, userId, onRestoreComplete }) {
-  if (page === 'export') return <ExportPage userId={userId} />;
-  if (page === 'backup') return <BackupPage userId={userId} onRestoreComplete={onRestoreComplete} />;
+  if (page === 'backup') return <BackupPage userId={userId} />;
+  if (page === 'restore') return <RestorePage userId={userId} onRestoreComplete={onRestoreComplete} />;
   if (page === 'about') return <AboutPage userId={userId} />;
 
   return (

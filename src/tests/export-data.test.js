@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildExportData } from '../components/SettingsPanel.jsx';
+import { buildExportData } from '../backup.js';
 
 describe('buildExportData', () => {
   it('uses explicit export fields and omits stored user-master-key fields', () => {

@@ -5,8 +5,8 @@ function SettingsList({ selectedPage, onSelectPage, mobile }) {
     (t) => t && typeof t === 'object' && t.target && t.bucket,
   );
   const items = [
-    { id: 'export', label: 'Export', icon: 'bi-download' },
     ...(hasBackupTargets ? [{ id: 'backup', label: 'Backup', icon: 'bi-cloud-arrow-up' }] : []),
+    { id: 'restore', label: 'Restore', icon: 'bi-arrow-counterclockwise' },
     { id: 'about', label: 'About', icon: 'bi-info-circle' },
   ];
 
