@@ -23,7 +23,7 @@ function App() {
 
   const handleReady = useCallback(async (userId, userName) => {
     try {
-      const { entries: data, failedCount } = await fetchUserEntries(userId);
+      const { entries: data, failedCount } = await fetchUserEntries();
       const filtered = data
         .map((e) => ({
           title: '',
@@ -204,11 +204,11 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
 
     try {
       if (wasNew) {
-        const created = await createUserEntry(userId, updated);
+        const created = await createUserEntry(updated);
         setEntries((prev) => prev.map((e) => (e.id === updated.id ? created : e)));
         setSelectedEntryId(created.id);
       } else {
-        const persisted = await updateUserEntry(userId, updated.id, updated);
+        const persisted = await updateUserEntry(updated.id, updated);
         setEntries((prev) => prev.map((e) => (e.id === updated.id ? persisted : e)));
       }
       setEditingId(null);
@@ -217,13 +217,13 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
     } finally {
       setSaving(false);
     }
-  }, [userId]);
+  }, []);
 
   const handleRestore = useCallback(async (entryId, commitHash) => {
     setSyncError('');
     setSaving(true);
     try {
-      const restored = await restoreEntryVersion(userId, entryId, commitHash);
+      const restored = await restoreEntryVersion(entryId, commitHash);
       setEntries((prev) => prev.map((e) => (e.id === entryId ? {
         title: '',
         username: '',
@@ -242,7 +242,7 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
     } finally {
       setSaving(false);
     }
-  }, [userId]);
+  }, []);
 
   const handleDelete = useCallback(async (id) => {
     setSyncError('');
@@ -250,7 +250,7 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
 
     try {
       if (!isLocalEntryId(id)) {
-        await deleteUserEntry(userId, id);
+        await deleteUserEntry(id);
       }
       setEntries((prev) => prev.filter((e) => e.id !== id));
       setSelectedEntryId((prev) => (prev === id ? null : prev));
@@ -261,7 +261,7 @@ function MainApp({ userId, initialUserName, initialEntries, initialSyncError, on
     } finally {
       setDeleting(false);
     }
-  }, [isMobile, userId]);
+  }, [isMobile]);
 
   const handleEdit = useCallback((id) => {
     setEditingId(id);

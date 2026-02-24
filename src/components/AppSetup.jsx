@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { initApi, fetchUser, saveUserMasterKey, initUserDataCollection, setUserMasterKey, clearUserMasterKey } from '../api';
+import { initApi, fetchUser, saveUserMasterKey, setUserMasterKey, clearUserMasterKey } from '../api';
 import { decodeRootMasterKey, setupUserMasterKey, verifyUserMasterKey } from '../crypto';
 
 function AppSetup({ onReady }) {
@@ -22,6 +22,8 @@ function AppSetup({ onReady }) {
 
     if (!json.email) throw new Error('Missing required field: email');
     if (!json.password) throw new Error('Missing required field: password');
+    if (!json.firebase_api_key) throw new Error('Missing required field: firebase_api_key');
+    if (!json.firebase_project_id) throw new Error('Missing required field: firebase_project_id');
     if (!json.root_master_key) throw new Error('Missing required field: root_master_key');
 
     const rootMasterKeyBytes = decodeRootMasterKey(json.root_master_key);
@@ -30,9 +32,9 @@ function AppSetup({ onReady }) {
     const { userId } = await initApi(json);
 
     setStatus('Fetching user...');
-    const userData = await fetchUser(userId);
+    const userData = await fetchUser();
     if (!userData) throw new Error('User not found');
-    const username = userData.username;
+    const username = userData.username || json.username || '';
     if (!username) throw new Error('Username is empty');
 
     const storedUserMasterKey = userData.user_master_key;
@@ -40,18 +42,18 @@ function AppSetup({ onReady }) {
     if (!storedUserMasterKey) {
       setStatus('Setting up encryption...');
       const { userMasterKeyBlob, userMasterKey: generated } = await setupUserMasterKey(rootMasterKeyBytes);
-      await saveUserMasterKey(userId, userMasterKeyBlob);
+      await saveUserMasterKey(userMasterKeyBlob, username);
       userMasterKey = generated;
     } else {
       setStatus('Verifying master key...');
       userMasterKey = await verifyUserMasterKey(rootMasterKeyBytes, storedUserMasterKey);
+      if (!userData.username && json.username) {
+        await saveUserMasterKey(storedUserMasterKey, username);
+      }
     }
 
     setUserMasterKey(userMasterKey);
     userMasterKey.fill(0);
-
-    setStatus('Loading data...');
-    await initUserDataCollection(userId);
 
     return { userId, username };
   };

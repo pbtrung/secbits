@@ -39,8 +39,8 @@ function ExportPage({ userId }) {
     setExporting(true);
     try {
       const [docs, userData] = await Promise.all([
-        fetchRawUserDocs(userId),
-        fetchUser(userId),
+        fetchRawUserDocs(),
+        fetchUser(),
       ]);
       const userMasterKey = getUserMasterKey();
       const decryptedDocs = [];
@@ -103,7 +103,7 @@ function AboutPage({ userId }) {
   useEffect(() => {
     const load = async () => {
       try {
-        const docs = await fetchRawUserDocs(userId);
+        const docs = await fetchRawUserDocs();
         const userMasterKey = getUserMasterKey();
 
         let totalBytes = 0;

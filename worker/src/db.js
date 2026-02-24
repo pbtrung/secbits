@@ -1,15 +1,27 @@
-export async function getUserByEmail(db, email) {
-  return db.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
-}
-
 export async function getUserById(db, id) {
   return db.prepare(
-    'SELECT id, email, username, user_master_key FROM users WHERE id = ?',
+    'SELECT id, username, user_master_key FROM users WHERE id = ?',
   ).bind(id).first();
 }
 
-export async function updateUserMasterKey(db, userId, blob) {
-  await db.prepare('UPDATE users SET user_master_key = ? WHERE id = ?').bind(blob, userId).run();
+export async function provisionUser(db, userId) {
+  await db.prepare(
+    'INSERT INTO users (id) VALUES (?) ON CONFLICT(id) DO NOTHING',
+  ).bind(userId).run();
+}
+
+export async function updateUserProfile(db, userId, userMasterKeyBlob, username) {
+  const hasUsername = typeof username === 'string' && username.trim().length > 0;
+  if (hasUsername) {
+    await db.prepare(
+      'UPDATE users SET user_master_key = ?, username = ? WHERE id = ?',
+    ).bind(userMasterKeyBlob, username.trim(), userId).run();
+    return;
+  }
+
+  await db.prepare(
+    'UPDATE users SET user_master_key = ? WHERE id = ?',
+  ).bind(userMasterKeyBlob, userId).run();
 }
 
 export async function getEntries(db, userId) {
@@ -32,13 +44,15 @@ export async function createEntry(db, id, userId, entryKey, value) {
 }
 
 export async function updateEntry(db, id, userId, entryKey, value) {
-  await db.prepare(
+  const result = await db.prepare(
     "UPDATE entries SET entry_key = ?, value = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?",
   ).bind(entryKey, value, id, userId).run();
+  return result.meta?.changes ?? 0;
 }
 
 export async function deleteEntry(db, userId, entryId) {
-  await db.prepare(
+  const result = await db.prepare(
     'DELETE FROM entries WHERE id = ? AND user_id = ?',
   ).bind(entryId, userId).run();
+  return result.meta?.changes ?? 0;
 }

@@ -1,7 +1,5 @@
 CREATE TABLE IF NOT EXISTS users (
-  id              TEXT PRIMARY KEY,               -- 42-char random a-zA-Z0-9
-  email           TEXT UNIQUE NOT NULL,
-  password_hash   TEXT NOT NULL,                  -- "saltB64:hashB64" (PBKDF2-SHA256, 100k iters)
+  id              TEXT PRIMARY KEY,               -- Firebase UID (token.sub)
   username        TEXT NOT NULL DEFAULT '',
   user_master_key BLOB,                           -- 192 bytes; NULL until first login
   created_at      TEXT NOT NULL DEFAULT (datetime('now'))
