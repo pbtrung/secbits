@@ -278,10 +278,17 @@ Select a tag in the left sidebar to filter entries. Use the search bar to search
 
 Click the gear icon at the bottom of the tag sidebar to open Settings.
 
-- **Export:** downloads a decrypted JSON file (`secbits-export-YYYY-MM-DD.json`) containing all entries, the decrypted user master key, and per-entry doc keys. Keep this file secure.
+- **Backup** (shown only when backup targets are configured in the config file):
+  - **Export:** downloads a decrypted JSON file (`secbits-export-YYYY-MM-DD.json`) containing all entries, the decrypted user master key, and per-entry doc keys. Keep this file secure. Export JSON includes `user_id`, `username`, `user_master_key_b64`, and `data`; each entry in `data` includes `entry_key_b64` and `value`.
+  - **Backup now:** uploads an encrypted backup to all configured cloud targets immediately.
+  - **Auto-backup after save:** when enabled, a backup is triggered automatically after every successful create, update, restore, or delete.
+  - **Last backup:** timestamp of the most recent successful upload (resets on page reload).
+- **Restore** (always visible):
+  - Select a configured cloud target or **Local file** as the source. When no targets are configured only the file picker is shown.
+  - Click **Restore** to decrypt and apply the backup. A confirmation dialog shows the entry count and warns that the operation replaces all current entries and cannot be undone.
 - **About:** shows entry count, total stored size, field coverage, version history stats, top tags, and the 5 largest entries.
 
-Export JSON includes `user_id`, `username`, `user_master_key_b64`, and decrypted `data`. Each exported entry in `data` includes `entry_key_b64` (the decrypted per-entry doc key) and `value`.
+See [design/backup.md](design/backup.md) for full backup and restore details, cloud target configuration, and the encrypted file format.
 
 ### Logging out
 

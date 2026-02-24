@@ -95,7 +95,7 @@ The file is overwritten on every backup run. **Concurrent backups from multiple 
 | `bucket` | all | Bucket name |
 | `access_key_id` | all | S3-compatible access key |
 | `secret_access_key` | all | S3-compatible secret |
-| `prefix` | all | Key prefix (folder) inside the bucket. Must be empty (`""`) or end with `/` (e.g. `"backups/"`). A missing trailing slash fuses the prefix with the filename (e.g. `backupssecbits…bak`). Defaults to `""`. |
+| `prefix` | all | Key prefix (folder) inside the bucket. Empty string (`""`) or a string ending with `/` (e.g. `"backups/"`). A missing trailing slash is automatically corrected at runtime by appending `/`. Defaults to `""`. |
 | `account_id` | R2 only | Cloudflare account ID (used to build the endpoint URL) |
 | `region` | S3 only | AWS region. Required for S3 targets — both the endpoint URL and the SigV4 signature scope embed it; an absent or wrong region causes signature errors. R2 and GCS do not use this field. |
 
@@ -106,21 +106,22 @@ The file is overwritten on every backup run. **Concurrent backups from multiple 
 
 ## Settings UI
 
-The backup section is only shown when a `backup` array with at least one entry is present in the loaded config.
+Settings are split into two separate pages.
 
-**Backup:**
+**Backup page** — shown only when `backup` is present in the config with at least one valid target entry:
 
-- **"Backup now"** button — runs a manual backup to all configured targets immediately; shows per-target success/error inline.
+- **Export** — "Export all data" button downloads a decrypted JSON file (`secbits-export-YYYY-MM-DD.json`) to disk. The file contains all entries, the decrypted user master key, and per-entry doc keys. Keep this file secure.
+- **"Backup now"** button — uploads an encrypted backup to all configured targets immediately; shows per-target success/error inline.
 - **"Auto-backup after save"** toggle — disabled by default. When enabled, a backup is triggered after every successful entry write. A failed upload is logged but does not block the save. **Note:** rapid successive writes (bulk imports, scripted updates) trigger a backup per save; consider debouncing or rate-limiting uploads to avoid excessive API request counts and storage costs.
 - **Last backup** — displays the timestamp of the most recent successful upload (stored in `sessionStorage`; resets on page reload).
 
-**Restore:**
+**Restore page** — always visible regardless of whether backup targets are configured:
 
-- **Source selector** — dropdown listing each configured target by label (`r2 · my-bucket`, `s3 · my-bucket`, etc.) plus a **"Local file"** option.
+- **Source selector** — shown only when at least one cloud target is configured; lists each target by label (`r2 · my-bucket`, `s3 · my-bucket`, etc.) plus a **"Local file"** option. When no targets are configured, only the file picker is shown.
   - Selecting a target downloads `<prefix>secbits.brotli-ascon-keccak.bak` from that target via S3 GET.
   - Selecting "Local file" opens a file picker to choose a `.bak` file from disk.
 - **"Restore"** button — enabled once a source is selected. Triggers the restore pipeline (see below).
-- **Confirmation dialog** — before writing, shows a summary (entry count from the backup, backup timestamp if recoverable) and a warning: *"This will replace all current entries. This cannot be undone."* User must confirm to proceed.
+- **Confirmation dialog** — before writing, shows the entry count from the backup and a warning: *"This will replace all current entries. This cannot be undone."* User must confirm to proceed.
 - **Status** — inline success message or per-step error after the operation completes.
 
 ## Client Implementation

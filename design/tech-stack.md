@@ -14,7 +14,7 @@
 | TOTP HMAC | @noble/hashes (HMAC-SHA1) |
 | Compression | brotli-wasm |
 | Database | Cloudflare D1 (SQLite) |
-| Auth | PBKDF2-SHA256 + HS256 JWT (Cloudflare Worker, Web Crypto API) |
+| Auth | Firebase Authentication (email/password; RS256 ID token, 1-hour expiry) |
 | Backend runtime | Cloudflare Workers |
 
 ## Project structure
@@ -41,7 +41,7 @@ secbits/
 │       ├── auth.js                   # PBKDF2-SHA256 hashing, HS256 JWT sign/verify
 │       └── db.js                     # D1 query helpers (users + entries)
 ├── scripts/
-│   └── create-user.mjs               # CLI: hash password and output D1 insert command
+│   └── create-firebase-user.mjs       # CLI: create a Firebase user via the Auth REST API
 ├── perf.test.js                      # Standalone Node perf/load script
 ├── data/
 │   └── english-words.txt             # Word pool used by perf.test.js
@@ -78,7 +78,7 @@ secbits/
         ├── EntryList.jsx             # Scrollable list of entries
         ├── TagsSidebar.jsx           # Tag filter sidebar + user controls
         ├── SettingsList.jsx          # Settings navigation
-        ├── SettingsPanel.jsx         # Export and About pages
+        ├── SettingsPanel.jsx         # Backup, Restore, and About settings pages
         ├── PasswordGenerator.jsx     # Password generator + strength bar
         ├── HistoryDiffModal.jsx      # Version-history modal and field-level commit diff
         └── ResizeHandle.jsx          # Draggable column divider

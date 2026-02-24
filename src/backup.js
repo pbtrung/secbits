@@ -121,17 +121,6 @@ function amzDateParts(now = new Date()) {
   };
 }
 
-function concatBytes(...arrays) {
-  const total = arrays.reduce((sum, arr) => sum + arr.length, 0);
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const arr of arrays) {
-    out.set(arr, offset);
-    offset += arr.length;
-  }
-  return out;
-}
-
 async function sha256Hex(bytes) {
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   return Array.from(new Uint8Array(digest))

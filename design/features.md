@@ -12,7 +12,9 @@
 | Custom fields | Arbitrary key/value pairs per entry |
 | Tags | Organize entries with comma-separated tags; sidebar filter with counts |
 | Full-text search | Searches title, username, and URLs in real time |
-| Export | Download a decrypted JSON backup at any time |
+| Backup | Encrypted cloud backup to R2, S3, or GCS; manual trigger or auto-backup after every save |
+| Restore | Recover all entries from a cloud backup or a local `.bak` file |
+| Export | Download all entries as a decrypted JSON file for local backup or migration |
 | Responsive layout | Three-column resizable desktop view; stacked mobile navigation |
 | Session persistence | Session held in memory only; nothing written to any browser store. Cleared on logout or hard reload; browser session-restore may preserve it across a browser restart. |
 | Unified startup flow | Auth screen keeps the spinner/status visible through entry preload (no separate post-auth loading screen) |

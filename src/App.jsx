@@ -15,7 +15,7 @@ function useIsMobile() {
     const onResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [userId]);
+  }, []);
   return isMobile;
 }
 
@@ -49,7 +49,7 @@ function App() {
         initialSyncError: 'Failed to load entries.',
       });
     }
-  }, [userId]);
+  }, []);
 
   const handleLogout = useCallback(() => {
     clearUserMasterKey();
