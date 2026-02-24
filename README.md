@@ -12,7 +12,7 @@ A self-hosted, end-to-end encrypted password manager. All data is encrypted on t
 
 ## Backend Setup (Worker + D1)
 
-The backend is a Cloudflare Worker backed by a D1 (SQLite) database. The Worker handles authentication and all entry CRUD. The frontend is a static site that talks to the Worker over HTTPS.
+The backend is a Cloudflare Worker backed by a D1 (SQLite) database. The Worker handles Firebase token verification and all entry CRUD. The frontend is a static site that talks to the Worker over HTTPS.
 
 ### 1. Install Wrangler
 
@@ -36,27 +36,34 @@ Copy `worker/wrangler.toml.example` to `worker/wrangler.toml` and fill in `name`
 wrangler d1 execute <database-name> --file schema.sql
 ```
 
-### 4. Create your user
+### 4. Create Firebase project + user
+
+```bash
+# In Firebase Console:
+# 1) Create project
+# 2) Enable Authentication -> Sign-in method -> Email/Password
+# 3) Create user in Authentication -> Users
+```
+
+You need these Firebase values:
+- Web API key
+- Project ID
+
+Optional CLI helper (instead of Console user creation):
 
 ```bash
 cd ..
-node scripts/create-user.mjs --email you@example.com --password yourpassword --username YourName
+node scripts/create-firebase-user.mjs --api-key <firebase-web-api-key> --email you@example.com --password yourpassword
 ```
 
-Copy the printed `wrangler d1 execute` command and run it from the `worker/` directory.
-
-### 5. Set the JWT secret
+### 5. Set Firebase project ID in Worker secret
 
 ```bash
 cd worker
-wrangler secret put JWT_SECRET
+wrangler secret put FIREBASE_PROJECT_ID
 ```
 
-Enter any long random string when prompted. To generate one:
-
-```bash
-openssl rand -base64 48
-```
+Enter your Firebase Project ID when prompted.
 
 ### 6. Deploy the Worker
 
@@ -84,18 +91,24 @@ Save the following as a `.json` file (e.g. `secbits-config.json`). **Keep this f
 
 ```json
 {
+  "username": "Your Name",
   "worker_url": "https://<worker>.<account>.workers.dev",
   "email": "you@example.com",
   "password": "your-password",
+  "firebase_api_key": "<firebase-web-api-key>",
+  "firebase_project_id": "<firebase-project-id>",
   "root_master_key": "<base64-encoded key, >=256 bytes when decoded>"
 }
 ```
 
 | Field | Required | Description |
 |---|---|---|
+| `username` | Yes | Display name stored in D1 |
 | `worker_url` | Yes | URL of your deployed Cloudflare Worker |
-| `email` | Yes | Email address used when creating the user with `create-user.mjs` |
-| `password` | Yes | Password used when creating the user with `create-user.mjs` |
+| `email` | Yes | Firebase email address |
+| `password` | Yes | Firebase password |
+| `firebase_api_key` | Yes | Firebase Web API key |
+| `firebase_project_id` | Yes | Firebase Project ID |
 | `root_master_key` | Yes | Base64-encoded random key, must decode to ≥256 bytes |
 
 ## Building and Deploying
@@ -176,7 +189,7 @@ Copy `dist/` to your web root. Configure the server to serve `index.html` for al
 
 1. Open the app in your browser.
 2. Drag and drop (or click to browse) your config `.json` file onto the upload area.
-3. The app authenticates against the Worker, then loads your entries. On first login a new user master key is generated and stored in D1.
+3. The app authenticates against Firebase, then calls the Worker with Firebase ID token auth. On first login a new user master key is generated and stored in D1.
 4. The session is held in memory for the lifetime of the page. You will not be asked to upload the config again unless you hard-reload (F5) or log out.
 
 ### Creating an entry
@@ -302,20 +315,4 @@ Optional watch mode while developing:
 npx vitest
 ```
 
-### What is covered
-
-| Area | File | Tests | What is validated |
-|---|---|---|---|
-| `encryptBytesToBlob` / `decryptBlobBytes` / `bytesToB64` | `src/tests/crypto.test.js` | 5 | Round-trip correctness, AEAD tag structure, tamper rejection; base64 helper round-trip |
-| `decodeRootMasterKey` | `src/tests/crypto-root-key.test.js` | 4 | Accepts keys ≥256 decoded bytes; rejects short keys and invalid base64 |
-| `setupUserMasterKey` / `verifyUserMasterKey` | `src/tests/crypto-master-key.test.js` | 4 | 192-byte blob output; round-trip UMK recovery; wrong-key rejection; invalid-blob rejection |
-| `wrapEntryKey` / `unwrapEntryKey` | `src/tests/crypto-entry-key.test.js` | 4 | Doc-key wrap/unwrap round-trip; blob size; input length guard; tamper rejection |
-| `encryptEntryHistoryWithDocKey` / `decryptEntryHistoryWithDocKey` | `src/tests/crypto-entry-history.test.js` | 2 | Compress+encrypt/decrypt+decompress round-trip; tamper detection |
-| `generateTOTPForCounter` / `base32Decode` / `generateTOTP` | `src/tests/totp.test.js` | 11 | RFC 6238 SHA-1 known vectors; base32 decode correctness, padding/separator stripping, invalid characters; live-clock 6-digit output |
-| leancrypto WASM primitives | `src/tests/leancrypto.test.js` | 1 (suite) | Ascon-Keccak AEAD, HMAC-SHA3-224, SHA3-512, HKDF-SHA256, SPHINCS+ vectors |
-| `buildExportData` | `src/tests/export-data.test.js` | 1 | Export shape, correct field inclusion, and exclusion of stored user-master-key blob |
-| History storage format / `buildSnapshotDelta` / `applySnapshotDelta` | `src/tests/history-format.test.js` | 10 | Compact storage round-trip; delta correctness and apply round-trip; single-commit edge case; 20-commit truncation cap |
-| User master key lifecycle | `src/tests/key-lifecycle.test.js` | 2 | In-memory key store/clear and zeroization on replace |
-| `isHttpUrl` | `src/tests/validation.test.js` | 3 | Accepts http/https URLs; rejects non-http(s) schemes and malformed values |
-
-See [design/testing.md](design/testing.md) for rationale and a detailed breakdown of how each test suite works.
+See [design/testing.md](design/testing.md) for test coverage matrix, rationale, and detailed breakdown of each suite.

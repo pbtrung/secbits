@@ -14,6 +14,22 @@
 8. Delta correctness: snapshot deltas are the sole basis for version-history reconstruction and restore; incorrect delta logic would silently corrupt the diff viewer and restore results.
 9. Format edge cases: single-commit history and the 20-commit truncation cap are explicit invariants that are easy to break during refactors without a dedicated guard.
 
+## Coverage matrix
+
+| Area | File | Tests | What is validated |
+|---|---|---|---|
+| `encryptBytesToBlob` / `decryptBlobBytes` / `bytesToB64` | `src/tests/crypto.test.js` | 5 | Round-trip correctness, AEAD tag structure, tamper rejection; base64 helper round-trip |
+| `decodeRootMasterKey` | `src/tests/crypto-root-key.test.js` | 4 | Accepts keys >=256 decoded bytes; rejects short keys and invalid base64 |
+| `setupUserMasterKey` / `verifyUserMasterKey` | `src/tests/crypto-master-key.test.js` | 4 | 192-byte blob output; round-trip UMK recovery; wrong-key rejection; invalid-blob rejection |
+| `wrapEntryKey` / `unwrapEntryKey` | `src/tests/crypto-entry-key.test.js` | 4 | Doc-key wrap/unwrap round-trip; blob size; input length guard; tamper rejection |
+| `encryptEntryHistoryWithDocKey` / `decryptEntryHistoryWithDocKey` | `src/tests/crypto-entry-history.test.js` | 2 | Compress+encrypt/decrypt+decompress round-trip; tamper detection |
+| `generateTOTPForCounter` / `base32Decode` / `generateTOTP` | `src/tests/totp.test.js` | 11 | RFC 6238 SHA-1 known vectors; base32 decode correctness, padding/separator stripping, invalid characters; live-clock 6-digit output |
+| leancrypto WASM primitives | `src/tests/leancrypto.test.js` | 1 (suite) | Ascon-Keccak AEAD, HMAC-SHA3-224, SHA3-512, HKDF-SHA256, SPHINCS+ vectors |
+| `buildExportData` | `src/tests/export-data.test.js` | 1 | Export shape, correct field inclusion, and exclusion of stored user-master-key blob |
+| History storage format / `buildSnapshotDelta` / `applySnapshotDelta` | `src/tests/history-format.test.js` | 10 | Compact storage round-trip; delta correctness and apply round-trip; single-commit edge case; 20-commit truncation cap |
+| User master key lifecycle | `src/tests/key-lifecycle.test.js` | 2 | In-memory key store/clear and zeroization on replace |
+| `isHttpUrl` | `src/tests/validation.test.js` | 3 | Accepts http/https URLs; rejects non-http(s) schemes and malformed values |
+
 ## How the crypto tests work
 
 1. Generate random `keyBytes` and a random 128-byte plaintext using `crypto.getRandomValues`.
