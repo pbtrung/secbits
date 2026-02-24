@@ -151,7 +151,7 @@ function AppSetup({ onReady }) {
             <p className="text-muted small mb-2">Expected JSON format:</p>
             <pre className="bg-light rounded p-2 small mb-0" style={{ fontSize: '0.75rem' }}>
 {`{
-  "username": "Your Name",
+  "username": "<username>",
   "worker_url": "https://<worker>.<account>.workers.dev",
   "email": "user@example.com",
   "password": "xxx",

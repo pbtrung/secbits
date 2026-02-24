@@ -59,118 +59,77 @@ async function requireAuth(request, env) {
 
 export default {
   async fetch(request, env) {
-    const url = new URL(request.url);
     const origin = request.headers.get('Origin');
-    const method = request.method;
-    const path = url.pathname;
+    try {
+      const url = new URL(request.url);
+      const method = request.method;
+      const path = url.pathname;
 
-    if (method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: corsHeaders(origin) });
-    }
-
-    if (!env.FIREBASE_PROJECT_ID) {
-      return err('Server misconfigured', 500, origin);
-    }
-
-    const payload = await requireAuth(request, env);
-    if (!payload) {
-      return err('Unauthorized', 401, origin);
-    }
-    const firebaseUid = payload.sub;
-
-    await provisionUser(env.DB, firebaseUid);
-    const user = await getUserByFirebaseUid(env.DB, firebaseUid);
-    if (!user) return err('User not found', 404, origin);
-    const userId = user.user_id;
-
-    if (method === 'GET' && path === '/me/profile') {
-      return json({
-        username: user.username,
-        user_master_key: user.user_master_key ? bufToB64(user.user_master_key) : null,
-      }, 200, origin);
-    }
-
-    if (method === 'POST' && path === '/me/profile') {
-      let body;
-      try {
-        body = await request.json();
-      } catch {
-        return err('Invalid JSON', 400, origin);
-      }
-      const { user_master_key: userMasterKeyB64, username } = body ?? {};
-      if (!userMasterKeyB64) return err('Missing user_master_key', 400, origin);
-      let blob;
-      try {
-        blob = b64ToBuf(userMasterKeyB64);
-      } catch {
-        return err('Invalid base64', 400, origin);
+      if (method === 'OPTIONS') {
+        return new Response(null, { status: 204, headers: corsHeaders(origin) });
       }
 
-      await updateUserProfile(env.DB, userId, blob, username);
-      return json({ ok: true }, 200, origin);
-    }
-
-    if (method === 'GET' && path === '/entries') {
-      const rows = await getEntries(env.DB, userId);
-      const entries = rows.map((r) => ({
-        id: r.id,
-        entry_key: bufToB64(r.entry_key),
-        value: bufToB64(r.value),
-      }));
-      return json(entries, 200, origin);
-    }
-
-    if (method === 'POST' && path === '/entries') {
-      let body;
-      try {
-        body = await request.json();
-      } catch {
-        return err('Invalid JSON', 400, origin);
+      if (!env.FIREBASE_PROJECT_ID) {
+        return err('Server misconfigured', 500, origin);
       }
-      const { id, entry_key: entryKeyB64, value: valueB64 } = body ?? {};
-      if (!id || !entryKeyB64 || !valueB64) return err('Missing fields', 400, origin);
 
-      let entryKeyBlob;
-      let valueBlob;
-      try {
-        entryKeyBlob = b64ToBuf(entryKeyB64);
-        valueBlob = b64ToBuf(valueB64);
-      } catch {
-        return err('Invalid base64', 400, origin);
+      const payload = await requireAuth(request, env);
+      if (!payload) {
+        return err('Unauthorized', 401, origin);
       }
-      if (valueBlob.length >= MAX_VALUE_BYTES) return err('Entry too large', 413, origin);
+      const firebaseUid = payload.sub;
 
-      try {
-        await createEntry(env.DB, id, userId, entryKeyBlob, valueBlob);
-      } catch {
-        return err('Failed to create entry', 400, origin);
-      }
-      return json({ ok: true }, 201, origin);
-    }
+      await provisionUser(env.DB, firebaseUid);
+      const user = await getUserByFirebaseUid(env.DB, firebaseUid);
+      if (!user) return err('User not found', 404, origin);
+      const userId = user.user_id;
 
-    const entryMatch = path.match(/^\/entries\/([^/]+)$/);
-    if (entryMatch) {
-      const entryId = entryMatch[1];
-
-      if (method === 'GET') {
-        const row = await getEntryById(env.DB, userId, entryId);
-        if (!row) return err('Entry not found', 404, origin);
+      if (method === 'GET' && path === '/me/profile') {
         return json({
-          id: row.id,
-          entry_key: bufToB64(row.entry_key),
-          value: bufToB64(row.value),
+          username: user.username,
+          user_master_key: user.user_master_key ? bufToB64(user.user_master_key) : null,
         }, 200, origin);
       }
 
-      if (method === 'PUT') {
+      if (method === 'POST' && path === '/me/profile') {
         let body;
         try {
           body = await request.json();
         } catch {
           return err('Invalid JSON', 400, origin);
         }
-        const { entry_key: entryKeyB64, value: valueB64 } = body ?? {};
-        if (!entryKeyB64 || !valueB64) return err('Missing fields', 400, origin);
+        const { user_master_key: userMasterKeyB64, username } = body ?? {};
+        if (!userMasterKeyB64) return err('Missing user_master_key', 400, origin);
+        let blob;
+        try {
+          blob = b64ToBuf(userMasterKeyB64);
+        } catch {
+          return err('Invalid base64', 400, origin);
+        }
+
+        await updateUserProfile(env.DB, userId, blob, username);
+        return json({ ok: true }, 200, origin);
+      }
+
+      if (method === 'GET' && path === '/entries') {
+        const rows = await getEntries(env.DB, userId);
+        const entries = rows.map((r) => ({
+          id: r.id,
+          entry_key: bufToB64(r.entry_key),
+          value: bufToB64(r.value),
+        }));
+        return json(entries, 200, origin);
+      }
+
+      if (method === 'POST' && path === '/entries') {
+        let body;
+        try {
+          body = await request.json();
+        } catch {
+          return err('Invalid JSON', 400, origin);
+        }
+        const { id, entry_key: entryKeyB64, value: valueB64 } = body ?? {};
+        if (!id || !entryKeyB64 || !valueB64) return err('Missing fields', 400, origin);
 
         let entryKeyBlob;
         let valueBlob;
@@ -182,18 +141,63 @@ export default {
         }
         if (valueBlob.length >= MAX_VALUE_BYTES) return err('Entry too large', 413, origin);
 
-        const changed = await updateEntry(env.DB, entryId, userId, entryKeyBlob, valueBlob);
-        if (!changed) return err('Entry not found', 404, origin);
-        return json({ ok: true }, 200, origin);
+        try {
+          await createEntry(env.DB, id, userId, entryKeyBlob, valueBlob);
+        } catch {
+          return err('Failed to create entry', 400, origin);
+        }
+        return json({ ok: true }, 201, origin);
       }
 
-      if (method === 'DELETE') {
-        const changed = await deleteEntry(env.DB, userId, entryId);
-        if (!changed) return err('Entry not found', 404, origin);
-        return json({ ok: true }, 200, origin);
+      const entryMatch = path.match(/^\/entries\/([^/]+)$/);
+      if (entryMatch) {
+        const entryId = entryMatch[1];
+
+        if (method === 'GET') {
+          const row = await getEntryById(env.DB, userId, entryId);
+          if (!row) return err('Entry not found', 404, origin);
+          return json({
+            id: row.id,
+            entry_key: bufToB64(row.entry_key),
+            value: bufToB64(row.value),
+          }, 200, origin);
+        }
+
+        if (method === 'PUT') {
+          let body;
+          try {
+            body = await request.json();
+          } catch {
+            return err('Invalid JSON', 400, origin);
+          }
+          const { entry_key: entryKeyB64, value: valueB64 } = body ?? {};
+          if (!entryKeyB64 || !valueB64) return err('Missing fields', 400, origin);
+
+          let entryKeyBlob;
+          let valueBlob;
+          try {
+            entryKeyBlob = b64ToBuf(entryKeyB64);
+            valueBlob = b64ToBuf(valueB64);
+          } catch {
+            return err('Invalid base64', 400, origin);
+          }
+          if (valueBlob.length >= MAX_VALUE_BYTES) return err('Entry too large', 413, origin);
+
+          const changed = await updateEntry(env.DB, entryId, userId, entryKeyBlob, valueBlob);
+          if (!changed) return err('Entry not found', 404, origin);
+          return json({ ok: true }, 200, origin);
+        }
+
+        if (method === 'DELETE') {
+          const changed = await deleteEntry(env.DB, userId, entryId);
+          if (!changed) return err('Entry not found', 404, origin);
+          return json({ ok: true }, 200, origin);
+        }
       }
+
+      return err('Not found', 404, origin);
+    } catch (e) {
+      return err(e?.message || 'Internal server error', 500, origin);
     }
-
-    return err('Not found', 404, origin);
   },
 };
