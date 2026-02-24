@@ -163,7 +163,7 @@ async function deriveSigningKey(secret, dateStamp, region, service) {
   return hmacSha256(kService, textBytes('aws4_request'));
 }
 
-async function sigV4Request({ method, endpoint, bucket, key, region, accessKeyId, secretAccessKey, bodyBytes }) {
+async function sigV4Request({ method, endpoint, bucket, key, region, accessKeyId, secretAccessKey, bodyBytes, targetType }) {
   const url = new URL(endpoint);
   const canonicalUri = encodePath(bucket, key);
   const requestUrl = `${url.origin}${canonicalUri}`;
@@ -206,7 +206,7 @@ async function sigV4Request({ method, endpoint, bucket, key, region, accessKeyId
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`${method} ${describeTarget({ target: endpoint.includes('googleapis') ? 'gcs' : 's3', bucket })} failed (${res.status})${text ? `: ${text.slice(0, 200)}` : ''}`);
+    throw new Error(`${method} ${describeTarget({ target: targetType, bucket })} failed (${res.status})${text ? `: ${text.slice(0, 200)}` : ''}`);
   }
 
   return res;
@@ -225,6 +225,7 @@ async function uploadToTarget(target, encryptedBlob) {
     accessKeyId: target.access_key_id,
     secretAccessKey: target.secret_access_key,
     bodyBytes: encryptedBlob,
+    targetType: target.target,
   });
 }
 
@@ -240,6 +241,7 @@ async function downloadFromTarget(target) {
     region,
     accessKeyId: target.access_key_id,
     secretAccessKey: target.secret_access_key,
+    targetType: target.target,
   });
   return new Uint8Array(await res.arrayBuffer());
 }
@@ -309,6 +311,8 @@ function buildRawEntriesForRestore(exportData, userMasterKey) {
         id: generateEntryId(),
         entry_key: bytesToB64(wrappedEntryKey),
         value: bytesToB64(valueBytes),
+        createdAt: doc.createdAt,
+        updatedAt: doc.updatedAt,
       };
     }),
   );
