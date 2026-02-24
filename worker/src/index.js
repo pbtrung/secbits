@@ -1,3 +1,4 @@
+import { createClient } from '@libsql/client/web';
 import { verifyFirebaseToken } from './firebase.js';
 import {
   getUserByFirebaseUid,
@@ -70,9 +71,14 @@ export default {
         return new Response(null, { status: 204, headers: corsHeaders(origin) });
       }
 
-      if (!env.FIREBASE_PROJECT_ID) {
+      if (!env.FIREBASE_PROJECT_ID || !env.TURSO_DATABASE_URL || !env.TURSO_AUTH_TOKEN) {
         return err('Server misconfigured', 500, origin);
       }
+
+      const client = createClient({
+        url: env.TURSO_DATABASE_URL,
+        authToken: env.TURSO_AUTH_TOKEN,
+      });
 
       const payload = await requireAuth(request, env);
       if (!payload) {
@@ -80,8 +86,8 @@ export default {
       }
       const firebaseUid = payload.sub;
 
-      await provisionUser(env.DB, firebaseUid);
-      const user = await getUserByFirebaseUid(env.DB, firebaseUid);
+      await provisionUser(client, firebaseUid);
+      const user = await getUserByFirebaseUid(client, firebaseUid);
       if (!user) return err('User not found', 404, origin);
       const userId = user.user_id;
 
@@ -108,46 +114,18 @@ export default {
           return err('Invalid base64', 400, origin);
         }
 
-        await updateUserProfile(env.DB, userId, blob, username);
+        await updateUserProfile(client, userId, blob, username);
         return json({ ok: true }, 200, origin);
       }
 
       if (method === 'GET' && path === '/entries') {
-        const rows = await getEntries(env.DB, userId);
+        const rows = await getEntries(client, userId);
         const entries = rows.map((r) => ({
           id: r.id,
           entry_key: bufToB64(r.entry_key),
           value: bufToB64(r.value),
         }));
         return json(entries, 200, origin);
-      }
-
-      if (method === 'POST' && path === '/entries') {
-        let body;
-        try {
-          body = await request.json();
-        } catch {
-          return err('Invalid JSON', 400, origin);
-        }
-        const { id, entry_key: entryKeyB64, value: valueB64 } = body ?? {};
-        if (!id || !entryKeyB64 || !valueB64) return err('Missing fields', 400, origin);
-
-        let entryKeyBlob;
-        let valueBlob;
-        try {
-          entryKeyBlob = b64ToBuf(entryKeyB64);
-          valueBlob = b64ToBuf(valueB64);
-        } catch {
-          return err('Invalid base64', 400, origin);
-        }
-        if (valueBlob.length >= MAX_VALUE_BYTES) return err('Entry too large', 413, origin);
-
-        try {
-          await createEntry(env.DB, id, userId, entryKeyBlob, valueBlob);
-        } catch {
-          return err('Failed to create entry', 400, origin);
-        }
-        return json({ ok: true }, 201, origin);
       }
 
       if (method === 'POST' && path === '/entries/replace') {
@@ -176,15 +154,39 @@ export default {
             return err('Invalid base64', 400, origin);
           }
           if (valueBlob.length >= MAX_VALUE_BYTES) return err('Entry too large', 413, origin);
-          parsed.push({
-            id: String(id),
-            entryKeyBlob,
-            valueBlob,
-          });
+          parsed.push({ id: String(id), entryKeyBlob, valueBlob });
         }
 
-        await replaceEntriesForUser(env.DB, userId, parsed);
+        await replaceEntriesForUser(client, userId, parsed);
         return json({ ok: true, replaced: parsed.length }, 200, origin);
+      }
+
+      if (method === 'POST' && path === '/entries') {
+        let body;
+        try {
+          body = await request.json();
+        } catch {
+          return err('Invalid JSON', 400, origin);
+        }
+        const { id, entry_key: entryKeyB64, value: valueB64 } = body ?? {};
+        if (!id || !entryKeyB64 || !valueB64) return err('Missing fields', 400, origin);
+
+        let entryKeyBlob;
+        let valueBlob;
+        try {
+          entryKeyBlob = b64ToBuf(entryKeyB64);
+          valueBlob = b64ToBuf(valueB64);
+        } catch {
+          return err('Invalid base64', 400, origin);
+        }
+        if (valueBlob.length >= MAX_VALUE_BYTES) return err('Entry too large', 413, origin);
+
+        try {
+          await createEntry(client, id, userId, entryKeyBlob, valueBlob);
+        } catch {
+          return err('Failed to create entry', 400, origin);
+        }
+        return json({ ok: true }, 201, origin);
       }
 
       const entryMatch = path.match(/^\/entries\/([^/]+)$/);
@@ -192,7 +194,7 @@ export default {
         const entryId = entryMatch[1];
 
         if (method === 'GET') {
-          const row = await getEntryById(env.DB, userId, entryId);
+          const row = await getEntryById(client, userId, entryId);
           if (!row) return err('Entry not found', 404, origin);
           return json({
             id: row.id,
@@ -221,13 +223,13 @@ export default {
           }
           if (valueBlob.length >= MAX_VALUE_BYTES) return err('Entry too large', 413, origin);
 
-          const changed = await updateEntry(env.DB, entryId, userId, entryKeyBlob, valueBlob);
+          const changed = await updateEntry(client, entryId, userId, entryKeyBlob, valueBlob);
           if (!changed) return err('Entry not found', 404, origin);
           return json({ ok: true }, 200, origin);
         }
 
         if (method === 'DELETE') {
-          const changed = await deleteEntry(env.DB, userId, entryId);
+          const changed = await deleteEntry(client, userId, entryId);
           if (!changed) return err('Entry not found', 404, origin);
           return json({ ok: true }, 200, origin);
         }

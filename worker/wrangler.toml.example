@@ -1,8 +1,9 @@
 name = "your-worker-name"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
+preview_urls = false
 
-[[d1_databases]]
-binding = "DB"
-database_name = "your-database-name"
-database_id = "YOUR_DATABASE_ID"   # from: wrangler d1 create <database-name>
+# Secrets — set via: wrangler secret put <NAME>
+# FIREBASE_PROJECT_ID   — Firebase project ID
+# TURSO_DATABASE_URL    — e.g. libsql://<db-name>-<org>.turso.io
+# TURSO_AUTH_TOKEN      — database auth token from Turso dashboard

@@ -1,73 +1,83 @@
-export async function provisionUser(db, firebaseUid) {
-  await db.prepare(
-    'INSERT INTO users (firebase_uid) VALUES (?) ON CONFLICT(firebase_uid) DO NOTHING',
-  ).bind(firebaseUid).run();
+export async function provisionUser(client, firebaseUid) {
+  await client.execute({
+    sql: 'INSERT INTO users (firebase_uid) VALUES (?) ON CONFLICT(firebase_uid) DO NOTHING',
+    args: [firebaseUid],
+  });
 }
 
-export async function getUserByFirebaseUid(db, firebaseUid) {
-  return db.prepare(
-    'SELECT user_id, firebase_uid, username, user_master_key FROM users WHERE firebase_uid = ?',
-  ).bind(firebaseUid).first();
+export async function getUserByFirebaseUid(client, firebaseUid) {
+  const rs = await client.execute({
+    sql: 'SELECT user_id, firebase_uid, username, user_master_key FROM users WHERE firebase_uid = ?',
+    args: [firebaseUid],
+  });
+  return rs.rows[0] ?? null;
 }
 
-export async function updateUserProfile(db, userId, userMasterKeyBlob, username) {
+export async function updateUserProfile(client, userId, userMasterKeyBlob, username) {
   const hasUsername = typeof username === 'string' && username.trim().length > 0;
   if (hasUsername) {
-    await db.prepare(
-      'UPDATE users SET user_master_key = ?, username = ? WHERE user_id = ?',
-    ).bind(userMasterKeyBlob, username.trim(), userId).run();
+    await client.execute({
+      sql: 'UPDATE users SET user_master_key = ?, username = ? WHERE user_id = ?',
+      args: [userMasterKeyBlob, username.trim(), userId],
+    });
     return;
   }
-
-  await db.prepare(
-    'UPDATE users SET user_master_key = ? WHERE user_id = ?',
-  ).bind(userMasterKeyBlob, userId).run();
+  await client.execute({
+    sql: 'UPDATE users SET user_master_key = ? WHERE user_id = ?',
+    args: [userMasterKeyBlob, userId],
+  });
 }
 
-export async function getEntries(db, userId) {
-  const { results } = await db.prepare(
-    'SELECT id, entry_key, value FROM entries WHERE user_id = ?',
-  ).bind(userId).all();
-  return results;
+export async function getEntries(client, userId) {
+  const rs = await client.execute({
+    sql: 'SELECT id, entry_key, value FROM entries WHERE user_id = ?',
+    args: [userId],
+  });
+  return rs.rows;
 }
 
-export async function getEntryById(db, userId, entryId) {
-  return db.prepare(
-    'SELECT id, entry_key, value FROM entries WHERE id = ? AND user_id = ?',
-  ).bind(entryId, userId).first();
+export async function getEntryById(client, userId, entryId) {
+  const rs = await client.execute({
+    sql: 'SELECT id, entry_key, value FROM entries WHERE id = ? AND user_id = ?',
+    args: [entryId, userId],
+  });
+  return rs.rows[0] ?? null;
 }
 
-export async function createEntry(db, id, userId, entryKey, value) {
-  await db.prepare(
-    'INSERT INTO entries (id, user_id, entry_key, value) VALUES (?, ?, ?, ?)',
-  ).bind(id, userId, entryKey, value).run();
+export async function createEntry(client, id, userId, entryKey, value) {
+  await client.execute({
+    sql: 'INSERT INTO entries (id, user_id, entry_key, value) VALUES (?, ?, ?, ?)',
+    args: [id, userId, entryKey, value],
+  });
 }
 
-export async function updateEntry(db, id, userId, entryKey, value) {
-  const result = await db.prepare(
-    "UPDATE entries SET entry_key = ?, value = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?",
-  ).bind(entryKey, value, id, userId).run();
-  return result.meta?.changes ?? 0;
+export async function updateEntry(client, id, userId, entryKey, value) {
+  const rs = await client.execute({
+    sql: "UPDATE entries SET entry_key = ?, value = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?",
+    args: [entryKey, value, id, userId],
+  });
+  return rs.rowsAffected;
 }
 
-export async function deleteEntry(db, userId, entryId) {
-  const result = await db.prepare(
-    'DELETE FROM entries WHERE id = ? AND user_id = ?',
-  ).bind(entryId, userId).run();
-  return result.meta?.changes ?? 0;
+export async function deleteEntry(client, userId, entryId) {
+  const rs = await client.execute({
+    sql: 'DELETE FROM entries WHERE id = ? AND user_id = ?',
+    args: [entryId, userId],
+  });
+  return rs.rowsAffected;
 }
 
-export async function replaceEntriesForUser(db, userId, entries) {
+export async function replaceEntriesForUser(client, userId, entries) {
   const stmts = [
-    db.prepare('DELETE FROM entries WHERE user_id = ?').bind(userId),
+    { sql: 'DELETE FROM entries WHERE user_id = ?', args: [userId] },
   ];
 
   for (const entry of entries) {
-    stmts.push(
-      db.prepare('INSERT INTO entries (id, user_id, entry_key, value) VALUES (?, ?, ?, ?)')
-        .bind(entry.id, userId, entry.entryKeyBlob, entry.valueBlob),
-    );
+    stmts.push({
+      sql: 'INSERT INTO entries (id, user_id, entry_key, value) VALUES (?, ?, ?, ?)',
+      args: [entry.id, userId, entry.entryKeyBlob, entry.valueBlob],
+    });
   }
 
-  await db.batch(stmts);
+  await client.batch(stmts, 'write');
 }
