@@ -151,9 +151,12 @@ function AppSetup({ onReady }) {
             <p className="text-muted small mb-2">Expected JSON format:</p>
             <pre className="bg-light rounded p-2 small mb-0" style={{ fontSize: '0.75rem' }}>
 {`{
+  "username": "Your Name",
   "worker_url": "https://<worker>.<account>.workers.dev",
   "email": "user@example.com",
   "password": "xxx",
+  "firebase_api_key": "<firebase-web-api-key>",
+  "firebase_project_id": "<firebase-project-id>",
   "root_master_key": "<base64, >=256 bytes>"
 }`}
             </pre>
