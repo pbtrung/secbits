@@ -550,7 +550,7 @@ function serializeHistoryForStorage(history) {
 }
 
 function validateEntry(entry, index) {
-  ensure(entry.versions.length >= 3 && entry.versions.length <= 10, `Invalid versions count at entry ${index}`);
+  ensure(entry.versions.length >= 3 && entry.versions.length <= LIMITS.MAX_COMMITS, `Invalid versions count at entry ${index}`);
   for (let i = 0; i < entry.versions.length; i++) {
     const v = entry.versions[i];
     ensure(typeof v.title === 'string' && v.title.length >= 10 && v.title.length <= 30, `Invalid title length at entry ${index}, version ${i}`);
