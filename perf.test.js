@@ -24,10 +24,10 @@ const LIMITS = {
   MAX_TOTP_SECRETS: 10,
   MAX_CUSTOM_FIELDS: 20,
   MAX_TAGS: 20,
-  MAX_COMMITS: 10,
+  MAX_COMMITS: 20,
 };
 
-const ENTRY_COUNT = 300;
+const ENTRY_COUNT = 500;
 const MAX_VALUE_BYTES = 1_900_000;
 const WORDS_FILE = path.resolve(__dirname, 'data/english-words.txt');
 const FETCH_MAX_RETRIES = 5;
