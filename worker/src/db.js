@@ -1,26 +1,26 @@
-export async function getUserById(db, id) {
-  return db.prepare(
-    'SELECT id, username, user_master_key FROM users WHERE id = ?',
-  ).bind(id).first();
+export async function provisionUser(db, firebaseUid) {
+  await db.prepare(
+    'INSERT INTO users (firebase_uid) VALUES (?) ON CONFLICT(firebase_uid) DO NOTHING',
+  ).bind(firebaseUid).run();
 }
 
-export async function provisionUser(db, userId) {
-  await db.prepare(
-    'INSERT INTO users (id) VALUES (?) ON CONFLICT(id) DO NOTHING',
-  ).bind(userId).run();
+export async function getUserByFirebaseUid(db, firebaseUid) {
+  return db.prepare(
+    'SELECT user_id, firebase_uid, username, user_master_key FROM users WHERE firebase_uid = ?',
+  ).bind(firebaseUid).first();
 }
 
 export async function updateUserProfile(db, userId, userMasterKeyBlob, username) {
   const hasUsername = typeof username === 'string' && username.trim().length > 0;
   if (hasUsername) {
     await db.prepare(
-      'UPDATE users SET user_master_key = ?, username = ? WHERE id = ?',
+      'UPDATE users SET user_master_key = ?, username = ? WHERE user_id = ?',
     ).bind(userMasterKeyBlob, username.trim(), userId).run();
     return;
   }
 
   await db.prepare(
-    'UPDATE users SET user_master_key = ? WHERE id = ?',
+    'UPDATE users SET user_master_key = ? WHERE user_id = ?',
   ).bind(userMasterKeyBlob, userId).run();
 }
 

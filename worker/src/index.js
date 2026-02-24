@@ -1,6 +1,6 @@
 import { verifyFirebaseToken } from './firebase.js';
 import {
-  getUserById,
+  getUserByFirebaseUid,
   provisionUser,
   updateUserProfile,
   getEntries,
@@ -76,13 +76,14 @@ export default {
     if (!payload) {
       return err('Unauthorized', 401, origin);
     }
-    const userId = payload.sub;
+    const firebaseUid = payload.sub;
 
-    await provisionUser(env.DB, userId);
+    await provisionUser(env.DB, firebaseUid);
+    const user = await getUserByFirebaseUid(env.DB, firebaseUid);
+    if (!user) return err('User not found', 404, origin);
+    const userId = user.user_id;
 
     if (method === 'GET' && path === '/me/profile') {
-      const user = await getUserById(env.DB, userId);
-      if (!user) return err('User not found', 404, origin);
       return json({
         username: user.username,
         user_master_key: user.user_master_key ? bufToB64(user.user_master_key) : null,
