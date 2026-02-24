@@ -91,7 +91,7 @@ Save the following as a `.json` file (e.g. `secbits-config.json`). **Keep this f
 
 ```json
 {
-  "username": "Your Name",
+  "username": "<username>",
   "worker_url": "https://<worker>.<account>.workers.dev",
   "email": "you@example.com",
   "password": "your-password",
