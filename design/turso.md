@@ -168,28 +168,39 @@ There is no explicit user registration endpoint. Users are created in Firebase v
   `INSERT INTO users (firebase_uid) VALUES (?) ON CONFLICT(firebase_uid) DO NOTHING`.
 - Provisioning uses `token.sub` as `firebase_uid`, then resolves internal `user_id` for entry queries.
 
-### Password change
+### Root master key rotation
 
-Changing the Firebase password is purely client-side. The Worker and encrypted data are unaffected.
+Rotating the `root_master_key` re-encrypts only the `user_master_key` wrapper stored in the database. The entry layer is completely unaffected.
 
-**Flow:**
+**Key hierarchy:**
 
-1. User opens **Settings → Change Password** and submits a new password (entered twice for confirmation).
-2. App calls Firebase's `accounts:update` endpoint with the current in-memory `idToken`:
-   ```
-   POST https://identitytoolkit.googleapis.com/v1/accounts:update?key=<FIREBASE_API_KEY>
-   { "idToken": "<current-token>", "password": "<new-password>", "returnSecureToken": true }
-   → { "idToken": "<new-token>", "refreshToken": "<new-refresh-token>", "localId": "...", ... }
-   ```
-3. App replaces the in-memory `idToken` and `refreshToken` with the values returned. The current session stays active without re-authentication.
-4. UI shows a persistent notice: the user must update the `password` field in their config JSON before the session ends.
+```
+root_master_key
+  └─ wraps user_master_key  (blob in users.user_master_key, 192 bytes)
+            └─ wraps doc_key per entry  (blob in entries.entry_key)
+                      └─ encrypts entry history  (blob in entries.value)
+```
 
-**Security properties:**
+**Client-side flow:**
 
-- The old password is invalidated immediately by Firebase.
-- `root_master_key`, `user_master_key`, and all entry encryption are unchanged — no re-encryption is required.
-- The Worker is not involved: it only ever sees Firebase ID tokens, never passwords.
-- If the config JSON is not updated before the session ends, the user cannot sign in on the next session. Recovery path: reset the Firebase password via Firebase Console (**Authentication → Users → Reset password**), then update the config JSON.
+1. User opens **Settings → Change Root Master Key** and provides a new key (generated in-UI or pasted; must decode to ≥ 256 bytes).
+2. App re-wraps the in-memory plaintext `user_master_key` under the new root key:
+   - Generate a fresh 64-byte random salt.
+   - Derive `encKey || encIv` via `HKDF-SHA3-512(newRootMasterKey, newSalt)` → 128 bytes.
+   - Encrypt with Ascon-Keccak AEAD → `newSalt || newCiphertext || newTag` (192-byte blob).
+3. Upload the new blob: `POST /me/profile` with `{ user_master_key: base64(newBlob) }`. This is the only Worker write.
+4. Replace the in-memory `rootMasterKeyBytes` with the new key.
+5. Display the new base64-encoded `root_master_key` with a Copy button and a prompt to update the config JSON.
+
+**What changes, what doesn't:**
+
+| Item | Status |
+|---|---|
+| `users.user_master_key` blob | Re-encrypted with new root key |
+| `entries.entry_key` blobs | Unchanged — wrapped with the same `user_master_key` plaintext |
+| `entries.value` blobs | Unchanged — encrypted with per-entry doc keys |
+
+**Failure mode:** if the session ends before the config JSON is updated, sign-in will fail with "Wrong root master key" because the database blob is now encrypted with the new key. Recovery is impossible without the new key — the user must copy it to a safe location before updating the config.
 
 ## Config File Format
 

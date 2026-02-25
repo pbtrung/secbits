@@ -303,18 +303,30 @@ Click the gear icon at the bottom of the tag sidebar to open Settings.
 
 See [design/backup.md](design/backup.md) for full backup and restore details, cloud target configuration, and the encrypted file format.
 
-### Change Firebase password
+### Change root master key
 
-The `password` in your config JSON is the Firebase credential used only for sign-in. It has no role in encryption — all keys derive from `root_master_key` — so changing it requires no re-encryption and no Worker changes.
+The `root_master_key` is the root of all encryption. It wraps the `user_master_key`, which in turn wraps every entry key. Rotating it is a lightweight operation — only the `user_master_key` wrapper stored in the Worker database is re-encrypted. Entry keys and entry values are not touched.
 
 **Steps:**
 
-1. While logged in, open **Settings → Change Password**.
-2. Enter and confirm the new password, then click **Change Password**.
-3. The app calls Firebase's `accounts:update` REST endpoint with the current session token. Firebase invalidates the old password immediately and returns fresh credentials — the session stays active.
-4. **Update your config JSON before ending the session.** Change the `password` field to the new password and save the file. If you close the tab without doing this, you will not be able to log in on the next session.
+1. While logged in, open **Settings → Change Root Master Key**.
+2. Generate a new root master key (the UI provides a generator), or paste a base64 value that decodes to ≥ 256 bytes.
+3. Review the new key and click **Change**. The app:
+   - Re-encrypts the in-memory `user_master_key` under the new root key with a fresh random salt.
+   - Uploads the new encrypted blob to the Worker (`POST /me/profile`). This is the only server write.
+   - Replaces the in-memory root master key.
+4. **Update your config JSON before ending the session.** Copy the new `root_master_key` value shown in the UI and replace the field in your config file. If you close the tab first, the database holds a blob encrypted with the new key but your config still has the old key — sign-in will fail.
 
-**Recovery if config is not updated in time:** reset the Firebase password via **Firebase Console → Authentication → Users → Reset password**, then update the config JSON with the new password.
+**What is and is not affected:**
+
+| Item | Affected? |
+|---|---|
+| `user_master_key` blob in database | Yes — re-encrypted with new root key |
+| Entry keys (`entry_key` in database) | No — wrapped with the same `user_master_key` plaintext |
+| Entry values (`value` in database) | No — encrypted with per-entry doc keys |
+| Config JSON `root_master_key` field | Yes — must be updated manually |
+
+**Recovery if config is not updated in time:** if the new key was not saved before the session ended, data cannot be recovered. Keep the new key in a safe location before updating the config file.
 
 ### Logging out
 
