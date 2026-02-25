@@ -10,7 +10,7 @@
 
 **No separate MAC step.** Authentication is built into the AEAD cipher; there is no HMAC post-processing step. The tag covers both the ciphertext and the associated key material.
 
-**Email/Password auth.** Credentials are verified by Firebase Authentication, not the Worker. The app signs in via the Firebase REST API, receives an RS256 ID token (1-hour expiry, signed by Google), and forwards it as `Authorization: Bearer <token>` on every Worker request. The Worker verifies the token against Firebase's published public keys and extracts the Firebase UID (`token.sub`) as the canonical user identity. The Worker never handles passwords, stores password hashes, or issues tokens of its own.
+**Email/Password auth.** The Worker never handles passwords, stores password hashes, or issues tokens of its own. Authentication is fully delegated to Firebase; the Worker only verifies the RS256 token signature. See `agent_docs/backend.md` for verification steps and `agent_docs/design.md` for why Firebase was chosen.
 
 **`wrangler.toml` is gitignored.** It contains the D1 `database_id` and worker name. A template (`worker/wrangler.toml.example`) is committed instead. `FIREBASE_PROJECT_ID` is stored as a Wrangler secret and never appears in any file.
 

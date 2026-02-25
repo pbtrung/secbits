@@ -63,10 +63,11 @@ Read these only when the task involves the relevant area:
 
 | File | Read when working on |
 |------|----------------------|
+| [agent_docs/design.md](agent_docs/design.md) | architecture decisions and rationale (why things are the way they are) |
 | [agent_docs/crypto.md](agent_docs/crypto.md) | key hierarchy, AEAD, HKDF, blob format, history encryption, root key rotation |
 | [agent_docs/backend.md](agent_docs/backend.md) | Worker routes, D1 schema, Firebase auth, rate limiting |
 | [agent_docs/backup.md](agent_docs/backup.md) | backup pipeline, R2/S3/GCS targets, restore flow, export format |
-| [agent_docs/security.md](agent_docs/security.md) | threat model, session scope, CSP |
+| [agent_docs/security.md](agent_docs/security.md) | security properties and guarantees, session scope, CSP |
 | [agent_docs/testing.md](agent_docs/testing.md) | test coverage matrix, how each suite works |
 | [agent_docs/tech-stack.md](agent_docs/tech-stack.md) | library choices, annotated source tree |
 | [agent_docs/features.md](agent_docs/features.md) | full feature list |
