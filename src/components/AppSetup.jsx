@@ -23,7 +23,6 @@ function AppSetup({ onReady }) {
     if (!json.email) throw new Error('Missing required field: email');
     if (!json.password) throw new Error('Missing required field: password');
     if (!json.firebase_api_key) throw new Error('Missing required field: firebase_api_key');
-    if (!json.firebase_project_id) throw new Error('Missing required field: firebase_project_id');
     if (!json.root_master_key) throw new Error('Missing required field: root_master_key');
 
     const rootMasterKeyBytes = decodeRootMasterKey(json.root_master_key);
@@ -103,7 +102,7 @@ function AppSetup({ onReady }) {
   };
 
   return (
-    <div className="vh-100 d-flex align-items-center justify-content-center bg-dark">
+    <div className="vh-100 d-flex align-items-center justify-content-center bg-dark px-3">
       <div className="card shadow" style={{ maxWidth: 500, width: '100%' }}>
         <div className="card-body p-4">
           <div className="text-center mb-4">
@@ -157,7 +156,6 @@ function AppSetup({ onReady }) {
   "email": "user@example.com",
   "password": "xxx",
   "firebase_api_key": "<firebase-web-api-key>",
-  "firebase_project_id": "<firebase-project-id>",
   "root_master_key": "<base64, >=256 bytes>"
 }`}
             </pre>

@@ -74,6 +74,15 @@ All routes require a valid Firebase ID token in the `Authorization: Bearer <toke
 
 Binary fields (`entry_key`, `value`, `user_master_key`) are base64-encoded in JSON over the wire and stored as BLOB in Turso. BLOB columns are returned as `Uint8Array`.
 
+### Rate Limiting
+
+The Worker uses Cloudflare's native `[[ratelimits]]` binding (`RATE_LIMITER`), configured in `wrangler.toml`. No separate resource or KV namespace is required — Cloudflare manages counters per edge location.
+
+- **Limit:** 60 requests per 60 seconds per authenticated Firebase UID
+- **Key:** `payload.sub` (Firebase UID), applied after token verification
+- **Response on violation:** HTTP 429 `{ "error": "Rate limit exceeded" }`
+- **Configuration:** entirely in `wrangler.toml`; counters are eventually consistent across edge nodes
+
 ## libSQL Query API
 
 Queries use `client.execute()` for single statements and `client.batch()` for atomic multi-statement operations. Results are returned as a `ResultSet` with a `rows` array; columns are accessed by name using bracket notation (`row["user_id"]`).
@@ -168,7 +177,6 @@ There is no explicit user registration endpoint. Users are created in Firebase v
   "email": "user@example.com",
   "password": "your-firebase-password",
   "firebase_api_key": "<firebase-web-api-key>",
-  "firebase_project_id": "<firebase-project-id>",
   "root_master_key": "<base64-encoded key, >=256 bytes when decoded>"
 }
 ```
@@ -180,7 +188,6 @@ There is no explicit user registration endpoint. Users are created in Firebase v
 | `email` | Yes | Firebase user email |
 | `password` | Yes | Firebase user password (used only for Firebase sign-in; never sent to the Worker) |
 | `firebase_api_key` | Yes | Firebase Web API key from Project settings |
-| `firebase_project_id` | Yes | Firebase Project ID |
 | `root_master_key` | Yes | Base64-encoded random key, must decode to ≥256 bytes |
 
 ## File Layout

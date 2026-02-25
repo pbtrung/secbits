@@ -71,7 +71,7 @@ export default {
         return new Response(null, { status: 204, headers: corsHeaders(origin) });
       }
 
-      if (!env.FIREBASE_PROJECT_ID || !env.TURSO_DATABASE_URL || !env.TURSO_AUTH_TOKEN) {
+      if (!env.FIREBASE_PROJECT_ID || !env.TURSO_DATABASE_URL || !env.TURSO_AUTH_TOKEN || !env.RATE_LIMITER) {
         return err('Server misconfigured', 500, origin);
       }
 
@@ -85,6 +85,9 @@ export default {
         return err('Unauthorized', 401, origin);
       }
       const firebaseUid = payload.sub;
+
+      const { success } = await env.RATE_LIMITER.limit({ key: firebaseUid });
+      if (!success) return err('Rate limit exceeded', 429, origin);
 
       await provisionUser(client, firebaseUid);
       const user = await getUserByFirebaseUid(client, firebaseUid);

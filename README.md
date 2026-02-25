@@ -45,9 +45,8 @@ wrangler d1 execute <database-name> --file schema.sql
 # 3) Create user in Authentication -> Users
 ```
 
-You need these Firebase values:
+You need this Firebase value:
 - Web API key
-- Project ID
 
 Optional CLI helper (instead of Console user creation):
 
@@ -65,7 +64,23 @@ wrangler secret put FIREBASE_PROJECT_ID
 
 Enter your Firebase Project ID when prompted.
 
-### 6. Deploy the Worker
+### 6. Configure rate limiting
+
+The `wrangler.toml.example` already includes a `[[ratelimits]]` binding (`RATE_LIMITER`). Copy this section into your `wrangler.toml` as-is — no separate resource to create:
+
+```toml
+[[ratelimits]]
+binding = "RATE_LIMITER"
+namespace_id = "1001"
+
+[ratelimits.simple]
+limit = 60
+period = 60
+```
+
+This enforces 60 requests per 60 seconds per authenticated Firebase UID. Exceeding the limit returns HTTP 429.
+
+### 7. Deploy the Worker
 
 ```bash
 wrangler deploy
@@ -73,7 +88,7 @@ wrangler deploy
 
 Note the Worker URL printed — `https://<worker-name>.<account>.workers.dev`. You will need it for the config file.
 
-### 7. Generate a root master key
+### 8. Generate a root master key
 
 Run this in a browser console or Node.js:
 
@@ -96,7 +111,6 @@ Save the following as a `.json` file (e.g. `secbits-config.json`). **Keep this f
   "email": "you@example.com",
   "password": "your-password",
   "firebase_api_key": "<firebase-web-api-key>",
-  "firebase_project_id": "<firebase-project-id>",
   "root_master_key": "<base64-encoded key, >=256 bytes when decoded>"
 }
 ```
@@ -108,7 +122,6 @@ Save the following as a `.json` file (e.g. `secbits-config.json`). **Keep this f
 | `email` | Yes | Firebase email address |
 | `password` | Yes | Firebase password |
 | `firebase_api_key` | Yes | Firebase Web API key |
-| `firebase_project_id` | Yes | Firebase Project ID |
 | `root_master_key` | Yes | Base64-encoded random key, must decode to ≥256 bytes |
 
 ## Building and Deploying

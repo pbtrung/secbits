@@ -3,6 +3,14 @@ main = "src/index.js"
 compatibility_date = "2025-01-01"
 preview_urls = false
 
+[[ratelimits]]
+binding = "RATE_LIMITER"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 60
+  period = 60
+
 # Secrets — set via: wrangler secret put <NAME>
 # FIREBASE_PROJECT_ID   — Firebase project ID
 # TURSO_DATABASE_URL    — e.g. libsql://<db-name>-<org>.turso.io
