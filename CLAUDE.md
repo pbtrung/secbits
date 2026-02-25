@@ -5,7 +5,7 @@
 Offline-first CLI password manager in Rust. Single binary with pass-style path UX.
 Stores entries in a local SQLite database. All secrets are encrypted at rest.
 
-Tech stack: Rust 2021, `clap` CLI, `rusqlite` DB, `leancrypto` FFI (Ascon-Keccak-512 AEAD + HKDF-SHA3-512 + ML-KEM-1024+X448), `brotli` compression, `serde_json` for history serialization.
+Tech stack: Rust 2024, `clap` CLI, `rusqlite` DB, `leancrypto` FFI (Ascon-Keccak-512 AEAD + HKDF-SHA3-512 + ML-KEM-1024+X448), `brotli` compression, `serde_json` for history serialization.
 
 ## Why
 
