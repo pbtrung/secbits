@@ -569,19 +569,10 @@ function SecurityPage() {
         The root master key wraps your session key stored on the server. Rotating it re-encrypts only that blob — your entries are unaffected.
       </p>
       <p className="text-muted small mb-3">
-        <strong>Warning:</strong> After saving the new key, you must update your config JSON immediately. If you lose the new key, you will be permanently locked out.
+        <strong>Warning: After saving the new key, you must update your config JSON immediately. If you lose the new key, you will be permanently locked out.</strong>
       </p>
 
-      <div className="d-flex justify-content-between align-items-center mb-1">
-        <label className="form-label mb-0 small fw-semibold">New root master key</label>
-        <button
-          className="btn btn-outline-secondary btn-sm"
-          onClick={generateKey}
-          disabled={loading}
-        >
-          <i className="bi bi-arrow-clockwise me-1"></i>Regenerate
-        </button>
-      </div>
+      <label className="form-label small fw-semibold mb-1">New root master key</label>
       <textarea
         className="form-control font-monospace mb-1"
         style={{ fontSize: '0.7rem' }}
@@ -589,7 +580,7 @@ function SecurityPage() {
         readOnly
         value={newKeyB64}
       />
-      <div className="mb-3">
+      <div className="d-flex gap-2 mb-3">
         <button
           className="btn btn-outline-secondary btn-sm"
           onClick={handleCopy}
@@ -597,6 +588,13 @@ function SecurityPage() {
         >
           <i className={`bi ${copied ? 'bi-check' : 'bi-clipboard'} me-1`}></i>
           {copied ? 'Copied!' : 'Copy'}
+        </button>
+        <button
+          className="btn btn-outline-secondary btn-sm"
+          onClick={generateKey}
+          disabled={loading}
+        >
+          <i className="bi bi-arrow-clockwise me-1"></i>Regenerate
         </button>
       </div>
 
