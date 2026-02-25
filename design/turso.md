@@ -168,6 +168,29 @@ There is no explicit user registration endpoint. Users are created in Firebase v
   `INSERT INTO users (firebase_uid) VALUES (?) ON CONFLICT(firebase_uid) DO NOTHING`.
 - Provisioning uses `token.sub` as `firebase_uid`, then resolves internal `user_id` for entry queries.
 
+### Password change
+
+Changing the Firebase password is purely client-side. The Worker and encrypted data are unaffected.
+
+**Flow:**
+
+1. User opens **Settings → Change Password** and submits a new password (entered twice for confirmation).
+2. App calls Firebase's `accounts:update` endpoint with the current in-memory `idToken`:
+   ```
+   POST https://identitytoolkit.googleapis.com/v1/accounts:update?key=<FIREBASE_API_KEY>
+   { "idToken": "<current-token>", "password": "<new-password>", "returnSecureToken": true }
+   → { "idToken": "<new-token>", "refreshToken": "<new-refresh-token>", "localId": "...", ... }
+   ```
+3. App replaces the in-memory `idToken` and `refreshToken` with the values returned. The current session stays active without re-authentication.
+4. UI shows a persistent notice: the user must update the `password` field in their config JSON before the session ends.
+
+**Security properties:**
+
+- The old password is invalidated immediately by Firebase.
+- `root_master_key`, `user_master_key`, and all entry encryption are unchanged — no re-encryption is required.
+- The Worker is not involved: it only ever sees Firebase ID tokens, never passwords.
+- If the config JSON is not updated before the session ends, the user cannot sign in on the next session. Recovery path: reset the Firebase password via Firebase Console (**Authentication → Users → Reset password**), then update the config JSON.
+
 ## Config File Format
 
 ```json

@@ -303,6 +303,19 @@ Click the gear icon at the bottom of the tag sidebar to open Settings.
 
 See [design/backup.md](design/backup.md) for full backup and restore details, cloud target configuration, and the encrypted file format.
 
+### Change Firebase password
+
+The `password` in your config JSON is the Firebase credential used only for sign-in. It has no role in encryption — all keys derive from `root_master_key` — so changing it requires no re-encryption and no Worker changes.
+
+**Steps:**
+
+1. While logged in, open **Settings → Change Password**.
+2. Enter and confirm the new password, then click **Change Password**.
+3. The app calls Firebase's `accounts:update` REST endpoint with the current session token. Firebase invalidates the old password immediately and returns fresh credentials — the session stays active.
+4. **Update your config JSON before ending the session.** Change the `password` field to the new password and save the file. If you close the tab without doing this, you will not be able to log in on the next session.
+
+**Recovery if config is not updated in time:** reset the Firebase password via **Firebase Console → Authentication → Users → Reset password**, then update the config JSON with the new password.
+
 ### Logging out
 
 Click the logout button (arrow icon) at the bottom of the tag sidebar. The in-memory session key and auth token are cleared immediately.
