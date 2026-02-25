@@ -111,7 +111,17 @@ Save the following as a `.json` file (e.g. `secbits-config.json`). **Keep this f
   "email": "you@example.com",
   "password": "your-password",
   "firebase_api_key": "<firebase-web-api-key>",
-  "root_master_key": "<base64-encoded key, >=256 bytes when decoded>"
+  "root_master_key": "<base64-encoded key, >=256 bytes when decoded>",
+  "backup": [
+    {
+      "target": "r2",
+      "account_id": "<cloudflare-account-id>",
+      "bucket": "secbits-backup",
+      "access_key_id": "<r2-access-key-id>",
+      "secret_access_key": "<r2-secret-access-key>",
+      "prefix": "backups/"
+    }
+  ]
 }
 ```
 
@@ -123,6 +133,7 @@ Save the following as a `.json` file (e.g. `secbits-config.json`). **Keep this f
 | `password` | Yes | Firebase password |
 | `firebase_api_key` | Yes | Firebase Web API key |
 | `root_master_key` | Yes | Base64-encoded random key, must decode to ≥256 bytes |
+| `backup` | No | Array of cloud backup targets (R2, S3, GCS). Omit or leave empty to disable backup. See [design/backup.md](design/backup.md) for all target types, required fields, and security considerations. |
 
 ## Building and Deploying
 
