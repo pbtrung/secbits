@@ -15,15 +15,14 @@ SHARE_CT_LEN = 1624  bytes  (ML-KEM-1024 ct 1568 + X448 eph pk 56)
 SHARE_SS_LEN = 64    bytes  (hybrid shared secret)
 ```
 
-## Schema Migration 2
+## Schema
+
+`users` table includes these columns from the initial schema (NULL until `share-init` is run):
 
 ```sql
-ALTER TABLE users ADD COLUMN share_public_key BLOB;       -- NULL until share-init
-ALTER TABLE users ADD COLUMN share_secret_key_enc BLOB;   -- NULL until share-init
-PRAGMA user_version = 2;
+share_public_key     BLOB   -- raw SHARE_PK_LEN bytes; NULL until share-init
+share_secret_key_enc BLOB   -- encryptBytesToBlob(user_master_key, sk); NULL until share-init
 ```
-
-Applied when `PRAGMA user_version = 1`.
 
 ## Key Storage
 

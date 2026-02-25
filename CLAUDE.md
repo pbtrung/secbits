@@ -32,7 +32,7 @@ Optional: `backup_on_save`, `log_level`, `log_target`, `log_time`, `[targets.<na
 | `src/app.rs`    | Command dispatch, all handler functions, interactive prompts    |
 | `src/crypto.rs` | leancrypto FFI wrappers (HKDF, AEAD, blob encode/decode)        |
 | `src/model.rs`  | `EntrySnapshot`, `HistoryObject`, commit/delta logic            |
-| `src/db.rs`     | SQLite connection, schema migrations, CRUD                      |
+| `src/db.rs`     | SQLite connection, schema init, CRUD                            |
 | `src/config.rs` | TOML config load and validation                                 |
 | `src/backup.rs` | S3-compatible backup push/pull (M8, stub until implemented)     |
 | `src/compression.rs` | Brotli compress/decompress wrappers                        |
@@ -45,7 +45,7 @@ M1–M7 complete. Remaining:
 
 - **M8** Backup: config `[targets]` parsing, S3 push/pull, `backup_on_save` trigger.
 - **M9** Diff accuracy: Unicode NFC normalization, field-level hashes.
-- **M10** Sharing: `lcr_kyber_x448` keypair/enc/dec wrappers, schema migration 2, `share-init/pubkey/share/share-receive`.
+- **M10** Sharing: `lcr_kyber_x448` keypair/enc/dec wrappers, `share-init/pubkey/share/share-receive`.
 - **M11** Release: packaging, docs.
 
 ## Key Invariants

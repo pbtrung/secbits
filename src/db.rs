@@ -41,7 +41,7 @@ impl Database {
 
     fn initialize(conn: Connection) -> Result<Self> {
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
-        migrate(&conn)?;
+        init_schema(&conn)?;
         Ok(Self { conn })
     }
 
@@ -179,7 +179,7 @@ impl Database {
     }
 }
 
-fn migrate(conn: &Connection) -> Result<()> {
+fn init_schema(conn: &Connection) -> Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
 
     if version > SCHEMA_VERSION {
@@ -187,28 +187,30 @@ fn migrate(conn: &Connection) -> Result<()> {
     }
 
     if version < 1 {
-        apply_migration_1(conn)?;
+        create_schema(conn)?;
     }
 
     Ok(())
 }
 
-fn apply_migration_1(conn: &Connection) -> Result<()> {
+fn create_schema(conn: &Connection) -> Result<()> {
     let tx = conn.unchecked_transaction()?;
     tx.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            user_master_key BLOB NOT NULL,
-            username TEXT NOT NULL UNIQUE
+            user_id              INTEGER PRIMARY KEY,
+            user_master_key      BLOB NOT NULL,
+            username             TEXT NOT NULL UNIQUE,
+            share_public_key     BLOB,
+            share_secret_key_enc BLOB
         );
 
         CREATE TABLE IF NOT EXISTS entries (
-            entry_id INTEGER PRIMARY KEY,
-            user_id INTEGER NOT NULL,
+            entry_id  INTEGER PRIMARY KEY,
+            user_id   INTEGER NOT NULL,
             path_hint TEXT NOT NULL,
             entry_key BLOB NOT NULL,
-            value BLOB NOT NULL,
+            value     BLOB NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
             UNIQUE(user_id, path_hint)
         );
