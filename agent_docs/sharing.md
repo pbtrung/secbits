@@ -4,7 +4,7 @@
 
 Share an entry's current `head_snapshot` with another user using hybrid ML-KEM-1024 + X448 KEM. The recipient imports it as a new independent entry with a fresh commit history. No history is shared.
 
-Implemented via leancrypto's `lc_kyber_x448_1024_*` API (already in leancrypto-sys FFI).
+Implemented via `leancrypto-sys`'s `lcr_kyber_x448` Rust wrapper (generic type-dispatched API, select `lcr_kyber_1024` variant).
 
 ## Key Constants
 
@@ -30,10 +30,49 @@ Applied when `PRAGMA user_version = 1`.
 - `share_public_key`: raw `SHARE_PK_LEN` bytes, stored plain (public keys are not secret).
 - `share_secret_key_enc`: `encryptBytesToBlob(user_master_key, sk)` — `SALT_LEN + SHARE_SK_LEN + TAG_LEN = 3352` bytes.
 
+## leancrypto-sys Rust Wrapper API
+
+```rust
+use leancrypto_sys::lcr_kyber_x448::{lcr_kyber_x448, lcr_kyber_x448_type};
+
+// Keypair generation
+let mut ctx = lcr_kyber_x448::new();
+ctx.keypair(lcr_kyber_x448_type::lcr_kyber_1024)?;
+let (kyber_pk, x448_pk, _) = ctx.pk();  // kyber_pk: &[u8; 1568], x448_pk: &[u8; 56]
+let (kyber_sk, x448_sk, _) = ctx.sk();  // kyber_sk: &[u8; 3168], x448_sk: &[u8; 56]
+// Store pk = kyber_pk || x448_pk (1624 B), sk = kyber_sk || x448_sk (3224 B)
+
+// Encapsulation (sender)
+let mut enc_ctx = lcr_kyber_x448::new();
+enc_ctx.pk_load(kyber_pk, x448_pk)?;    // load from stored bytes
+let mut ss = [0u8; SHARE_SS_LEN];
+enc_ctx.encapsulate(&mut ss)?;          // calls lc_kyber_x448_enc_kdf internally
+let (kyber_ct, x448_eph_pk, _) = enc_ctx.ct();  // ct = kyber_ct || x448_eph_pk (1624 B)
+
+// Decapsulation (recipient)
+let mut dec_ctx = lcr_kyber_x448::new();
+dec_ctx.sk_load(kyber_sk, x448_sk)?;
+dec_ctx.ct_load(kyber_ct, x448_eph_pk)?;
+let mut ss = [0u8; SHARE_SS_LEN];
+dec_ctx.decapsulate(&mut ss)?;          // calls lc_kyber_x448_dec_kdf internally
+```
+
+The SS is derived internally as `KMAC256(K=Kyber-SS||X448-SS, X=Kyber-CT, L=ss_len, S="Kyber KEM Double SS")`.
+
+## Crypto Module Wrappers (to add in crypto.rs)
+
+```rust
+pub fn hybrid_kem_keypair() -> Result<(Vec<u8>, Vec<u8>)>    // (pk[1624], sk[3224])
+pub fn hybrid_kem_enc(pk: &[u8]) -> Result<(Vec<u8>, Vec<u8>)>  // (ct[1624], ss[64])
+pub fn hybrid_kem_dec(ct: &[u8], sk: &[u8]) -> Result<Vec<u8>>  // ss[64]
+```
+
+PK/SK/CT stored as `kyber_part || x448_part` (concatenated byte arrays).
+
 ## Encapsulation (sender)
 
-1. Load `recipient_pk` (`SHARE_PK_LEN` bytes) from file.
-2. `lc_kyber_x448_1024_enc(recipient_pk)` → `(kem_ct[SHARE_CT_LEN], ss[SHARE_SS_LEN])`.
+1. Load `recipient_pk` (`SHARE_PK_LEN` bytes) from file. Split: `kyber_pk = pk[..1568]`, `x448_pk = pk[1568..]`.
+2. `(kem_ct[SHARE_CT_LEN], ss[SHARE_SS_LEN]) = hybrid_kem_enc(recipient_pk)`.
 3. `(wrap_enc_key[64], wrap_enc_iv[64]) = HKDF-SHA3-512(ikm=ss, salt=kem_ct[0..64])`.
 4. `(enc_key_ct[64], enc_key_tag[64]) = AEAD-encrypt(wrap_enc_key, wrap_enc_iv, doc_key)`.
 5. `enc_snapshot = encryptBytesToBlob(doc_key, brotli(JSON(head_snapshot)))`.
@@ -42,7 +81,7 @@ Applied when `PRAGMA user_version = 1`.
 ## Decapsulation (recipient)
 
 1. Decrypt own SK: `sk = decryptBytesFromBlob(user_master_key, share_secret_key_enc)`.
-2. `ss = lc_kyber_x448_1024_dec(kem_ct, sk)`. Failure → `ShareDecryptFailed`.
+2. `ss = hybrid_kem_dec(kem_ct, sk)`. Failure → `ShareDecryptFailed`.
 3. Re-derive `(wrap_enc_key, wrap_enc_iv)` same as sender.
 4. `doc_key = AEAD-decrypt(wrap_enc_key, wrap_enc_iv, enc_key_ct, enc_key_tag)`. Failure → `ShareDecryptFailed`.
 5. `decryptBytesFromBlob(doc_key, enc_snapshot)` → brotli decompress → JSON parse.

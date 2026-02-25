@@ -45,7 +45,7 @@ M1–M7 complete. Remaining:
 
 - **M8** Backup: config `[targets]` parsing, S3 push/pull, `backup_on_save` trigger.
 - **M9** Diff accuracy: Unicode NFC normalization, field-level hashes.
-- **M10** Sharing: ML-KEM-1024+X448 keypair, schema migration 2, `share-init/pubkey/share/share-receive`.
+- **M10** Sharing: `lcr_kyber_x448` keypair/enc/dec wrappers, schema migration 2, `share-init/pubkey/share/share-receive`.
 - **M11** Release: packaging, docs.
 
 ## Key Invariants
