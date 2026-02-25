@@ -215,6 +215,18 @@ export async function setupUserMasterKey(rootMasterKeyBytes) {
 }
 
 /**
+ * Re-wrap an existing plaintext User Master Key under a new root master key.
+ * Used when rotating the root master key without changing entry keys.
+ */
+export async function rewrapUserMasterKey(newRootMasterKeyBytes, plaintextUserMasterKeyBytes) {
+  const lib = await getLc();
+  const salt = getRandomBytes(SALT_LEN);
+  const { encKey, encIv } = hkdfSync(lib, newRootMasterKeyBytes, salt);
+  const { ciphertext, tag } = akEncrypt(lib, encKey, encIv, plaintextUserMasterKeyBytes);
+  return concat(salt, ciphertext, tag);  // 192 bytes: salt || ciphertext || tag
+}
+
+/**
  * Returning user: verify the root master key against the stored blob,
  * decrypt and return the User Master Key or throw on wrong key.
  */

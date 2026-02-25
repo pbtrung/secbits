@@ -2,6 +2,7 @@ import {
   decryptEntryHistoryWithDocKey,
   encryptEntryHistoryWithDocKey,
   generateEntryDocKey,
+  rewrapUserMasterKey,
   unwrapEntryKey,
   wrapEntryKey,
 } from './crypto';
@@ -207,6 +208,14 @@ export function clearUserMasterKey() {
   firebaseApiKey = null;
   backupTargets = [];
   workerUrl = null;
+}
+
+export async function rotateRootMasterKey(newRootMasterKeyBytes) {
+  const currentUMK = getUserMasterKey();
+  if (!currentUMK) throw new Error('Session key not available');
+  const newBlob = await rewrapUserMasterKey(newRootMasterKeyBytes, currentUMK);
+  await saveUserMasterKey(newBlob);       // POST /me/profile — only server write
+  setRootMasterKey(newRootMasterKeyBytes); // update in-memory root key
 }
 
 // ─── User profile ─────────────────────────────────────────────────────────────

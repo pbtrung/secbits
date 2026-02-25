@@ -6,6 +6,7 @@ function SettingsList({ selectedPage, onSelectPage, mobile }) {
   );
   const items = [
     ...(hasBackupTargets ? [{ id: 'backup', label: 'Backup', icon: 'bi-cloud-arrow-up' }] : []),
+    { id: 'security', label: 'Security', icon: 'bi-shield-lock' },
     { id: 'restore', label: 'Restore', icon: 'bi-arrow-counterclockwise' },
     { id: 'about', label: 'About', icon: 'bi-info-circle' },
   ];
