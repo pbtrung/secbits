@@ -72,7 +72,10 @@ The `wrangler.toml.example` already includes a `[[ratelimits]]` binding (`RATE_L
 [[ratelimits]]
 name = "RATE_LIMITER"
 namespace_id = "1001"
-simple = { limit = 60, period = 60 }
+
+  [ratelimits.simple]
+  limit = 60
+  period = 60
 ```
 
 This enforces 60 requests per 60 seconds per authenticated Firebase UID. Exceeding the limit returns HTTP 429.
