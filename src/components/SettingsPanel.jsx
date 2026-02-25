@@ -576,7 +576,7 @@ function SecurityPage() {
       <textarea
         className="form-control font-monospace mb-1"
         style={{ fontSize: '0.7rem' }}
-        rows={4}
+        rows={6}
         readOnly
         value={newKeyB64}
       />
