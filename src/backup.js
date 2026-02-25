@@ -272,6 +272,17 @@ async function encryptBackupExport(exportData, rootMasterKey) {
   return encryptBytesToBlob(rootMasterKey, compressed);
 }
 
+function isJsonExport(blob) {
+  return blob.length > 0 && blob[0] === 0x7b; // starts with '{'
+}
+
+async function parseJsonExportBlob(blob) {
+  if (blob.byteLength > MAX_DECOMPRESSED_BYTES) {
+    throw new Error(`Export file too large (${blob.byteLength} B > ${MAX_DECOMPRESSED_BYTES} B limit)`);
+  }
+  return JSON.parse(new TextDecoder().decode(blob));
+}
+
 async function decryptBackupExport(encryptedBlob, rootMasterKey) {
   const brotli = await getBrotli();
   if (encryptedBlob.byteLength > MAX_RESTORE_BYTES) {
@@ -419,7 +430,9 @@ export async function runRestore({ userId, source, confirm }) {
     throw new Error('Invalid restore source');
   }
 
-  const exportData = await decryptBackupExport(encryptedBlob, rootMasterKey);
+  const exportData = isJsonExport(encryptedBlob)
+    ? await parseJsonExportBlob(encryptedBlob)
+    : await decryptBackupExport(encryptedBlob, rootMasterKey);
   if (exportData.user_id !== userId) {
     throw new Error('Backup belongs to a different user account; restore aborted.');
   }

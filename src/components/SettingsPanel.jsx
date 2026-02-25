@@ -486,7 +486,7 @@ function RestorePage({ userId, onRestoreComplete }) {
           <input
             type="file"
             className="form-control form-control-sm"
-            accept=".bak,application/octet-stream"
+            accept=".bak,.json,application/octet-stream,application/json"
             onChange={(e) => setLocalFile(e.target.files?.[0] || null)}
             disabled={runningRestore}
           />
