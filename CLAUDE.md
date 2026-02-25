@@ -39,15 +39,6 @@ Optional: `backup_on_save`, `log_level`, `log_target`, `log_time`, `[targets.<na
 | `src/logging.rs` | tracing-subscriber init with optional timestamp/target         |
 | `src/error.rs`  | `AppError` enum (thiserror)                                     |
 
-## Implementation Milestones
-
-M1–M7 complete. Remaining:
-
-- **M8** Backup: config `[targets]` parsing, S3 push/pull, `backup_on_save` trigger.
-- **M9** Diff accuracy: Unicode NFC normalization, field-level hashes.
-- **M10** Sharing: `lcr_kyber_x448` keypair/enc/dec wrappers, `share-init/pubkey/share/share-receive`.
-- **M11** Release: packaging, docs.
-
 ## Key Invariants
 
 - Blob layout: `salt(64) || ciphertext || tag(64)`. Details: `agent_docs/crypto.md`.
@@ -60,8 +51,10 @@ M1–M7 complete. Remaining:
 
 | File                       | Contents                                                  |
 |----------------------------|-----------------------------------------------------------|
+| `agent_docs/plan.md`       | Milestone status, exit criteria, test coverage per milestone |
+| `agent_docs/design.md`     | Architecture decisions and rationale                      |
 | `agent_docs/crypto.md`     | Crypto constants, key hierarchy, blob format              |
 | `agent_docs/model.md`      | History object schema, commit/delta rules, dedup/restore  |
 | `agent_docs/backup.md`     | S3 backup push/pull design, blob format, safe replace     |
 | `agent_docs/sharing.md`    | ML-KEM-1024+X448 protocol, share payload binary format    |
-| `agent_docs/testing.md`    | Test strategy, negative tests, integration test patterns  |
+| `agent_docs/testing.md`    | Test layout, patterns, infrastructure notes               |

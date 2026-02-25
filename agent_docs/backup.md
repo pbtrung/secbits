@@ -1,10 +1,5 @@
 # Backup — SecBits
 
-## Overview
-
-Encrypted cloud backups to S3-compatible object storage (R2, AWS S3, GCS).
-Backup payload = AEAD-encrypted raw SQLite DB bytes. Never upload plaintext.
-
 ## Config
 
 ```toml

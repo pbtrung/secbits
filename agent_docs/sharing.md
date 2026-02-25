@@ -1,10 +1,8 @@
 # Entry Sharing — SecBits
 
-## Overview
+Shares the current `head_snapshot` only (no history). Recipient imports it as a new independent entry. Rationale: `agent_docs/design.md`.
 
-Share an entry's current `head_snapshot` with another user using hybrid ML-KEM-1024 + X448 KEM. The recipient imports it as a new independent entry with a fresh commit history. No history is shared.
-
-Implemented via `leancrypto-sys`'s `lcr_kyber_x448` Rust wrapper (generic type-dispatched API, select `lcr_kyber_1024` variant).
+Implemented via `leancrypto-sys`'s `lcr_kyber_x448` Rust wrapper (`lcr_kyber_1024` variant).
 
 ## Key Constants
 

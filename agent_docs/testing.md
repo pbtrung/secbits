@@ -42,45 +42,4 @@ Command::new(cargo_bin!("secbits"))
     .stdout(contains("Saved `mail/google/main`"));
 ```
 
-## Critical Test Coverage Areas
-
-### Crypto
-- Encrypt/decrypt round-trip; same plaintext produces distinct ciphertexts (random salt).
-- Tampered ciphertext/tag → `DecryptionFailedAuthentication`.
-- `MASTER_BLOB_LEN = 192` exactly.
-
-### Auth
-- `init` is idempotent.
-- Wrong root key → `WrongRootMasterKey`.
-- User not found → `UserNotFound`.
-
-### History
-- Initial commit: `delta: None`, `parent: None`, `changed` lists populated fields.
-- 11 edits → exactly 10 commits; oldest has full-snapshot `delta`.
-- Restore to HEAD → no-op (returns false).
-- `restore --commit <unknown>` → `CommitNotFound`.
-
-### Path
-- Fuzzy regex match.
-- Multiple matches → `PathAmbiguous`.
-- `insert` with leading slash / consecutive slashes / empty → `InvalidPathHint`.
-
-### Interactive
-- `SECBITS_FORCE_INTERACTIVE=1` tests password masking, TOTP re-prompting, custom fields.
-- Invalid TOTP in interactive → re-prompt (not error).
-- Invalid TOTP in piped mode → fail with `InvalidTotpSecret`.
-- Summary after insert/edit does not contain password or TOTP secret values.
-
-### Backup (M8)
-- `backup push --all` requires at least one configured target → `BackupTargetNotConfigured`.
-- `backup push` with neither `--target` nor `--all` → CLI arg error.
-- Round-trip: push → delete local DB → pull → verify entries intact.
-- `backup pull` cancellation leaves existing DB intact.
-- `backup_on_save = true` auto-triggers after insert/edit/restore.
-
-### Sharing (M10)
-- Hybrid KEM round-trip: encapsulate → decapsulate → shared secret matches.
-- Share payload encode/decode round-trip.
-- `share-pubkey` before `share-init` → `ShareKeysNotInitialized`.
-- Tampered KEM ciphertext → `ShareDecryptFailed`.
-- Wrong recipient username → `ShareNotForThisUser`.
+Test coverage requirements per milestone: see `agent_docs/plan.md`.
