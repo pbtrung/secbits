@@ -1,117 +1,74 @@
 # SecBits
 
-A self-hosted, end-to-end encrypted password manager. All data is encrypted on the client before it reaches the server. See [`agent_docs/`](agent_docs/) for architecture, cryptography, features, and security notes.
+A self-hosted, end-to-end encrypted password manager. All data is encrypted in the browser before reaching the server. See [`agent_docs/`](agent_docs/) for architecture, cryptography, and design details.
 
-## Table of Contents
+## Backend Setup
 
-1. [Backend Setup (Worker + D1)](#backend-setup-worker--d1)
-2. [Config File Format](#config-file-format)
-3. [Building and Deploying](#building-and-deploying)
-4. [Usage Guide](#usage-guide)
-5. [Testing](#testing)
+The backend is a Cloudflare Worker + Turso Cloud (libSQL) database with Firebase Authentication.
 
-## Backend Setup (Worker + D1)
+### 1. Firebase
 
-The backend is a Cloudflare Worker backed by a D1 (SQLite) database. The Worker handles Firebase token verification and all entry CRUD. The frontend is a static site that talks to the Worker over HTTPS.
+In [Firebase Console](https://console.firebase.google.com):
+1. Create a project.
+2. Enable **Authentication → Sign-in method → Email/Password**.
+3. Add a user under **Authentication → Users**.
+4. Note the **Web API key** and **Project ID** from Project settings.
 
-### 1. Install Wrangler
+Optional CLI user creation:
+```bash
+node scripts/create-firebase-user.mjs --api-key <key> --email you@example.com --password yourpassword
+```
+
+### 2. Turso database
+
+```bash
+turso db create <db-name>
+turso db shell <db-name> < worker/schema.sql
+turso db show <db-name> --url      # note the URL
+turso db tokens create <db-name>   # note the token
+```
+
+### 3. Worker
 
 ```bash
 npm install -g wrangler
 wrangler login
 ```
 
-### 2. Create the D1 database
+Copy `worker/wrangler.toml.example` → `worker/wrangler.toml` and fill in `name`.
 
 ```bash
 cd worker
-wrangler d1 create <database-name>
-```
-
-Copy `worker/wrangler.toml.example` to `worker/wrangler.toml` and fill in `name`, `database_name`, and `database_id` from the command output.
-
-### 3. Apply the schema
-
-```bash
-wrangler d1 execute <database-name> --file schema.sql
-```
-
-### 4. Create Firebase project + user
-
-```bash
-# In Firebase Console:
-# 1) Create project
-# 2) Enable Authentication -> Sign-in method -> Email/Password
-# 3) Create user in Authentication -> Users
-```
-
-You need this Firebase value:
-- Web API key
-
-Optional CLI helper (instead of Console user creation):
-
-```bash
-cd ..
-node scripts/create-firebase-user.mjs --api-key <firebase-web-api-key> --email you@example.com --password yourpassword
-```
-
-### 5. Set Firebase project ID in Worker secret
-
-```bash
-cd worker
-wrangler secret put FIREBASE_PROJECT_ID
-```
-
-Enter your Firebase Project ID when prompted.
-
-### 6. Configure rate limiting
-
-The `wrangler.toml.example` already includes a `[[ratelimits]]` binding (`RATE_LIMITER`). Copy this section into your `wrangler.toml` as-is — no separate resource to create:
-
-```toml
-[[ratelimits]]
-name = "RATE_LIMITER"
-namespace_id = "1001"
-
-  [ratelimits.simple]
-  limit = 60
-  period = 60
-```
-
-This enforces 60 requests per 60 seconds per authenticated Firebase UID. Exceeding the limit returns HTTP 429.
-
-### 7. Deploy the Worker
-
-```bash
+wrangler secret put FIREBASE_PROJECT_ID   # Firebase Project ID
+wrangler secret put TURSO_DATABASE_URL    # libsql://<db>-<org>.turso.io
+wrangler secret put TURSO_AUTH_TOKEN      # token from step 2
 wrangler deploy
 ```
 
-Note the Worker URL printed — `https://<worker-name>.<account>.workers.dev`. You will need it for the config file.
+Note the Worker URL printed — you'll need it for the config file.
 
-### 8. Generate a root master key
+### 4. Root master key
 
-Run this in a browser console or Node.js:
-
+Generate in a browser console or Node:
 ```js
-const bytes = crypto.getRandomValues(new Uint8Array(256));
-const b64 = btoa(String.fromCharCode(...bytes));
+const b64 = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(256))));
 console.log(b64);
 ```
 
-This is your `root_master_key`. **Store it safely — it cannot be recovered if lost.** All your encrypted data is derived from it.
+**Store it safely — it cannot be recovered if lost.**
 
-## Config File Format
+## Config File
 
-Save the following as a `.json` file (e.g. `secbits-config.json`). **Keep this file private. It contains your root master key and login credentials.**
+Save as `secbits-config.json`. **Keep this file private.**
 
 ```json
 {
-  "username": "<username>",
+  "username": "<display name>",
   "worker_url": "https://<worker>.<account>.workers.dev",
   "email": "you@example.com",
-  "password": "your-password",
+  "password": "your-firebase-password",
   "firebase_api_key": "<firebase-web-api-key>",
-  "root_master_key": "<base64-encoded key, >=256 bytes when decoded>",
+  "root_master_key": "<base64-encoded key, ≥256 bytes when decoded>",
   "backup": [
     {
       "target": "r2",
@@ -127,251 +84,73 @@ Save the following as a `.json` file (e.g. `secbits-config.json`). **Keep this f
 
 | Field | Required | Description |
 |---|---|---|
-| `username` | Yes | Display name stored in D1 |
-| `worker_url` | Yes | URL of your deployed Cloudflare Worker |
-| `email` | Yes | Firebase email address |
+| `username` | Yes | Display name |
+| `worker_url` | Yes | Cloudflare Worker URL |
+| `email` | Yes | Firebase email |
 | `password` | Yes | Firebase password |
 | `firebase_api_key` | Yes | Firebase Web API key |
 | `root_master_key` | Yes | Base64-encoded random key, must decode to ≥256 bytes |
-| `backup` | No | Array of cloud backup targets (R2, S3, GCS). Omit or leave empty to disable backup. See [design/backup.md](design/backup.md) for all target types, required fields, and security considerations. |
+| `backup` | No | Cloud backup targets (R2, S3, GCS). See [agent_docs/backup.md](agent_docs/backup.md). |
 
-## Building and Deploying
+## Build and Deploy
 
-### Prerequisites
-
-Node.js 18 or later and npm 9 or later.
-
-### Install dependencies
+Requires Node.js 18+ and npm 9+.
 
 ```bash
-npm install
+npm install        # frontend deps
+npm run build      # output → dist/
 ```
 
-### Local development
+**Frontend deployment** (`dist/` is a standard static site):
+- **Cloudflare Pages:** `wrangler pages deploy dist --project-name secbits`
+- **Netlify / Vercel:** build command `npm run build`, output `dist/`
+- **NGINX / Apache:** serve `index.html` for all routes (SPA routing)
 
-Run the Worker locally (from `worker/`):
-
+**Local dev:**
 ```bash
-cd worker
-wrangler d1 execute <database-name> --local --file schema.sql   # first time only
-wrangler dev
+npm run dev        # frontend → http://localhost:5173
+cd worker && wrangler dev  # Worker → http://localhost:8787
 ```
 
-The Worker listens on `http://localhost:8787`. For local dev, temporarily add `http://localhost:8787` to `connect-src` in `index.html`'s CSP, and set `worker_url` in your config file to `http://localhost:8787`.
+For local Worker dev, add `http://localhost:8787` to `connect-src` in `index.html`'s CSP and set `worker_url` accordingly in your config.
 
-Run the frontend (from repo root):
-
-```bash
-npm run dev
-```
-
-Opens at `http://localhost:5173` with hot module replacement.
-
-### Production build
-
-```bash
-npm run build
-```
-
-Output goes to `dist/`. Preview locally:
-
-```bash
-npm run preview
-```
-
-### Deploying the Worker
-
-```bash
-cd worker
-wrangler deploy
-```
-
-### Deploying the frontend
-
-The `dist/` directory is a standard static site.
-
-**Cloudflare Pages:**
-
-```bash
-npm run build
-wrangler pages deploy dist --project-name secbits
-```
-
-Or connect the repo to Cloudflare Pages in the dashboard: build command `npm run build`, output directory `dist`.
-
-**Netlify / Vercel:**
-
-Set the build command to `npm run build` and the output directory to `dist`.
-
-**NGINX / Apache:**
-
-Copy `dist/` to your web root. Configure the server to serve `index.html` for all routes (SPA routing).
-
-## Usage Guide
+## Usage
 
 ### First login
 
-1. Open the app in your browser.
-2. Drag and drop (or click to browse) your config `.json` file onto the upload area.
-3. The app authenticates against Firebase, then calls the Worker with Firebase ID token auth. On first login a new user master key is generated and stored in D1.
-4. The session is held in memory for the lifetime of the page. You will not be asked to upload the config again unless you hard-reload (F5) or log out.
+Drag and drop (or click to browse) your config `.json` onto the upload area. The app signs into Firebase, connects to the Worker, and loads your entries. The session is held in memory — a hard reload (F5) or logout clears it.
 
-### Creating an entry
+### Entries
 
-1. Click the **+** button in the entry list panel.
-2. Fill in the fields you need. All fields are optional except the title.
-3. Click **Save**. The entry is encrypted client-side and sent to the Worker.
-
-If you cancel while there are unsaved edits, you will be asked to confirm before the new entry is discarded.
-
-### Entry fields
-
-| Field | Description |
-|---|---|
-| Title | Display name for the entry |
-| Username | Account login name or email |
-| Password | Secret, hidden by default, toggle to reveal |
-| TOTP Secrets | Base32-encoded TOTP seeds (format is validated) |
-| URLs | One or more URLs linked to the account (validated, open in new tab) |
-| Custom Fields | Hidden key/value pairs for API keys, recovery codes, etc. |
-| Notes | Free-text notes, hidden by default, reveals for 15 seconds; auto-hidden again when switching to edit mode |
-| Tags | Comma-separated; case-insensitive; autocomplete from existing tags |
-
-### Field limits
-
-Every field has a hard character limit enforced in the UI. The limits exist because each entry stores up to 20 commits (version history) in a single D1 `value` column. That column must stay under **1,900,000 bytes** after Brotli compression and Ascon-Keccak-512 encryption. Keeping individual fields bounded ensures the combined payload of all commits fits comfortably within that ceiling.
-
-| Field | Limit | Reason |
-|---|---|---|
-| Title | 200 chars | Display name; longer values add negligible value |
-| Username | 200 chars | Covers email addresses and long login names |
-| Password | 1,000 chars | Generous for generated passwords; above typical generator output |
-| Notes | 100,000 chars | Largest field; single largest contributor to snapshot size |
-| URL (each) | 2,048 chars | De-facto browser/server URL length limit |
-| TOTP secret (each) | 256 chars | Base32 seeds are typically 16–64 chars; 256 is generous |
-| Custom field label | 100 chars | Field name only |
-| Custom field value | 1,000 chars | Covers API keys, recovery codes, and similar secrets |
-| Tag (each) | 50 chars | Tag labels are short by convention |
-| URLs per entry | 20 | Structural limit to cap total payload size |
-| TOTP secrets per entry | 10 | Structural limit |
-| Custom fields per entry | 20 | Structural limit |
-| Tags per entry | 20 | Structural limit |
-| Commits per entry | 20 | Oldest commit is dropped when the chain exceeds this length |
-
-The UI enforces every limit via `maxLength` on inputs, disabled **Add** buttons when the collection cap is reached, and inline error messages. The Save button is disabled whenever any limit is exceeded.
-
-Implementation note: `src/limits.js` defines UI field/collection limits, while the commit-chain cap (20) is enforced in `src/api.js`.
-
-### Copying values
-
-Every sensitive field (password, TOTP code, custom field value) has a copy button. A checkmark appears for 1.5 seconds as visual confirmation. The clipboard is automatically overwritten with an empty string 30 seconds after any copy.
-
-### TOTP codes
-
-If a TOTP secret is valid base32, a live 6-digit code with a countdown circle is shown next to the secret in view mode. Invalid secrets are flagged inline.
+- **Create:** click **+**, fill in fields, click **Save**.
+- **Edit:** select an entry, click the edit icon.
+- **Fields:** Title, Username, Password, TOTP Secrets, URLs, Custom Fields, Notes, Tags.
+- **Limits:** see `src/limits.js` for per-field character limits and per-entry collection caps.
 
 ### Version history
 
-Each save appends a new commit to the entry's history (up to 20). Saving without any content change is a no-op, so duplicate commits are not created.
-
-Use the **N versions** button in the detail action bar to open the history modal.
-
-- Desktop: two-pane diff modal (commit list on the left, field-level diff on the right)
-- Mobile: progressive flow (commit list first, then selected commit diff)
-
-Each commit row shows:
-
-- A 12-character content hash (e.g. `a1b2c3d4e5f6`)
-- A **HEAD** badge on the latest commit
-- Changed-field badges (`password`, `notes`, `customFields`, etc.)
-- Save timestamp
-
-Selecting any commit opens a diff against its parent commit. Notes use line-based diffing with context, scalar fields show remove/add pairs, and array fields show added/removed items.
-
-To non-destructively roll back, select an older commit and click **Restore this version**. This writes a new HEAD commit with the restored snapshot; prior history remains intact.
-
-### Password generator
-
-In edit mode, click **Generate Password** below the password field to open the generator. Adjust character sets and length, then click the check button to apply the generated password.
-
-### Tags and search
-
-Select a tag in the left sidebar to filter entries. Use the search bar to search across title, username, and URLs. Tag suggestions appear as you type in the tags field.
+Each save appends a commit (up to 20). Use the **N versions** button to open the diff modal. Restore any past version with **Restore this version** — this creates a new HEAD commit; history is never overwritten.
 
 ### Settings
 
-Click the gear icon at the bottom of the tag sidebar to open Settings.
-
-- **Backup** (shown only when backup targets are configured in the config file):
-  - **Export:** downloads a decrypted JSON file (`secbits-export-YYYY-MM-DD.json`) containing all entries, the decrypted user master key, and per-entry doc keys. Keep this file secure. Export JSON includes `user_id`, `username`, `user_master_key_b64`, and `data`; each entry in `data` includes `entry_key_b64` and `value`.
-  - **Backup now:** uploads an encrypted backup to all configured cloud targets immediately.
-  - **Auto-backup after save:** when enabled, a backup is triggered automatically after every successful create, update, restore, or delete.
-  - **Last backup:** timestamp of the most recent successful upload (resets on page reload).
-- **Restore** (always visible):
-  - Select a configured cloud target or **Local file** as the source. When no targets are configured only the file picker is shown.
-  - Click **Restore** to decrypt and apply the backup. A confirmation dialog shows the entry count and warns that the operation replaces all current entries and cannot be undone.
-- **About:** shows entry count, total stored size, field coverage, version history stats, top tags, and the 5 largest entries.
-
-See [agent_docs/backup.md](agent_docs/backup.md) for full backup and restore details, cloud target configuration, and the encrypted file format.
+- **Security:** rotate the root master key (re-encrypts only the user master key blob; entries are unaffected).
+- **Backup** (only when targets are configured): export decrypted JSON, manual backup, auto-backup toggle.
+- **Restore:** from a cloud target, a local `.bak` file, or a plain JSON export.
+- **About:** storage stats and field coverage.
 
 ### Change root master key
 
-The `root_master_key` is the root of all encryption. It wraps the `user_master_key`, which in turn wraps every entry key. Rotating it is a lightweight operation — only the `user_master_key` wrapper stored in the Worker database is re-encrypted. Entry keys and entry values are not touched.
+1. Open **Settings → Security**.
+2. Copy the generated key and update your config JSON and any secure backup.
+3. Check the confirmation checkbox, then click **Change**.
 
-**Steps:**
-
-1. While logged in, open **Settings → Change Root Master Key**.
-2. Generate a new root master key (the UI provides a generator), or paste a base64 value that decodes to ≥ 256 bytes.
-3. Copy the new key and save it to your config JSON file and any secure backup location.
-4. Check the **"I have saved the new root master key"** confirmation checkbox.
-5. Click **Change**. Only after confirmation does the app:
-   - Re-encrypt the in-memory `user_master_key` under the new root key with a fresh random salt.
-   - Upload the new encrypted blob to the Worker (`POST /me/profile`). This is the only server write.
-   - Replace the in-memory root master key.
-
-The confirmation gate is irreversible: once the server write succeeds, the old root master key no longer unlocks the database.
-
-**What is and is not affected:**
-
-| Item | Affected? |
-|---|---|
-| `user_master_key` blob in database | Yes — re-encrypted with new root key |
-| Entry keys (`entry_key` in database) | No — wrapped with the same `user_master_key` plaintext |
-| Entry values (`value` in database) | No — encrypted with per-entry doc keys |
-| Config JSON `root_master_key` field | Yes — must be updated before confirmation |
-
-**Recovery:** if the key was not saved before clicking Change, data cannot be recovered.
-
-### Logging out
-
-Click the logout button (arrow icon) at the bottom of the tag sidebar. The in-memory session key and auth token are cleared immediately.
+The old key stops working immediately after the server write. If the new key is not saved first, recovery is impossible.
 
 ## Testing
 
-### How to run tests
-
-Run the full test suite:
-
 ```bash
-npx vitest run
+npx vitest run    # run all suites
+npx vitest        # watch mode
 ```
 
-Run a specific test file:
-
-```bash
-npx vitest run src/tests/crypto.test.js
-npx vitest run src/tests/crypto-root-key.test.js
-npx vitest run src/tests/crypto-master-key.test.js
-npx vitest run src/tests/crypto-entry-key.test.js
-npx vitest run src/tests/crypto-entry-history.test.js
-npx vitest run src/tests/totp.test.js
-npx vitest run src/tests/leancrypto.test.js
-```
-
-Optional watch mode while developing:
-
-```bash
-npx vitest
-```
-
-See [agent_docs/testing.md](agent_docs/testing.md) for test coverage matrix, rationale, and detailed breakdown of each suite.
+See [agent_docs/testing.md](agent_docs/testing.md) for coverage matrix and suite breakdown.
