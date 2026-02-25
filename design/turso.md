@@ -184,13 +184,15 @@ root_master_key
 **Client-side flow:**
 
 1. User opens **Settings → Change Root Master Key** and provides a new key (generated in-UI or pasted; must decode to ≥ 256 bytes).
-2. App re-wraps the in-memory plaintext `user_master_key` under the new root key:
+2. UI displays the new key with a Copy button. User copies it, updates the config JSON, and checks a **"I have saved the new root master key"** confirmation checkbox. The Change button is disabled until the checkbox is checked.
+3. User clicks **Change**. App re-wraps the in-memory plaintext `user_master_key` under the new root key:
    - Generate a fresh 64-byte random salt.
    - Derive `encKey || encIv` via `HKDF-SHA3-512(newRootMasterKey, newSalt)` → 128 bytes.
    - Encrypt with Ascon-Keccak AEAD → `newSalt || newCiphertext || newTag` (192-byte blob).
-3. Upload the new blob: `POST /me/profile` with `{ user_master_key: base64(newBlob) }`. This is the only Worker write.
-4. Replace the in-memory `rootMasterKeyBytes` with the new key.
-5. Display the new base64-encoded `root_master_key` with a Copy button and a prompt to update the config JSON.
+4. Upload the new blob: `POST /me/profile` with `{ user_master_key: base64(newBlob) }`. This is the only Worker write.
+5. Replace the in-memory `rootMasterKeyBytes` with the new key.
+
+The confirmation gate enforces save-before-commit: the server write only happens after the user explicitly acknowledges they have the new key. Once the write succeeds the old root master key is invalid.
 
 **What changes, what doesn't:**
 
@@ -200,7 +202,7 @@ root_master_key
 | `entries.entry_key` blobs | Unchanged — wrapped with the same `user_master_key` plaintext |
 | `entries.value` blobs | Unchanged — encrypted with per-entry doc keys |
 
-**Failure mode:** if the session ends before the config JSON is updated, sign-in will fail with "Wrong root master key" because the database blob is now encrypted with the new key. Recovery is impossible without the new key — the user must copy it to a safe location before updating the config.
+**Failure mode:** if the user bypasses or ignores the confirmation and does not have the new key, recovery is impossible — there is no server-side copy of any plaintext key.
 
 ## Config File Format
 

@@ -311,11 +311,14 @@ The `root_master_key` is the root of all encryption. It wraps the `user_master_k
 
 1. While logged in, open **Settings → Change Root Master Key**.
 2. Generate a new root master key (the UI provides a generator), or paste a base64 value that decodes to ≥ 256 bytes.
-3. Review the new key and click **Change**. The app:
-   - Re-encrypts the in-memory `user_master_key` under the new root key with a fresh random salt.
-   - Uploads the new encrypted blob to the Worker (`POST /me/profile`). This is the only server write.
-   - Replaces the in-memory root master key.
-4. **Update your config JSON before ending the session.** Copy the new `root_master_key` value shown in the UI and replace the field in your config file. If you close the tab first, the database holds a blob encrypted with the new key but your config still has the old key — sign-in will fail.
+3. Copy the new key and save it to your config JSON file and any secure backup location.
+4. Check the **"I have saved the new root master key"** confirmation checkbox.
+5. Click **Change**. Only after confirmation does the app:
+   - Re-encrypt the in-memory `user_master_key` under the new root key with a fresh random salt.
+   - Upload the new encrypted blob to the Worker (`POST /me/profile`). This is the only server write.
+   - Replace the in-memory root master key.
+
+The confirmation gate is irreversible: once the server write succeeds, the old root master key no longer unlocks the database.
 
 **What is and is not affected:**
 
@@ -324,9 +327,9 @@ The `root_master_key` is the root of all encryption. It wraps the `user_master_k
 | `user_master_key` blob in database | Yes — re-encrypted with new root key |
 | Entry keys (`entry_key` in database) | No — wrapped with the same `user_master_key` plaintext |
 | Entry values (`value` in database) | No — encrypted with per-entry doc keys |
-| Config JSON `root_master_key` field | Yes — must be updated manually |
+| Config JSON `root_master_key` field | Yes — must be updated before confirmation |
 
-**Recovery if config is not updated in time:** if the new key was not saved before the session ended, data cannot be recovered. Keep the new key in a safe location before updating the config file.
+**Recovery:** if the key was not saved before clicking Change, data cannot be recovered.
 
 ### Logging out
 
