@@ -1,5 +1,3 @@
-> Part of [Design Docs](../design.md).
-
 # Security Notes
 
 **The master key is everything.** Anyone with your config file can decrypt all your data if they also compromise the Worker or D1 database. Keep the config file off shared machines and out of version control.
@@ -14,8 +12,10 @@
 
 **Email/Password auth.** Credentials are verified by Firebase Authentication, not the Worker. The app signs in via the Firebase REST API, receives an RS256 ID token (1-hour expiry, signed by Google), and forwards it as `Authorization: Bearer <token>` on every Worker request. The Worker verifies the token against Firebase's published public keys and extracts the Firebase UID (`token.sub`) as the canonical user identity. The Worker never handles passwords, stores password hashes, or issues tokens of its own.
 
-**`wrangler.toml` is gitignored.** It contains the D1 `database_id` and worker name. A template (`worker/wrangler.toml.example`) is committed instead. `JWT_SECRET` is stored as a Wrangler secret and never appears in any file.
+**`wrangler.toml` is gitignored.** It contains the D1 `database_id` and worker name. A template (`worker/wrangler.toml.example`) is committed instead. `FIREBASE_PROJECT_ID` is stored as a Wrangler secret and never appears in any file.
 
-**Session scope.** The session is held in JS memory only. Nothing is written to `sessionStorage`, `localStorage`, or any other browser store. A hard reload (F5) returns to the config upload screen. The logout button explicitly clears the in-memory key and JWT token. Browser session-restore features may preserve the in-memory state across a browser restart, but this is browser behaviour outside the app's control.
+**Session scope.** The session is held in JS memory only. Nothing is written to `sessionStorage`, `localStorage`, or any other browser store. A hard reload (F5) returns to the config upload screen. The logout button explicitly clears the in-memory key and JWT token.
 
 **Content Security Policy.** A CSP meta tag in `index.html` restricts scripts, connections, styles, fonts, and images to known-good origins. `connect-src` allows only `'self'` and `https://*.workers.dev`.
+
+**Root master key rotation.** Rotating the root master key re-encrypts only the 192-byte user master key blob in D1. Entry keys and values are unaffected. The old key immediately stops working once the new blob is written. If the new key is not saved before confirming, data cannot be recovered.

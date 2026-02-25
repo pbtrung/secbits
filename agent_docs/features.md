@@ -1,5 +1,3 @@
-> Part of [Design Docs](../design.md).
-
 # Features
 
 | Feature | Description |
@@ -13,10 +11,10 @@
 | Tags | Organize entries with comma-separated tags; sidebar filter with counts |
 | Full-text search | Searches title, username, and URLs in real time |
 | Backup | Encrypted cloud backup to R2, S3, or GCS; manual trigger or auto-backup after every save |
-| Restore | Recover all entries from a cloud backup or a local `.bak` file |
+| Restore | Recover all entries from a cloud backup, a local `.bak` file, or a plain JSON export |
 | Export | Download all entries as a decrypted JSON file for local backup or migration |
+| Root master key rotation | Re-encrypts only the user master key blob; entry data is untouched |
 | Responsive layout | Three-column resizable desktop view; stacked mobile navigation |
-| Session persistence | Session held in memory only; nothing written to any browser store. Cleared on logout or hard reload; browser session-restore may preserve it across a browser restart. |
-| Unified startup flow | Auth screen keeps the spinner/status visible through entry preload (no separate post-auth loading screen) |
+| Session persistence | Session held in memory only; nothing written to any browser store. Cleared on logout or hard reload |
 | Clipboard auto-clear | Clipboard is overwritten 30 seconds after any copy |
 | Notes auto-hide | Revealed notes are hidden after 15 seconds or on window blur |

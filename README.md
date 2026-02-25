@@ -1,6 +1,6 @@
 # SecBits
 
-A self-hosted, end-to-end encrypted password manager. All data is encrypted on the client before it reaches the server. See [Design Docs](design.md) for architecture, cryptography, features, and security notes.
+A self-hosted, end-to-end encrypted password manager. All data is encrypted on the client before it reaches the server. See [`agent_docs/`](agent_docs/) for architecture, cryptography, features, and security notes.
 
 ## Table of Contents
 
@@ -312,7 +312,7 @@ Click the gear icon at the bottom of the tag sidebar to open Settings.
   - Click **Restore** to decrypt and apply the backup. A confirmation dialog shows the entry count and warns that the operation replaces all current entries and cannot be undone.
 - **About:** shows entry count, total stored size, field coverage, version history stats, top tags, and the 5 largest entries.
 
-See [design/backup.md](design/backup.md) for full backup and restore details, cloud target configuration, and the encrypted file format.
+See [agent_docs/backup.md](agent_docs/backup.md) for full backup and restore details, cloud target configuration, and the encrypted file format.
 
 ### Change root master key
 
@@ -374,4 +374,4 @@ Optional watch mode while developing:
 npx vitest
 ```
 
-See [design/testing.md](design/testing.md) for test coverage matrix, rationale, and detailed breakdown of each suite.
+See [agent_docs/testing.md](agent_docs/testing.md) for test coverage matrix, rationale, and detailed breakdown of each suite.
