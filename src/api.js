@@ -9,6 +9,7 @@ let trashCache = [];
 let userName = '';
 let vaultLoaded = false;
 let vaultBlobSize = 0;
+let loadPromise = null;
 
 function zeroizeBytes(bytes) {
   if (bytes instanceof Uint8Array) bytes.fill(0);
@@ -309,7 +310,9 @@ export async function initApi(config) {
 
   userName = typeof config.username === 'string' ? config.username : '';
   entriesCache = [];
+  trashCache = [];
   vaultLoaded = false;
+  loadPromise = null;
 
   return {
     userId: session.uid || 'unknown-user',
@@ -330,6 +333,7 @@ export function clearUserMasterKey() {
   userName = '';
   vaultLoaded = false;
   vaultBlobSize = 0;
+  loadPromise = null;
 }
 
 function vaultKeySearchParams(r2, vaultId) {
@@ -423,11 +427,16 @@ async function writeVaultToRemote(entries, trash) {
 
 async function ensureVaultLoaded() {
   if (vaultLoaded) return;
-  const vault = await readVaultFromRemote();
-  userName = vault.username || userName;
-  entriesCache = normalizeVaultData(vault.data);
-  trashCache = normalizeVaultTrash(vault.trash);
-  vaultLoaded = true;
+  if (!loadPromise) {
+    loadPromise = (async () => {
+      const vault = await readVaultFromRemote();
+      userName = vault.username || userName;
+      entriesCache = normalizeVaultData(vault.data);
+      trashCache = normalizeVaultTrash(vault.trash);
+      vaultLoaded = true;
+    })().finally(() => { loadPromise = null; });
+  }
+  await loadPromise;
 }
 
 export async function fetchUserEntries() {

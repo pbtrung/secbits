@@ -114,7 +114,6 @@ export default {
         if (!object) {
           return json({
             exists: false,
-            key,
             payload_b64: null,
           }, 200, origin);
         }
@@ -127,7 +126,6 @@ export default {
         return json({
           exists: true,
           payload_b64,
-          key,
           size: object.size,
           etag: object.httpEtag,
           uploaded: object.uploaded,
@@ -144,12 +142,12 @@ export default {
           httpMetadata: { contentType: 'application/octet-stream' },
         });
 
-        return json({ ok: true, key, size: config.bytes.length }, 200, origin);
+        return json({ ok: true, size: config.bytes.length }, 200, origin);
       }
 
       return json({ error: 'Not found' }, 404, origin);
     } catch (err) {
-      const status = Number.isInteger(err?.status) ? err.status : 400;
+      const status = Number.isInteger(err?.status) ? err.status : 500;
       return json({ error: err?.message || 'Unexpected error' }, status, origin);
     }
   },

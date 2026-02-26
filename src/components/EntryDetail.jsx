@@ -11,8 +11,8 @@ import {
 } from '../limits.js';
 
 function TotpCode({ secret, onCopy, copiedLabel }) {
-  const [code, setCode] = useState(null);
-  const [secondsLeft, setSecondsLeft] = useState(30);
+  const [code, setCode] = useState(() => generateTOTP(secret));
+  const [secondsLeft, setSecondsLeft] = useState(() => 30 - (Math.floor(Date.now() / 1000) % 30));
 
   useEffect(() => {
     const update = () => {
@@ -75,7 +75,7 @@ function hasDraftChanges(draft, entry, tagCurrentInput) {
     JSON.stringify(normalizeArray(draft?.urls)) !== JSON.stringify(normalizeArray(entry?.urls)) ||
     JSON.stringify(normalizeArray(draft?.totpSecrets)) !== JSON.stringify(normalizeArray(entry?.totpSecrets)) ||
     JSON.stringify(normalizeArray(draft?.customFields)) !== JSON.stringify(normalizeArray(entry?.customFields)) ||
-    tagsNow.join(',') !== tagsOrig.join(',')
+    [...tagsNow].sort().join(',') !== [...tagsOrig].sort().join(',')
   );
 }
 
@@ -176,14 +176,16 @@ function EntryDetail({
   }, [draft, tagCurrentInput, entry, isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    const clearClipboard = () => navigator.clipboard.writeText('').catch(() => {});
     const hideNotes = () => setNotesVisible(false);
+    const onBlur = () => { hideNotes(); clearClipboard(); };
     const onVisibilityChange = () => {
-      if (document.hidden) hideNotes();
+      if (document.hidden) { hideNotes(); clearClipboard(); }
     };
-    window.addEventListener('blur', hideNotes);
+    window.addEventListener('blur', onBlur);
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
-      window.removeEventListener('blur', hideNotes);
+      window.removeEventListener('blur', onBlur);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, []);

@@ -45,7 +45,7 @@ async function loadGoogleCerts() {
     keys.set(jwk.kid, key);
   }
 
-  const maxAge = parseMaxAge(res.headers.get('cache-control'));
+  const maxAge = Math.min(parseMaxAge(res.headers.get('cache-control')), 3600);
   certCache = {
     keys,
     expiresAt: now + maxAge * 1000,

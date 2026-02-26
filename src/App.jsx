@@ -43,23 +43,13 @@ function App() {
   }), []);
 
   const handleReady = useCallback(async (userId, userName) => {
-    try {
-      const { entries: data, trash, failedCount } = await fetchUserEntries();
-      const filtered = data.map(normalizeEntry);
-      const deleted = trash.map(normalizeEntry);
-      const initialSyncError = failedCount > 0
-        ? `${failedCount} entry(ies) could not be decrypted and were skipped. Check your master key.`
-        : '';
-      setSession({ userId, userName, initialEntries: filtered, initialTrash: deleted, initialSyncError });
-    } catch {
-      setSession({
-        userId,
-        userName,
-        initialEntries: [],
-        initialTrash: [],
-        initialSyncError: 'Failed to load entries.',
-      });
-    }
+    const { entries: data, trash, failedCount } = await fetchUserEntries();
+    const filtered = data.map(normalizeEntry);
+    const deleted = trash.map(normalizeEntry);
+    const initialSyncError = failedCount > 0
+      ? `${failedCount} entry(ies) could not be decrypted and were skipped. Check your master key.`
+      : '';
+    setSession({ userId, userName, initialEntries: filtered, initialTrash: deleted, initialSyncError });
   }, [normalizeEntry]);
 
   const handleLogout = useCallback(() => {
@@ -482,6 +472,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
                     placeholder="Search..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    maxLength={256}
                     disabled={settingsMode || editingId !== null}
                   />
                   {searchQuery && (

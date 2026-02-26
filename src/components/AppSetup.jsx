@@ -126,8 +126,8 @@ function AppSetup({ onReady }) {
 {`{
   "username": "<display-name>",
   "worker_url": "https://<worker>.<account>.workers.dev",
-  "email": "user@example.com",
-  "password": "xxx",
+  "email": "<email>",
+  "password": "<password>",
   "firebase_api_key": "<firebase-web-api-key>",
   "root_master_key": "<base64, >=256 bytes>",
   "vault_id": "<random string, e.g. openssl rand -base64 32>",
