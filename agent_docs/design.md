@@ -76,8 +76,8 @@ Architecture decisions and their rationale.
 
 ---
 
-## Config-Driven R2 Path
+## R2 Path Derived from vault_id
 
-**Decision:** The R2 object path is fully determined by `bucket_name`, `prefix`, and `file_name` fields in the client config JSON, sent with each Worker request.
+**Decision:** The R2 object key is `{vault_id}/{file_name}`, where `vault_id` is a stable random string from the client config, sent in the request body and validated server-side. The bearer token is still verified on every request; `vault_id` determines the storage path independently of the auth provider.
 
-**Why:** Different deployments can target different buckets or path layouts without code changes. The Worker validates and sanitizes all three fields server-side before constructing the R2 key, preventing path traversal.
+**Why:** Tying the path namespace to an auth-provider identity (e.g. Firebase UID) would couple storage layout to the auth layer — switching auth backends would relocate the vault and require data migration. Using a config-supplied `vault_id` keeps the path stable across auth changes. Path isolation relies on the secrecy of `vault_id`, which lives in the config alongside the root master key — consistent with the overall trust model where the config file is the trust anchor.

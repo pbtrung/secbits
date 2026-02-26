@@ -34,21 +34,14 @@ function sanitizePathPart(value, field) {
   return out;
 }
 
-function normalizePrefix(prefixRaw) {
-  const prefix = String(prefixRaw || '').trim();
-  if (!prefix) return '';
-  if (prefix.includes('..') || prefix.includes('\\')) throw new HttpError(400, 'Invalid value for prefix');
-  return prefix.endsWith('/') ? prefix : `${prefix}/`;
-}
-
-function resolveKey(bucketName, prefix, fileName, env) {
+function resolveKey(bucketName, vaultId, fileName, env) {
   if (!env.R2_BUCKET_NAME) {
     throw new HttpError(500, 'Worker env R2_BUCKET_NAME is not configured');
   }
   if (bucketName !== env.R2_BUCKET_NAME) {
     throw new HttpError(400, `Configured bucket_name does not match worker bucket (${env.R2_BUCKET_NAME})`);
   }
-  return `${prefix}${fileName}`;
+  return `${vaultId}/${fileName}`;
 }
 
 async function requireAuth(request, env) {
@@ -65,16 +58,16 @@ async function requireAuth(request, env) {
 function resolveReadConfig(body) {
   if (!body || typeof body !== 'object') throw new HttpError(400, 'Invalid JSON body');
   const bucket_name = sanitizePathPart(body.bucket_name, 'bucket_name');
-  const prefix = normalizePrefix(body.prefix);
+  const vault_id = sanitizePathPart(body.vault_id, 'vault_id');
   const file_name = sanitizePathPart(body.file_name, 'file_name');
-  return { bucket_name, prefix, file_name };
+  return { bucket_name, vault_id, file_name };
 }
 
 function resolveWriteConfig(body) {
   if (!body || typeof body !== 'object') throw new HttpError(400, 'Invalid JSON body');
 
   const bucket_name = sanitizePathPart(body.bucket_name, 'bucket_name');
-  const prefix = normalizePrefix(body.prefix);
+  const vault_id = sanitizePathPart(body.vault_id, 'vault_id');
   const file_name = sanitizePathPart(body.file_name, 'file_name');
   const payload_b64 = sanitizePathPart(body.payload_b64, 'payload_b64');
 
@@ -89,7 +82,7 @@ function resolveWriteConfig(body) {
 
   return {
     bucket_name,
-    prefix,
+    vault_id,
     file_name,
     payload_b64,
     bytes,
@@ -114,8 +107,8 @@ export default {
       if (url.pathname === '/vault/read' && request.method === 'POST') {
         await requireAuth(request, env);
         const body = await request.json().catch(() => null);
-        const { bucket_name, prefix, file_name } = resolveReadConfig(body);
-        const key = resolveKey(bucket_name, prefix, file_name, env);
+        const { bucket_name, vault_id, file_name } = resolveReadConfig(body);
+        const key = resolveKey(bucket_name, vault_id, file_name, env);
 
         const object = await env.SECBITS_R2.get(key);
         if (!object) {
@@ -145,7 +138,7 @@ export default {
         await requireAuth(request, env);
         const body = await request.json().catch(() => null);
         const config = resolveWriteConfig(body);
-        const key = resolveKey(config.bucket_name, config.prefix, config.file_name, env);
+        const key = resolveKey(config.bucket_name, config.vault_id, config.file_name, env);
 
         await env.SECBITS_R2.put(key, config.bytes, {
           httpMetadata: { contentType: 'application/octet-stream' },

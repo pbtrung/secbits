@@ -54,20 +54,13 @@ function ensureRootKey() {
   return rootMasterKeyBytes;
 }
 
-function normalizePrefix(prefix) {
-  const value = String(prefix || '');
-  if (!value) return '';
-  return value.endsWith('/') ? value : `${value}/`;
-}
-
 function normalizeR2Config(r2) {
   if (!r2 || typeof r2 !== 'object') throw new Error('Missing required field: r2');
   const bucket_name = String(r2.bucket_name || '').trim();
-  const prefix = normalizePrefix(r2.prefix);
   const file_name = String(r2.file_name || '').trim();
   if (!bucket_name) throw new Error('Missing required field: r2.bucket_name');
   if (!file_name) throw new Error('Missing required field: r2.file_name');
-  return { bucket_name, prefix, file_name };
+  return { bucket_name, file_name };
 }
 
 async function refreshIdTokenIfNeeded() {
@@ -275,6 +268,8 @@ export async function initApi(config) {
   if (!config.email) throw new Error('Missing required field: email');
   if (!config.password) throw new Error('Missing required field: password');
   if (!config.firebase_api_key) throw new Error('Missing required field: firebase_api_key');
+  const vaultId = String(config.vault_id || '').trim();
+  if (!vaultId) throw new Error('Missing required field: vault_id');
 
   const r2 = normalizeR2Config(config.r2);
 
@@ -306,6 +301,7 @@ export async function initApi(config) {
     refreshToken: auth.refreshToken,
     idTokenExpiresAtMs: payload?.exp ? Number(payload.exp) * 1000 : now + 45 * 60 * 1000,
     uid: auth.localId || payload?.sub || null,
+    vaultId,
     r2,
   };
 
@@ -333,10 +329,10 @@ export function clearUserMasterKey() {
   vaultBlobSize = 0;
 }
 
-function vaultKeySearchParams(r2) {
+function vaultKeySearchParams(r2, vaultId) {
   return {
     bucket_name: r2.bucket_name,
-    prefix: r2.prefix,
+    vault_id: vaultId,
     file_name: r2.file_name,
   };
 }
@@ -354,7 +350,7 @@ async function readVaultFromRemote() {
   const res = await workerFetch('/vault/read', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(vaultKeySearchParams(s.r2)),
+    body: JSON.stringify(vaultKeySearchParams(s.r2, s.vaultId)),
   });
 
   if (!res.ok) {
@@ -409,7 +405,7 @@ async function writeVaultToRemote(entries) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      ...vaultKeySearchParams(s.r2),
+      ...vaultKeySearchParams(s.r2, s.vaultId),
       payload_b64: bytesToB64(encryptedBlob),
     }),
   });

@@ -64,16 +64,15 @@ Save as `secbits-config.json` and keep it private.
   "password": "your-firebase-password",
   "firebase_api_key": "<firebase-web-api-key>",
   "root_master_key": "<base64-encoded key, >=256 bytes decoded>",
+  "vault_id": "<random string, e.g. openssl rand -base64 32>",
   "r2": {
     "bucket_name": "secbits-data",
-    "prefix": "users/",
     "file_name": "vault.bin"
   }
 }
 ```
 
-R2 object path is config-driven using:
-`bucket-name/prefix/file-name`
+The R2 object key is `{vault_id}/{file_name}`. Generate `vault_id` once with a CSPRNG and keep it in the config — it determines the storage path independently of the auth provider.
 
 ## Build and Run
 

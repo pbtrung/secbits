@@ -20,7 +20,7 @@
 
 **Firebase token enforcement.** The Worker verifies the RS256 signature, expiry, and audience of every Firebase ID token. Expired or forged tokens are rejected before any R2 operation.
 
-**Path traversal prevention.** The Worker sanitizes `prefix` and `file_name` to reject `..` and `\` before constructing the R2 object key. `bucket_name` is validated against the Worker's own `R2_BUCKET_NAME` secret.
+**Path isolation via vault_id.** The R2 object key is `{vault_id}/{file_name}`. `vault_id` is a secret random string from the config (alongside the root master key); a client without the config cannot determine the storage path. `bucket_name` is validated against the Worker's `R2_BUCKET_NAME` secret; `vault_id` and `file_name` are sanitized to reject `..` and `\`. The bearer token is still verified on every request.
 
 ## XSS Exposure Window
 

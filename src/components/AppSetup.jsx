@@ -21,6 +21,7 @@ function AppSetup({ onReady }) {
     if (!json.r2.bucket_name) throw new Error('Missing required field: r2.bucket_name');
     if (!json.r2.file_name) throw new Error('Missing required field: r2.file_name');
     if (!json.root_master_key) throw new Error('Missing required field: root_master_key');
+    if (!json.vault_id) throw new Error('Missing required field: vault_id');
 
     const rootMasterKeyBytes = decodeRootMasterKey(json.root_master_key);
     setRootMasterKey(rootMasterKeyBytes);
@@ -129,9 +130,9 @@ function AppSetup({ onReady }) {
   "password": "xxx",
   "firebase_api_key": "<firebase-web-api-key>",
   "root_master_key": "<base64, >=256 bytes>",
+  "vault_id": "<random string, e.g. openssl rand -base64 32>",
   "r2": {
     "bucket_name": "<bucket-name>",
-    "prefix": "<prefix/>",
     "file_name": "<file-name>"
   }
 }`}

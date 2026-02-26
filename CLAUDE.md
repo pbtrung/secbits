@@ -49,14 +49,11 @@ Key fields:
 - `password`
 - `firebase_api_key`
 - `root_master_key`
+- `vault_id` (stable random string; used as R2 path namespace; auth-provider independent)
 - `r2.bucket_name`
-- `r2.prefix`
 - `r2.file_name`
 
-R2 path format:
-`bucket-name/prefix/file-name`
-
-All path variables are read from config JSON.
+R2 path format: `{vault_id}/{file_name}` — auth-provider independent; `vault_id` is sent in the request body and validated server-side.
 
 ## Agent Docs
 
