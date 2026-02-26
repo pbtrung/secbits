@@ -269,7 +269,7 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
             {showList && (
               <div
                 className={`bg-light ${isMobile ? '' : 'border-end'}`}
-                style={{ width: isMobile ? '100%' : 320, flexShrink: 0, overflowY: 'auto', height: '100%' }}
+                style={{ width: isMobile ? '100%' : 260, flexShrink: 0, overflowY: 'auto', height: '100%' }}
               >
                 {commits.map((c, i) => (
                   <button
@@ -282,10 +282,10 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
                     className={`w-100 text-start border-0 border-bottom px-3 py-2${i === idx ? ' bg-primary-subtle' : ' bg-transparent'}`}
                     style={{ cursor: 'pointer' }}
                   >
-                    <div className="d-flex align-items-center gap-1 mb-1" style={{ flexWrap: 'nowrap' }}>
-                      <code style={{ fontSize: '0.75em', letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>{c.hash}</code>
+                    <div className="d-flex align-items-center gap-1 mb-1">
+                      <code style={{ fontSize: '0.75em', letterSpacing: '0.02em' }} title={c.hash}>{c.hash ? `${c.hash.slice(0, 12)}…` : ''}</code>
                       {i === 0 && (
-                        <span className="badge bg-success ms-1 flex-shrink-0" style={{ fontSize: '0.6em' }}>HEAD</span>
+                        <span className="badge bg-success ms-1" style={{ fontSize: '0.6em' }}>HEAD</span>
                       )}
                     </div>
                     {c.changed && c.changed.length > 0 ? (
