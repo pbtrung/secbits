@@ -6,7 +6,7 @@
 |---------|--------|
 | End-to-end encryption | Export JSON → Brotli compress → AEAD encrypt → R2. Plaintext never leaves the browser. |
 | Single vault object | All entries stored as one encrypted blob in R2. |
-| Version history | Each entry tracks up to 20 commits. Head snapshot stored directly; older commits store field-level deltas. |
+| Version history | Each entry tracks up to 20 commits. Each commit is identified by a 32-hex-character (128-bit) SHA-256 hash. Head snapshot stored directly; older commits store field-level deltas. |
 | Trash | Deleted entries move to a trash bin with a deletion timestamp. Full commit history is preserved. Entries can be restored or permanently deleted from trash. |
 | Export | Download full decrypted vault as JSON (includes both live entries and trash). |
 
@@ -39,6 +39,7 @@ Configurable password generator. Options: length, uppercase, lowercase, digits, 
 ## History
 
 - Per-entry version history, capped at 20 commits.
+- Each commit identified by a 32-hex-character (128-bit) truncation of a SHA-256 content hash.
 - Field-level diff viewer between any two commits.
 - Commit timestamps.
 
@@ -70,6 +71,10 @@ UI behavior:
 | Export | Download decrypted vault as JSON |
 | Security | Rotate root master key (generates new key, re-encrypts vault) |
 | About | Vault stats: entry count, stored/export sizes, field coverage, version history metrics, top tags, largest entries |
+
+## Storage Path
+
+R2 object key format: `{r2.prefix}/{vault_id}/{r2.file_name}`. All three segments are sourced from the config JSON and validated server-side. `vault_id` is auth-provider independent, keeping the path stable across auth changes.
 
 ## Authentication
 
