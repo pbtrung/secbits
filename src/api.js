@@ -1,26 +1,17 @@
 import { bytesToB64, decodeRootMasterKey, decryptBlobBytes, encryptBytesToBlob } from './crypto';
 
 const MAX_COMMITS = 20;
-const ENTRY_ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
 let session = null;
 let rootMasterKeyBytes = null;
 let entriesCache = [];
+let trashCache = [];
 let userName = '';
 let vaultLoaded = false;
 let vaultBlobSize = 0;
 
 function zeroizeBytes(bytes) {
   if (bytes instanceof Uint8Array) bytes.fill(0);
-}
-
-function randomEntryId(length = 42) {
-  const bytes = crypto.getRandomValues(new Uint8Array(length));
-  let out = '';
-  for (let i = 0; i < length; i++) {
-    out += ENTRY_ID_ALPHABET[bytes[i] % ENTRY_ID_ALPHABET.length];
-  }
-  return out;
 }
 
 function b64ToBytes(b64) {
@@ -223,7 +214,7 @@ function normalizeEntryForState(entry) {
   if (commits.length === 0) {
     const snapshot = { ...normalized, timestamp: normalizeTimestamp(normalized.timestamp) };
     return {
-      id: typeof safe.id === 'string' ? safe.id : randomEntryId(),
+      id: typeof safe.id === 'string' ? safe.id : crypto.randomUUID(),
       ...normalized,
       _commits: [{
         hash: null,
@@ -237,7 +228,7 @@ function normalizeEntryForState(entry) {
 
   const latest = commits[0].snapshot;
   return {
-    id: typeof safe.id === 'string' ? safe.id : randomEntryId(),
+    id: typeof safe.id === 'string' ? safe.id : crypto.randomUUID(),
     ...latest,
     _commits: commits,
   };
@@ -246,6 +237,17 @@ function normalizeEntryForState(entry) {
 function normalizeVaultData(data) {
   if (!Array.isArray(data)) return [];
   return data.map(normalizeEntryForState);
+}
+
+function normalizeVaultTrash(data) {
+  if (!Array.isArray(data)) return [];
+  return data.map((entry) => {
+    const normalized = normalizeEntryForState(entry);
+    return {
+      ...normalized,
+      deletedAt: normalizeTimestamp(entry?.deletedAt),
+    };
+  });
 }
 
 export function setRootMasterKey(keyBytes) {
@@ -324,6 +326,7 @@ export function clearUserMasterKey() {
   rootMasterKeyBytes = null;
   session = null;
   entriesCache = [];
+  trashCache = [];
   userName = '';
   vaultLoaded = false;
   vaultBlobSize = 0;
@@ -337,11 +340,12 @@ function vaultKeySearchParams(r2, vaultId) {
   };
 }
 
-export function buildExportData({ username, entries }) {
+export function buildExportData({ username, entries, trash }) {
   return {
     version: 1,
     username: typeof username === 'string' ? username : '',
     data: Array.isArray(entries) ? entries : [],
+    trash: Array.isArray(trash) ? trash : [],
   };
 }
 
@@ -360,12 +364,12 @@ async function readVaultFromRemote() {
 
   const body = await res.json();
   if (body?.exists === false) {
-    return { username: userName, data: [] };
+    return { username: userName, data: [], trash: [] };
   }
 
   const payloadB64 = body?.payload_b64;
   if (!payloadB64) {
-    return { username: userName, data: [] };
+    return { username: userName, data: [], trash: [] };
   }
 
   const blobBytes = b64ToBytes(payloadB64);
@@ -387,13 +391,14 @@ async function readVaultFromRemote() {
   return {
     username: typeof parsed?.username === 'string' ? parsed.username : userName,
     data: Array.isArray(parsed?.data) ? parsed.data : [],
+    trash: Array.isArray(parsed?.trash) ? parsed.trash : [],
   };
 }
 
-async function writeVaultToRemote(entries) {
+async function writeVaultToRemote(entries, trash) {
   const s = ensureSession();
   const rootKey = ensureRootKey();
-  const exportData = buildExportData({ username: userName, entries });
+  const exportData = buildExportData({ username: userName, entries, trash });
 
   const jsonBytes = new TextEncoder().encode(JSON.stringify(exportData));
   const brotli = await (await import('brotli-wasm')).default;
@@ -421,6 +426,7 @@ async function ensureVaultLoaded() {
   const vault = await readVaultFromRemote();
   userName = vault.username || userName;
   entriesCache = normalizeVaultData(vault.data);
+  trashCache = normalizeVaultTrash(vault.trash);
   vaultLoaded = true;
 }
 
@@ -428,6 +434,7 @@ export async function fetchUserEntries() {
   await ensureVaultLoaded();
   return {
     entries: entriesCache.map((e) => ({ ...e, _commits: Array.isArray(e._commits) ? e._commits : [] })),
+    trash: trashCache.map((e) => ({ ...e, _commits: Array.isArray(e._commits) ? e._commits : [] })),
     failedCount: 0,
   };
 }
@@ -445,13 +452,13 @@ export async function createUserEntry(entry) {
   const payload = toEntryPayload(entry);
   const commits = await buildNextHistory([], payload);
   const created = {
-    id: randomEntryId(),
+    id: crypto.randomUUID(),
     ...payload,
     _commits: commits,
   };
 
   entriesCache = [created, ...entriesCache];
-  await writeVaultToRemote(entriesCache);
+  await writeVaultToRemote(entriesCache, trashCache);
   return created;
 }
 
@@ -470,7 +477,7 @@ export async function updateUserEntry(entryId, entry) {
   };
 
   entriesCache = entriesCache.map((e, i) => (i === idx ? updated : e));
-  await writeVaultToRemote(entriesCache);
+  await writeVaultToRemote(entriesCache, trashCache);
   return updated;
 }
 
@@ -497,15 +504,69 @@ export async function restoreEntryVersion(entryId, commitHash) {
   };
 
   entriesCache = entriesCache.map((e, i) => (i === idx ? restored : e));
-  await writeVaultToRemote(entriesCache);
+  await writeVaultToRemote(entriesCache, trashCache);
   return restored;
 }
 
 export async function deleteUserEntry(entryId) {
   await ensureVaultLoaded();
-  const next = entriesCache.filter((e) => e.id !== entryId);
-  entriesCache = next;
-  await writeVaultToRemote(entriesCache);
+  const idx = entriesCache.findIndex((e) => e.id === entryId);
+  if (idx < 0) throw new Error('Entry not found');
+  const entry = entriesCache[idx];
+  const trashed = {
+    ...entry,
+    deletedAt: new Date().toISOString(),
+  };
+  entriesCache = entriesCache.filter((e) => e.id !== entryId);
+  trashCache = [trashed, ...trashCache.filter((e) => e.id !== entryId)];
+  await writeVaultToRemote(entriesCache, trashCache);
+  return trashed;
+}
+
+export async function restoreDeletedUserEntry(entryId) {
+  await ensureVaultLoaded();
+  const idx = trashCache.findIndex((e) => e.id === entryId);
+  if (idx < 0) throw new Error('Deleted entry not found');
+  const source = trashCache[idx];
+  const restored = normalizeEntryForState(source);
+  entriesCache = [restored, ...entriesCache.filter((e) => e.id !== entryId)];
+  trashCache = trashCache.filter((e) => e.id !== entryId);
+  await writeVaultToRemote(entriesCache, trashCache);
+  return restored;
+}
+
+export async function restoreDeletedEntryVersion(entryId, commitHash) {
+  await ensureVaultLoaded();
+  const idx = trashCache.findIndex((e) => e.id === entryId);
+  if (idx < 0) throw new Error('Deleted entry not found');
+  const commits = trashCache[idx]._commits || [];
+  const target = commits.find((c) => c.hash === commitHash);
+  if (!target) throw new Error('Commit not found');
+
+  const payload = {
+    ...normalizeEntryShape(target.snapshot),
+    timestamp: new Date().toISOString(),
+  };
+
+  const nextCommits = await buildNextHistory(commits, payload);
+  const restored = {
+    id: entryId,
+    ...payload,
+    _commits: nextCommits,
+  };
+
+  entriesCache = [restored, ...entriesCache.filter((e) => e.id !== entryId)];
+  trashCache = trashCache.filter((e) => e.id !== entryId);
+  await writeVaultToRemote(entriesCache, trashCache);
+  return restored;
+}
+
+export async function permanentlyDeleteUserEntry(entryId) {
+  await ensureVaultLoaded();
+  const exists = trashCache.some((e) => e.id === entryId);
+  if (!exists) throw new Error('Deleted entry not found');
+  trashCache = trashCache.filter((e) => e.id !== entryId);
+  await writeVaultToRemote(entriesCache, trashCache);
 }
 
 export async function rotateRootMasterKey(newRootMasterKeyBytes) {
@@ -518,7 +579,7 @@ export async function rotateRootMasterKey(newRootMasterKeyBytes) {
   setRootMasterKey(newRootMasterKeyBytes);
 
   try {
-    await writeVaultToRemote(entriesCache);
+    await writeVaultToRemote(entriesCache, trashCache);
   } catch (err) {
     zeroizeBytes(rootMasterKeyBytes);
     rootMasterKeyBytes = previous;
@@ -530,12 +591,15 @@ export async function rotateRootMasterKey(newRootMasterKeyBytes) {
 
 export function getVaultStats() {
   const count = entriesCache.length;
-  const payload = JSON.stringify(buildExportData({ username: userName, entries: entriesCache }));
+  const trashCount = trashCache.length;
+  const payload = JSON.stringify(buildExportData({ username: userName, entries: entriesCache, trash: trashCache }));
   const totalBytes = new TextEncoder().encode(payload).length;
   return {
     count,
+    trashCount,
+    totalCount: count + trashCount,
     totalBytes,
-    avgBytes: count ? Math.round(totalBytes / count) : 0,
+    avgBytes: count + trashCount ? Math.round(totalBytes / (count + trashCount)) : 0,
     blobSize: vaultBlobSize,
   };
 }

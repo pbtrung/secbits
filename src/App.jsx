@@ -6,7 +6,17 @@ import EntryDetail from './components/EntryDetail';
 import ResizeHandle from './components/ResizeHandle';
 import SettingsList from './components/SettingsList';
 import SettingsPanel from './components/SettingsPanel';
-import { clearUserMasterKey, fetchUserEntries, createUserEntry, updateUserEntry, deleteUserEntry, restoreEntryVersion } from './api';
+import {
+  clearUserMasterKey,
+  fetchUserEntries,
+  createUserEntry,
+  updateUserEntry,
+  deleteUserEntry,
+  restoreEntryVersion,
+  restoreDeletedUserEntry,
+  restoreDeletedEntryVersion,
+  permanentlyDeleteUserEntry,
+} from './api';
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -20,35 +30,37 @@ function useIsMobile() {
 
 function App() {
   const [session, setSession] = useState(null);
+  const normalizeEntry = useCallback((e) => ({
+    title: '',
+    username: '',
+    password: '',
+    notes: '',
+    ...e,
+    urls: Array.isArray(e.urls) ? e.urls : [],
+    totpSecrets: Array.isArray(e.totpSecrets) ? e.totpSecrets : [],
+    customFields: Array.isArray(e.customFields) ? e.customFields : (Array.isArray(e.hiddenFields) ? e.hiddenFields : []),
+    tags: Array.isArray(e.tags) ? e.tags : [],
+  }), []);
 
   const handleReady = useCallback(async (userId, userName) => {
     try {
-      const { entries: data, failedCount } = await fetchUserEntries();
-      const filtered = data
-        .map((e) => ({
-          title: '',
-          username: '',
-          password: '',
-          notes: '',
-          ...e,
-          urls: Array.isArray(e.urls) ? e.urls : [],
-          totpSecrets: Array.isArray(e.totpSecrets) ? e.totpSecrets : [],
-          customFields: Array.isArray(e.customFields) ? e.customFields : (Array.isArray(e.hiddenFields) ? e.hiddenFields : []),
-          tags: Array.isArray(e.tags) ? e.tags : [],
-        }));
+      const { entries: data, trash, failedCount } = await fetchUserEntries();
+      const filtered = data.map(normalizeEntry);
+      const deleted = trash.map(normalizeEntry);
       const initialSyncError = failedCount > 0
         ? `${failedCount} entry(ies) could not be decrypted and were skipped. Check your master key.`
         : '';
-      setSession({ userId, userName, initialEntries: filtered, initialSyncError });
+      setSession({ userId, userName, initialEntries: filtered, initialTrash: deleted, initialSyncError });
     } catch {
       setSession({
         userId,
         userName,
         initialEntries: [],
+        initialTrash: [],
         initialSyncError: 'Failed to load entries.',
       });
     }
-  }, []);
+  }, [normalizeEntry]);
 
   const handleLogout = useCallback(() => {
     clearUserMasterKey();
@@ -63,19 +75,20 @@ function App() {
     <MainApp
       initialUserName={session.userName}
       initialEntries={session.initialEntries}
+      initialTrash={session.initialTrash}
       initialSyncError={session.initialSyncError}
       onLogout={handleLogout}
     />
   );
 }
 
-let nextLocalId = 1;
-const getNextId = () => String(nextLocalId++);
 const isLocalEntryId = (id) => String(id).startsWith('local-');
 
-function MainApp({ initialUserName, initialEntries, initialSyncError, onLogout }) {
+function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncError, onLogout }) {
   const RESIZE_HANDLE_WIDTH = 5;
   const [entries, setEntries] = useState(initialEntries || []);
+  const [trashEntries, setTrashEntries] = useState(initialTrash || []);
+  const [trashMode, setTrashMode] = useState(false);
   const [syncError, setSyncError] = useState(initialSyncError || '');
   const [selectedTag, setSelectedTag] = useState(null);
   const [selectedEntryId, setSelectedEntryId] = useState(null);
@@ -140,8 +153,8 @@ function MainApp({ initialUserName, initialEntries, initialSyncError, onLogout }
   }, [entries]);
 
   const filteredEntries = useMemo(() => {
-    let result = entries;
-    if (selectedTag) {
+    let result = trashMode ? trashEntries : entries;
+    if (!trashMode && selectedTag) {
       result = result.filter((e) => e.tags.includes(selectedTag));
     }
     if (searchQuery.trim()) {
@@ -154,12 +167,13 @@ function MainApp({ initialUserName, initialEntries, initialSyncError, onLogout }
       );
     }
     return result;
-  }, [entries, selectedTag, searchQuery]);
+  }, [entries, trashEntries, trashMode, selectedTag, searchQuery]);
 
-  const selectedEntry = entries.find((e) => e.id === selectedEntryId) || null;
+  const selectedEntry = (trashMode ? trashEntries : entries).find((e) => e.id === selectedEntryId) || null;
 
   const handleSelectTag = useCallback((tag) => {
     if (!confirmUnsavedChanges()) return;
+    setTrashMode(false);
     setSelectedTag(tag);
     setSelectedEntryId(null);
     setEditingId(null);
@@ -175,11 +189,24 @@ function MainApp({ initialUserName, initialEntries, initialSyncError, onLogout }
     if (isMobile) setMobileView('detail');
   }, [isMobile, confirmUnsavedChanges]);
 
+  const handleOpenTrash = useCallback(() => {
+    if (!trashEntries.length) return;
+    if (!confirmUnsavedChanges()) return;
+    setTrashMode(true);
+    setSelectedTag(null);
+    setSelectedEntryId(null);
+    setEditingId(null);
+    setSettingsMode(false);
+    setSettingsPage(null);
+    if (isMobile) setMobileView('entries');
+  }, [trashEntries.length, isMobile, confirmUnsavedChanges]);
+
   const handleNewEntry = useCallback(() => {
+    if (trashMode) return;
     if (!confirmUnsavedChanges()) return;
     prevSelectedIdRef.current = selectedEntryIdRef.current;
     const newEntry = {
-      id: `local-${getNextId()}`,
+      id: `local-${crypto.randomUUID()}`,
       _isNew: true,
       title: '',
       username: '',
@@ -194,9 +221,10 @@ function MainApp({ initialUserName, initialEntries, initialSyncError, onLogout }
     setSelectedEntryId(newEntry.id);
     setEditingId(newEntry.id);
     if (isMobile) setMobileView('detail');
-  }, [selectedTag, isMobile, confirmUnsavedChanges]);
+  }, [selectedTag, isMobile, confirmUnsavedChanges, trashMode]);
 
   const handleSave = useCallback(async (updated) => {
+    if (trashMode) return;
     setSyncError('');
     setSaving(true);
     const wasNew = isLocalEntryId(updated.id) || updated._isNew;
@@ -216,7 +244,7 @@ function MainApp({ initialUserName, initialEntries, initialSyncError, onLogout }
     } finally {
       setSaving(false);
     }
-  }, []);
+  }, [trashMode]);
 
   const handleRestore = useCallback(async (entryId, commitHash) => {
     setSyncError('');
@@ -243,28 +271,73 @@ function MainApp({ initialUserName, initialEntries, initialSyncError, onLogout }
     }
   }, []);
 
+  const handleRestoreDeletedVersion = useCallback(async (entryId, commitHash) => {
+    setSyncError('');
+    setSaving(true);
+    try {
+      const restored = await restoreDeletedEntryVersion(entryId, commitHash);
+      setTrashEntries((prev) => prev.filter((e) => e.id !== entryId));
+      setEntries((prev) => [restored, ...prev.filter((e) => e.id !== restored.id)]);
+      setTrashMode(false);
+      setSelectedEntryId(restored.id);
+      return true;
+    } catch (err) {
+      setSyncError(err?.message || 'Failed to restore deleted entry version.');
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  const handleRestoreDeletedEntry = useCallback(async (entryId) => {
+    setSyncError('');
+    setSaving(true);
+    try {
+      const restored = await restoreDeletedUserEntry(entryId);
+      setTrashEntries((prev) => prev.filter((e) => e.id !== entryId));
+      setEntries((prev) => [restored, ...prev.filter((e) => e.id !== restored.id)]);
+      setTrashMode(false);
+      setSelectedEntryId(restored.id);
+      setEditingId(null);
+      if (isMobile) setMobileView('detail');
+      return true;
+    } catch (err) {
+      setSyncError(err?.message || 'Failed to restore deleted entry.');
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, [isMobile]);
+
   const handleDelete = useCallback(async (id) => {
     setSyncError('');
     setDeleting(true);
 
     try {
-      if (!isLocalEntryId(id)) {
-        await deleteUserEntry(id);
+      if (trashMode) {
+        await permanentlyDeleteUserEntry(id);
+        setTrashEntries((prev) => prev.filter((e) => e.id !== id));
+      } else if (!isLocalEntryId(id)) {
+        const trashed = await deleteUserEntry(id);
+        setEntries((prev) => prev.filter((e) => e.id !== id));
+        setTrashEntries((prev) => [trashed, ...prev.filter((e) => e.id !== trashed.id)]);
+      } else {
+        setEntries((prev) => prev.filter((e) => e.id !== id));
       }
-      setEntries((prev) => prev.filter((e) => e.id !== id));
       setSelectedEntryId((prev) => (prev === id ? null : prev));
       setEditingId(null);
       if (isMobile) setMobileView('entries');
-    } catch {
-      setSyncError('Failed to delete entry.');
+    } catch (err) {
+      setSyncError(err?.message || 'Failed to delete entry.');
     } finally {
       setDeleting(false);
     }
-  }, [isMobile]);
+  }, [isMobile, trashMode]);
 
   const handleEdit = useCallback((id) => {
+    if (trashMode) return;
     setEditingId(id);
-  }, []);
+  }, [trashMode]);
 
   const handleSettings = useCallback(() => {
     if (!confirmUnsavedChanges()) return;
@@ -273,6 +346,7 @@ function MainApp({ initialUserName, initialEntries, initialSyncError, onLogout }
         setSelectedEntryId(null);
         setEditingId(null);
         setSettingsPage(null);
+        setTrashMode(false);
         if (isMobile) setMobileView('entries');
       }
       return !prev;
@@ -319,7 +393,7 @@ function MainApp({ initialUserName, initialEntries, initialSyncError, onLogout }
     <EntryDetail
       key={selectedEntry.id}
       entry={selectedEntry}
-      isEditing={editingId === selectedEntry.id}
+      isEditing={!trashMode && editingId === selectedEntry.id}
       onEdit={handleEdit}
       onSave={handleSave}
       onDelete={handleDelete}
@@ -328,14 +402,16 @@ function MainApp({ initialUserName, initialEntries, initialSyncError, onLogout }
       deleting={deleting}
       allTags={allTags}
       onDirtyChange={handleDirtyChange}
-      onRestore={handleRestore}
+      onRestore={trashMode ? handleRestoreDeletedVersion : handleRestore}
+      onRestoreEntry={handleRestoreDeletedEntry}
+      isTrashView={trashMode}
       isMobile={isMobile}
     />
   ) : (
     <div className="d-flex align-items-center justify-content-center h-100 text-muted">
       <div className="text-center">
-        <i className="bi bi-shield-lock" style={{ fontSize: '4rem' }}></i>
-        <p className="mt-3">Select an entry to view details</p>
+        <i className={`bi ${trashMode ? 'bi-trash' : 'bi-shield-lock'}`} style={{ fontSize: '4rem' }}></i>
+        <p className="mt-3">{trashMode ? 'Select a deleted entry to view details' : 'Select an entry to view details'}</p>
       </div>
     </div>
   );
@@ -442,6 +518,9 @@ function MainApp({ initialUserName, initialEntries, initialSyncError, onLogout }
                 tagCounts={tagCounts}
                 selectedTag={selectedTag}
                 onSelectTag={handleSelectTag}
+                onOpenTrash={handleOpenTrash}
+                trashCount={trashEntries.length}
+                trashMode={trashMode}
                 userName={userName}
                 onSettings={handleSettings}
                 onLogout={handleLogoutGuarded}
@@ -463,6 +542,7 @@ function MainApp({ initialUserName, initialEntries, initialSyncError, onLogout }
                   onSelectEntry={handleSelectEntry}
                   onNewEntry={handleNewEntry}
                   selectedTag={selectedTag}
+                  trashMode={trashMode}
                   mobile
                 />
               )
@@ -487,6 +567,9 @@ function MainApp({ initialUserName, initialEntries, initialSyncError, onLogout }
                 tagCounts={tagCounts}
                 selectedTag={selectedTag}
                 onSelectTag={handleSelectTag}
+                onOpenTrash={handleOpenTrash}
+                trashCount={trashEntries.length}
+                trashMode={trashMode}
                 userName={userName}
                 onSettings={handleSettings}
                 onLogout={handleLogoutGuarded}
@@ -507,6 +590,7 @@ function MainApp({ initialUserName, initialEntries, initialSyncError, onLogout }
                   onSelectEntry={handleSelectEntry}
                   onNewEntry={handleNewEntry}
                   selectedTag={selectedTag}
+                  trashMode={trashMode}
                 />
               )}
             </div>

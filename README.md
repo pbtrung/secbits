@@ -16,6 +16,13 @@ Data flow for every save:
 3. Encrypt compressed bytes.
 4. Upload encrypted blob to R2.
 
+Vault payload shape:
+- `data`: active entries
+- `trash`: deleted entries (soft delete), each with `deletedAt`
+
+Entry identifiers:
+- New persisted entries use `crypto.randomUUID()`.
+
 Data flow on login:
 1. Sign in with Firebase.
 2. Worker verifies Firebase ID token.
@@ -95,6 +102,7 @@ wrangler dev
 2. App signs in through Firebase.
 3. App loads encrypted state from R2 through Worker.
 4. Save operations overwrite the R2 object with a new encrypted export blob.
+5. Deleting an entry moves it to Trash. Trash entries can be restored or permanently deleted from the Trash view.
 
 ## Documentation
 

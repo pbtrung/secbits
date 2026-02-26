@@ -31,6 +31,7 @@ worker/
 3. Worker verifies token and resolves user identity.
 4. Worker reads encrypted object from R2 and returns bytes/metadata.
 5. App decrypts and loads vault.
+6. Vault payload includes both active entries (`data`) and deleted entries (`trash`).
 
 - Save:
 1. App builds export JSON.
@@ -38,6 +39,11 @@ worker/
 3. App encrypts compressed bytes.
 4. App sends encrypted blob to Worker.
 5. Worker writes blob to configured R2 path.
+
+- Entry lifecycle:
+1. New persisted entry IDs are generated with `crypto.randomUUID()`.
+2. Delete is a soft delete: entry moves from `data` to `trash` with `deletedAt`.
+3. Trash entries are read-only in UI and support restore, version restore, and permanent delete.
 
 ## Config Contract
 

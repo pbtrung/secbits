@@ -15,6 +15,9 @@
 | TOTP | RFC 6238, HMAC-SHA1, implemented in `src/totp.js` |
 | Testing | Vitest |
 
+ID generation:
+- Persisted entry IDs use browser-native `crypto.randomUUID()`.
+
 ## Project Structure
 
 ```

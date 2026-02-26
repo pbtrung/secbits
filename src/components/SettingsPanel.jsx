@@ -18,7 +18,7 @@ function AboutPage() {
     const load = async () => {
       try {
         const vaultStats = getVaultStats();
-        const { entries } = await fetchUserEntries();
+        const { entries, trash } = await fetchUserEntries();
 
         let totalBytes = 0;
         let withPassword = 0, withUsername = 0, withNotes = 0;
@@ -61,8 +61,10 @@ function AboutPage() {
           .map(([tag, count]) => ({ tag, count }));
 
         const count = entries.length;
+        const trashCount = trash.length;
         setStats({
           count,
+          trashCount,
           blobSize: vaultStats.blobSize,
           entriesJsonSize: vaultStats.totalBytes,
           avgBytes: count ? Math.round(totalBytes / count) : 0,
@@ -104,6 +106,10 @@ function AboutPage() {
               <tr>
                 <td className="text-muted">Entries</td>
                 <td className="fw-semibold">{stats.count}</td>
+              </tr>
+              <tr>
+                <td className="text-muted">Trash entries</td>
+                <td className="fw-semibold">{stats.trashCount}</td>
               </tr>
               <tr>
                 <td className="text-muted">Total stored size</td>
@@ -209,8 +215,8 @@ function ExportPage() {
   const handleExport = useCallback(async () => {
     setExporting(true);
     try {
-      const { entries } = await fetchUserEntries();
-      const exportObj = buildExportData({ username: getUsername(), entries });
+      const { entries, trash } = await fetchUserEntries();
+      const exportObj = buildExportData({ username: getUsername(), entries, trash });
       const json = JSON.stringify(exportObj, null, 2);
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);

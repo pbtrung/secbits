@@ -92,7 +92,22 @@ function normalizeEntryForDraft(entry) {
 
 // ─── EntryDetail ──────────────────────────────────────────────────────────────
 
-function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onRestore, saving, deleting, allTags = [], onDirtyChange, isMobile = false }) {
+function EntryDetail({
+  entry,
+  isEditing,
+  onEdit,
+  onSave,
+  onDelete,
+  onCancel,
+  onRestore,
+  onRestoreEntry,
+  isTrashView = false,
+  saving,
+  deleting,
+  allTags = [],
+  onDirtyChange,
+  isMobile = false,
+}) {
   const [draft, setDraft] = useState(() => normalizeEntryForDraft(entry));
   const [visiblePasswords, setVisiblePasswords] = useState({});
   const [copied, setCopied] = useState(null);
@@ -415,9 +430,16 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
   };
 
   const handleDelete = () => {
-    if (window.confirm(`Delete "${entry.title || 'this entry'}"?`)) {
+    const message = isTrashView
+      ? `Permanently delete "${entry.title || 'this entry'}"? This cannot be undone.`
+      : `Delete "${entry.title || 'this entry'}"?`;
+    if (window.confirm(message)) {
       onDelete(entry.id);
     }
+  };
+
+  const handleRestoreEntry = async () => {
+    await onRestoreEntry?.(entry.id);
   };
 
   const handleRestoreFromModal = async (commitHash) => {
@@ -466,18 +488,26 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
     <fieldset disabled={saving || deleting} className="p-4" style={{ maxWidth: 700 }}>
       {/* Title */}
       <div className="d-flex justify-content-between align-items-start mb-4">
-        {isEditing ? (
-          <input
-            className="form-control form-control-lg fw-bold"
-            value={draft.title}
-            onChange={(e) => updateDraft('title', e.target.value)}
-            placeholder="Entry Title"
-            maxLength={TITLE_MAX}
-            autoFocus
-          />
-        ) : (
-          <h3 className="fw-bold mb-0">{data.title}</h3>
-        )}
+        <div className="flex-grow-1">
+          {isEditing ? (
+            <input
+              className="form-control form-control-lg fw-bold"
+              value={draft.title}
+              onChange={(e) => updateDraft('title', e.target.value)}
+              placeholder="Entry Title"
+              maxLength={TITLE_MAX}
+              autoFocus
+            />
+          ) : (
+            <h3 className="fw-bold mb-0">{data.title}</h3>
+          )}
+          {isTrashView && (
+            <div className="small text-muted mt-1">
+              <i className="bi bi-trash me-1"></i>
+              Deleted {entry.deletedAt ? new Date(entry.deletedAt).toLocaleString() : ''}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Username */}
@@ -902,7 +932,38 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
 
       {/* Action Buttons */}
       <div className="d-flex gap-2 align-items-center border-top pt-3 flex-wrap">
-        {isEditing ? (
+        {isTrashView ? (
+          <>
+            <button
+              className="btn btn-success"
+              onClick={handleRestoreEntry}
+              disabled={saving || deleting}
+            >
+              {saving ? (
+                <><span className="spinner-border spinner-border-sm me-1"></span>Restoring...</>
+              ) : (
+                <><i className="bi bi-arrow-counterclockwise me-1"></i>Restore</>
+              )}
+            </button>
+            {commits.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-secondary"
+                onClick={() => { setHistoryIdx(0); setShowHistory(true); }}
+              >
+                <i className="bi bi-git me-1"></i>
+                {commits.length} version{commits.length !== 1 ? 's' : ''}
+              </button>
+            )}
+            <button className="btn btn-danger ms-auto" onClick={handleDelete} disabled={saving || deleting}>
+              {deleting ? (
+                <><span className="spinner-border spinner-border-sm me-1"></span>Deleting...</>
+              ) : (
+                <><i className="bi bi-trash me-1"></i>Delete</>
+              )}
+            </button>
+          </>
+        ) : isEditing ? (
           <>
             <button className="btn btn-success" onClick={handleSave} disabled={saveDisabled}>
               {saving ? (
@@ -932,7 +993,7 @@ function EntryDetail({ entry, isEditing, onEdit, onSave, onDelete, onCancel, onR
           </button>
         )}
 
-        {!entry._isNew && (
+        {!entry._isNew && !isTrashView && (
           <button className="btn btn-outline-danger ms-auto" onClick={handleDelete}>
             {deleting ? (
               <><span className="spinner-border spinner-border-sm me-1"></span>Deleting...</>

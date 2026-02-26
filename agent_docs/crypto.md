@@ -47,7 +47,7 @@ Minimum valid blob length: `64 + 0 + 64 = 128 bytes`.
 ## Vault Persistence Pipeline
 
 **Save (write path):**
-1. Serialize all entries to export JSON.
+1. Serialize active entries (`data`) and deleted entries (`trash`) to export JSON.
 2. Brotli-compress the UTF-8 JSON bytes.
 3. Generate 64 random salt bytes.
 4. Derive `(encKey, encIv)` via HKDF-SHA3-512.
@@ -62,7 +62,7 @@ Minimum valid blob length: `64 + 0 + 64 = 128 bytes`.
 4. Derive `(encKey, encIv)` via HKDF-SHA3-512 using the stored salt.
 5. AEAD-decrypt; authentication failure throws before returning any plaintext.
 6. Brotli-decompress.
-7. Parse JSON → entries array.
+7. Parse JSON → `data` and `trash` arrays.
 
 ## Security Properties
 

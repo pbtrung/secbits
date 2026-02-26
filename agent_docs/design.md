@@ -26,6 +26,21 @@ Architecture decisions and their rationale.
 
 **Why:** A single format eliminates translation between internal representation and a separate storage schema. The export file a user downloads is byte-for-byte the same payload structure stored in R2, making manual recovery straightforward without special tooling.
 
+Export JSON shape:
+
+```json
+{
+  "version": 1,
+  "username": "<display name>",
+  "data": [ /* live entries */ ],
+  "trash": [ /* deleted entries, each with deletedAt */ ]
+}
+```
+
+`version` is a schema version integer. It exists so future format changes can be handled by branching on the version at parse time. Currently always `1`.
+
+`data` contains live entries. `trash` contains entries moved there by a soft delete; each carries all original fields, the full `_commits` history, and an added `deletedAt` ISO 8601 timestamp. Entries absent from both arrays are permanently gone.
+
 ---
 
 ## Single Root Master Key
@@ -73,6 +88,14 @@ Architecture decisions and their rationale.
 **Decision:** The root master key, Firebase token, and all decrypted vault data are held only in React component state (JS heap). Nothing is written to `localStorage`, `sessionStorage`, cookies, or IndexedDB.
 
 **Why:** Any persistent browser storage API keeps keying material alive beyond the user's intended session. Holding everything in the JS heap means a hard reload, tab close, or explicit logout clears all secrets immediately and reliably. This also limits the XSS exposure window to the active page lifetime.
+
+---
+
+## UUID Entry IDs
+
+**Decision:** New persisted entries are assigned IDs with `crypto.randomUUID()`.
+
+**Why:** Native UUID generation is collision-resistant for this use case, avoids custom ID schemes, and keeps ID generation logic simple and auditable.
 
 ---
 

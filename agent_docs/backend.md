@@ -12,6 +12,12 @@ Authentication: Firebase ID token (`Authorization: Bearer <token>`). The Worker 
 
 One encrypted binary object per user vault. The Worker never handles plaintext vault content — it reads and writes opaque bytes only.
 
+Inside that encrypted payload:
+- `data`: active entries
+- `trash`: soft-deleted entries with `deletedAt`
+
+Entry IDs are client-generated UUIDs (`crypto.randomUUID()`).
+
 R2 object key:
 ```
 {vault_id}/{file_name}

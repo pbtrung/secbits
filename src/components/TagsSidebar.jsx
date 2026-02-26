@@ -4,6 +4,9 @@ function TagsSidebar({
   tagCounts = {},
   selectedTag,
   onSelectTag,
+  onOpenTrash,
+  trashCount = 0,
+  trashMode = false,
   mobile,
   userName,
   onSettings,
@@ -23,7 +26,7 @@ function TagsSidebar({
         <div className="list-group list-group-flush">
           <button
             className={`list-group-item list-group-item-action d-flex justify-content-between align-items-center ${
-              !settingsMode && selectedTag === null ? 'active' : ''
+              !settingsMode && !trashMode && selectedTag === null ? 'active' : ''
             }`}
             onClick={() => onSelectTag(null)}
           >
@@ -34,7 +37,7 @@ function TagsSidebar({
             <button
               key={tag}
               className={`list-group-item list-group-item-action d-flex justify-content-between align-items-center ${
-                !settingsMode && selectedTag === tag ? 'active' : ''
+                !settingsMode && !trashMode && selectedTag === tag ? 'active' : ''
               }`}
               onClick={() => onSelectTag(tag)}
             >
@@ -54,6 +57,14 @@ function TagsSidebar({
             title="Settings"
           >
             <i className="bi bi-gear"></i>
+          </button>
+          <button
+            className={`btn btn-sm btn-link ms-2 flex-shrink-0 p-1 rounded logout-btn ${trashMode ? 'text-primary' : 'text-muted'} ${trashCount === 0 ? 'disabled' : ''}`}
+            onClick={onOpenTrash}
+            title={trashCount === 0 ? 'Trash is empty' : 'Trash'}
+            disabled={trashCount === 0}
+          >
+            <i className="bi bi-trash"></i>
           </button>
           {onLogout && (
             <button

@@ -26,6 +26,8 @@ npx vitest          # watch mode
 4. **First-login empty state**: `POST /vault/read` with no existing R2 object returns `{ exists: false, payload_b64: null }`.
 5. **Config validation**: invalid `bucket_name`, `prefix`, or `file_name` values are rejected by the Worker with 400.
 6. **Firebase token enforcement**: requests without a valid Bearer token receive 401.
+7. **Trash lifecycle**: delete moves entry from `data` to `trash`; restore returns it to `data`; permanent delete removes from `trash`.
+8. **UUID IDs**: new entries are created with `crypto.randomUUID()`.
 
 ## Regression Priorities
 

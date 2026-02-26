@@ -1,24 +1,26 @@
-function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, selectedTag, mobile }) {
+function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, selectedTag, trashMode = false, mobile }) {
   return (
     <div
       className={`d-flex flex-column bg-white ${mobile ? 'h-100' : 'h-100 border-end'}`}
     >
       <div className="p-3 border-bottom d-flex justify-content-between align-items-center">
         <h6 className="text-uppercase text-muted mb-0 small fw-bold">
-          <i className="bi bi-key me-1"></i>
-          {selectedTag ? `#${selectedTag}` : 'All Entries'}
+          <i className={`bi ${trashMode ? 'bi-trash' : 'bi-key'} me-1`}></i>
+          {trashMode ? 'Deleted Entries' : (selectedTag ? `#${selectedTag}` : 'All Entries')}
         </h6>
-        <button
-          className="btn btn-sm btn-primary"
-          onClick={onNewEntry}
-          title="New Entry"
-        >
-          <i className="bi bi-plus-lg"></i>
-        </button>
+        {!trashMode && (
+          <button
+            className="btn btn-sm btn-primary"
+            onClick={onNewEntry}
+            title="New Entry"
+          >
+            <i className="bi bi-plus-lg"></i>
+          </button>
+        )}
       </div>
       <div className="overflow-auto flex-grow-1">
         {entries.length === 0 ? (
-          <div className="text-muted text-center p-4 small">No entries found</div>
+          <div className="text-muted text-center p-4 small">{trashMode ? 'Trash is empty' : 'No entries found'}</div>
         ) : (
           <div className="list-group list-group-flush">
             {entries.map((entry) => (
@@ -33,7 +35,9 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
                   {entry.title || <span className="fst-italic text-muted">Untitled</span>}
                 </div>
                 <small className={`text-truncate d-block ${selectedEntryId === entry.id ? 'text-light' : 'text-muted'}`}>
-                  {entry.username}
+                  {trashMode
+                    ? `Deleted ${entry.deletedAt ? new Date(entry.deletedAt).toLocaleString() : ''}`.trim()
+                    : entry.username}
                 </small>
                 <div className="mt-1">
                   {entry.tags.map((t) => (

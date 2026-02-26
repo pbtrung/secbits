@@ -7,7 +7,8 @@
 | End-to-end encryption | Export JSON → Brotli compress → AEAD encrypt → R2. Plaintext never leaves the browser. |
 | Single vault object | All entries stored as one encrypted blob in R2. |
 | Version history | Each entry tracks up to 20 commits. Head snapshot stored directly; older commits store field-level deltas. |
-| Export | Download full decrypted vault as JSON. |
+| Trash | Deleted entries move to a trash bin with a deletion timestamp. Full commit history is preserved. Entries can be restored or permanently deleted from trash. |
+| Export | Download full decrypted vault as JSON (includes both live entries and trash). |
 
 ## Entry Fields
 
@@ -40,6 +41,27 @@ Configurable password generator. Options: length, uppercase, lowercase, digits, 
 - Per-entry version history, capped at 20 commits.
 - Field-level diff viewer between any two commits.
 - Commit timestamps.
+
+## Trash
+
+Deleting an entry moves it to a `trash` array in the vault JSON rather than erasing it immediately.
+
+Each trashed entry carries:
+- All original fields and the full `_commits` history.
+- A `deletedAt` ISO 8601 timestamp added at deletion time.
+
+Operations on trashed entries:
+- **Restore**: moves the entry back to `data`, strips `deletedAt`.
+- **Permanent delete**: removes the entry from `trash` with no recovery path.
+
+The trash is included in the encrypted vault blob and in vault exports. It is not shown in the main entry list or search results.
+
+UI behavior:
+- A trash icon is shown next to the settings gear in the sidebar.
+- The trash icon is disabled when `trash` is empty.
+- Clicking trash switches column 2 to deleted entries.
+- Deleted entries are read-only: inline edit is disabled.
+- Deleted entry actions are limited to: **Restore**, **Versions**, **Delete** (permanent, red, right-aligned).
 
 ## Settings
 

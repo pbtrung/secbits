@@ -9,6 +9,7 @@
 ## Guarantees
 
 **End-to-end encryption.** All encryption and decryption runs in the browser. The Worker and R2 never handle plaintext.
+Both active entries (`data`) and deleted entries (`trash`) are encrypted in the same vault blob.
 
 **Authenticated encryption.** Every vault blob carries a 64-byte Ascon-Keccak-512 AEAD tag. Any modification to ciphertext or tag causes decryption to throw before returning any plaintext.
 
