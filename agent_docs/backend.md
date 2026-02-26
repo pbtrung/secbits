@@ -30,9 +30,8 @@ profiles: i.entity({
 })
 
 entries: i.entity({
-  entry_id:  i.string().unique(),  // 42-char random a-zA-Z0-9, app-assigned
-  entry_key: i.string(),           // base64-encoded ~192-byte wrapped doc key
-  value:     i.string(),           // base64-encoded ciphertext (salt||ct||tag)
+  entry_key: i.string(),  // base64-encoded ~192-byte wrapped doc key
+  value:     i.string(),  // base64-encoded ciphertext (salt||ct||tag)
 })
 ```
 
@@ -47,7 +46,7 @@ entryUser:   { forward: { on: "entries",  has: "one",  label: "$user" },
 
 All binary fields are stored as base64 strings. InstantDB has no BLOB type.
 
-**Entry IDs:** InstantDB assigns its own internal UUIDs. The application-level `entry_id` (42-char random) is stored as a unique attribute; lookups use `where: { entry_id: id }`.
+**Entry IDs:** `db.id()` generates a UUID client-side that becomes the record's InstantDB primary key. The app stores and uses this UUID directly — no separate ID attribute is needed.
 
 ## Permission Rules
 
@@ -79,24 +78,25 @@ await db.transact(
 const { data } = db.useQuery({ entries: {} });
 
 // Create
+const entryId = db.id();
 await db.transact(
-  db.tx.entries[db.id()]
-    .update({ entry_id: appId, entry_key, value })
+  db.tx.entries[entryId]
+    .update({ entry_key, value })
     .link({ $user: userId }),
 );
 
-// Update (look up internal UUID first via where: { entry_id: appId })
-await db.transact(db.tx.entries[internalId].update({ entry_key, value }));
+// Update
+await db.transact(db.tx.entries[entryId].update({ entry_key, value }));
 
 // Delete
-await db.transact(db.tx.entries[internalId].delete());
+await db.transact(db.tx.entries[entryId].delete());
 
 // Replace all — atomic (restore)
 await db.transact([
   ...existing.map(e => db.tx.entries[e.id].delete()),
   ...incoming.map(e =>
     db.tx.entries[db.id()]
-      .update({ entry_id: e.entry_id, entry_key: e.entry_key, value: e.value })
+      .update({ entry_key: e.entry_key, value: e.value })
       .link({ $user: userId }),
   ),
 ]);
