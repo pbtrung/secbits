@@ -355,16 +355,16 @@ async function readVaultFromRemote() {
   const s = ensureSession();
   const res = await workerFetch(`/vault?${vaultKeySearchParams(s.r2)}`);
 
-  if (res.status === 404) {
-    return { username: userName, data: [] };
-  }
-
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body?.error || `Failed to read vault (${res.status})`);
   }
 
   const body = await res.json();
+  if (body?.exists === false) {
+    return { username: userName, data: [] };
+  }
+
   const payloadB64 = body?.payload_b64;
   if (!payloadB64) {
     return { username: userName, data: [] };

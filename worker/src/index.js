@@ -108,7 +108,13 @@ export default {
         const key = resolveKey(bucket_name, prefix, file_name, env);
 
         const object = await env.SECBITS_R2.get(key);
-        if (!object) return json({ error: 'Not found' }, 404, origin);
+        if (!object) {
+          return json({
+            exists: false,
+            key,
+            payload_b64: null,
+          }, 200, origin);
+        }
 
         const bytes = new Uint8Array(await object.arrayBuffer());
         let binary = '';
@@ -116,6 +122,7 @@ export default {
         const payload_b64 = btoa(binary);
 
         return json({
+          exists: true,
           payload_b64,
           key,
           size: object.size,
