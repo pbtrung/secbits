@@ -1,135 +1,110 @@
 # SecBits
 
-A self-hosted, end-to-end encrypted password manager. All data is encrypted in the browser before reaching the server. See [`agent_docs/`](agent_docs/) for architecture, cryptography, and design details.
+A self-hosted, end-to-end encrypted password manager.
 
-## Backend Setup
+This design is **Firebase Auth -> Cloudflare Worker -> Cloudflare R2** only.
+There is **no Turso/libSQL/D1 database** and **no backup subsystem**.
 
-The backend is **Firebase Authentication** + **InstantDB**. No custom API server is required.
+## Architecture
+
+```text
+Browser -> Firebase Auth (ID token)
+        -> Worker (token verify + R2 read/write API)
+        -> R2 object (encrypted user export blob)
+```
+
+Data flow for every save:
+1. Build export JSON payload.
+2. Compress payload.
+3. Encrypt compressed bytes.
+4. Upload encrypted blob to R2.
+
+Data flow on login:
+1. Sign in with Firebase.
+2. Worker verifies Firebase ID token.
+3. Worker reads encrypted blob from R2.
+4. Client decrypts + decompresses + loads entries.
+
+## Setup
 
 ### 1. Firebase
 
-In [Firebase Console](https://console.firebase.google.com):
+In Firebase Console:
 1. Create a project.
-2. Enable **Authentication → Sign-in method → Email/Password**.
-3. Add a user under **Authentication → Users**.
-4. Note the **Web API key** and **Project ID** from Project settings.
+2. Enable `Authentication -> Sign-in method -> Email/Password`.
+3. Create at least one user.
+4. Copy `Project ID` and web `API key`.
 
-Optional CLI user creation:
+### 2. Cloudflare Worker + R2
+
 ```bash
-node scripts/create-firebase-user.mjs --api-key <key> --email you@example.com --password yourpassword
+npm install -g wrangler
+wrangler login
 ```
 
-### 2. InstantDB
+Create R2 bucket and bind it to the Worker (binding name example: `SECBITS_R2`).
 
-1. Create an app at [instantdb.com](https://www.instantdb.com) — note the **App ID**.
-2. In the dashboard: **Auth** → add OAuth client → Firebase → enter Firebase Project ID, client name `firebase`.
-3. Push schema and permissions:
-   ```bash
-   npx instant-cli@latest push schema
-   npx instant-cli@latest push perms
-   ```
+Copy `worker/wrangler.toml.example` to `worker/wrangler.toml` and set Worker name, routes, and R2 binding.
 
-### 3. Root master key
+Set Worker secrets:
 
-Generate in a browser console or Node:
-```js
-const b64 = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(256))));
-console.log(b64);
+```bash
+cd worker
+wrangler secret put FIREBASE_PROJECT_ID
+wrangler deploy
 ```
 
-**Store it safely — it cannot be recovered if lost.**
+### 3. Config File
 
-## Config File
-
-Save as `secbits-config.json`. **Keep this file private.**
+Save as `secbits-config.json` and keep it private.
 
 ```json
 {
-  "username": "<display-name>",
+  "username": "<display name>",
+  "worker_url": "https://<worker>.<account>.workers.dev",
   "email": "you@example.com",
   "password": "your-firebase-password",
   "firebase_api_key": "<firebase-web-api-key>",
-  "instant_app_id": "<instant-app-id>",
-  "root_master_key": "<base64-encoded key, ≥256 bytes when decoded>",
-  "backup": [
-    {
-      "target": "r2",
-      "account_id": "<cloudflare-account-id>",
-      "bucket": "secbits-backup",
-      "access_key_id": "<r2-access-key-id>",
-      "secret_access_key": "<r2-secret-access-key>",
-      "prefix": "backups/"
-    }
-  ]
+  "root_master_key": "<base64-encoded key, >=256 bytes decoded>",
+  "r2": {
+    "bucket_name": "secbits-data",
+    "prefix": "users/",
+    "file_name": "vault.bin"
+  }
 }
 ```
 
-| Field | Required | Description |
-|---|---|---|
-| `username` | Yes | Display name |
-| `email` | Yes | Firebase email |
-| `password` | Yes | Firebase password |
-| `firebase_api_key` | Yes | Firebase Web API key |
-| `instant_app_id` | Yes | InstantDB App ID |
-| `root_master_key` | Yes | Base64-encoded random key, must decode to ≥256 bytes |
-| `backup` | No | Cloud backup targets (R2, S3, GCS). See [agent_docs/backup.md](agent_docs/backup.md). |
+R2 object path is config-driven using:
+`bucket-name/prefix/file-name`
 
-## Build and Deploy
-
-Requires Node.js 18+ and npm 9+.
+## Build and Run
 
 ```bash
-npm install        # deps
-npm run build      # output → dist/
+npm install
+npm run dev
+npm run build
 ```
 
-**Frontend deployment** (`dist/` is a standard static site):
-- **Cloudflare Pages:** `wrangler pages deploy dist --project-name secbits`
-- **Netlify / Vercel:** build command `npm run build`, output `dist/`
-- **NGINX / Apache:** serve `index.html` for all routes (SPA routing)
+Worker dev:
 
-**Local dev:**
 ```bash
-npm run dev        # frontend → http://localhost:5173
+cd worker
+wrangler dev
 ```
 
 ## Usage
 
-### First login
+1. Upload config JSON in the app.
+2. App signs in through Firebase.
+3. App loads encrypted state from R2 through Worker.
+4. Save operations overwrite the R2 object with a new encrypted export blob.
 
-Drag and drop (or click to browse) your config `.json` onto the upload area. The app signs into Firebase, authenticates with InstantDB, and loads your entries. The session is held in memory — a hard reload (F5) or logout clears it.
+## Notes
 
-### Entries
+- Start from scratch for this design.
+- No migration path is required.
+- Backup feature is removed.
 
-- **Create:** click **+**, fill in fields, click **Save**.
-- **Edit:** select an entry, click the edit icon.
-- **Fields:** Title, Username, Password, TOTP Secrets, URLs, Custom Fields, Notes, Tags.
-- **Limits:** see `src/limits.js` for per-field character limits and per-entry collection caps.
+## Documentation
 
-### Version history
-
-Each save appends a commit (up to 20). Use the **N versions** button to open the diff modal. Restore any past version with **Restore this version** — this creates a new HEAD commit; history is never overwritten.
-
-### Settings
-
-- **Security:** rotate the root master key (re-encrypts only the user master key blob; entries are unaffected).
-- **Backup** (only when targets are configured): export decrypted JSON, manual backup, auto-backup toggle.
-- **Restore:** from a cloud target, a local `.bak` file, or a plain JSON export.
-- **About:** storage stats and field coverage.
-
-### Change root master key
-
-1. Open **Settings → Security**.
-2. Copy the generated key and update your config JSON and any secure backup.
-3. Check the confirmation checkbox, then click **Change**.
-
-The old key stops working immediately after the write. If the new key is not saved first, recovery is impossible.
-
-## Testing
-
-```bash
-npx vitest run    # run all suites
-npx vitest        # watch mode
-```
-
-See [agent_docs/testing.md](agent_docs/testing.md) for coverage matrix and suite breakdown.
+See `agent_docs/` for architecture and implementation details.

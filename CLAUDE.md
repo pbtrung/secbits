@@ -1,70 +1,73 @@
 # SecBits
 
-Self-hosted, end-to-end encrypted password manager. The browser handles all cryptography — InstantDB never sees plaintext.
+Self-hosted, end-to-end encrypted password manager.
 
-## What
+Current architecture is strictly:
+- Frontend: React + Vite
+- Auth: Firebase Authentication (email/password, ID token)
+- Backend: Cloudflare Worker
+- Storage: Cloudflare R2 object storage
 
-- **Frontend**: React 19 + Vite, Bootstrap 5, leancrypto WASM (Ascon-Keccak-512 AEAD + HKDF-SHA3-512)
-- **Backend**: Firebase Authentication (RS256 JWT) + InstantDB (browser SDK, no custom API server)
-- **Tests**: Vitest (Node environment)
+There is no SQL database in this design.
+There is no backup subsystem in this design.
 
 ## Layout
 
-```
+```text
 src/
-  App.jsx          root component; all session state and UI layout live here
-  instantdb.js     InstantDB init (db export)
-  crypto.js        HKDF key derivation, AEAD encrypt/decrypt, key wrapping
-  api.js           InstantDB data operations: profile + entry CRUD
-  backup.js        backup/restore/export pipeline, S3-compatible SigV4
-  totp.js          RFC 6238 TOTP generation
-  limits.js        field and collection size constants
-  components/      React UI components
+  App.jsx          root state and session flow
+  api.js           Worker client (auth + read/write encrypted object)
+  crypto.js        export-json -> compress -> encrypt pipeline
+  totp.js          RFC 6238 TOTP
+  components/      UI
   tests/           Vitest suites
-instant.schema.ts  InstantDB namespace + link definitions
-instant.perms.ts   InstantDB permission rules
+worker/
+  src/index.js     routes, Firebase token verification, R2 read/write
+  src/firebase.js  Firebase RS256 token verification
 ```
 
-## How
+## Runtime Flow
 
-```bash
-npm install            # install deps
-npm run dev            # Vite dev server → http://localhost:5173
-npm run build          # production build → dist/
-npx vitest run         # run all tests once
-npx vitest             # watch mode
+- Login:
+1. App authenticates with Firebase.
+2. App sends Firebase ID token to Worker.
+3. Worker verifies token and resolves user identity.
+4. Worker reads encrypted object from R2 and returns bytes/metadata.
+5. App decrypts and loads vault.
 
-npx instant-cli@latest push schema   # push schema to InstantDB
-npx instant-cli@latest push perms    # push permission rules
-```
+- Save:
+1. App builds export JSON.
+2. App compresses JSON.
+3. App encrypts compressed bytes.
+4. App sends encrypted blob to Worker.
+5. Worker writes blob to configured R2 path.
 
-## Key Architecture
+## Config Contract
 
-Key hierarchy — all crypto runs in the browser:
+Config JSON is required at app startup.
 
-```
-Root Master Key (config.json, ≥256 bytes)
-  → HKDF-SHA3-512 → User Master Key (64 B, encrypted blob stored in InstantDB profiles)
-    → per-entry Doc Key (64 B, wrapped with UMK, stored in InstantDB entries.entry_key)
-      → entry value (JSON history → Brotli → Ascon-Keccak-512 AEAD → entries.value)
-```
+Key fields:
+- `worker_url`
+- `email`
+- `password`
+- `firebase_api_key`
+- `root_master_key`
+- `r2.bucket_name`
+- `r2.prefix`
+- `r2.file_name`
 
-Every encrypted blob has the same layout: `salt (64 B) || ciphertext || AEAD tag (64 B)`.
+R2 path format:
+`bucket-name/prefix/file-name`
 
-Session is in-memory only — nothing sensitive is written to `localStorage` or `sessionStorage`.
+All path variables are read from config JSON.
 
 ## Agent Docs
 
-Read these only when the task involves the relevant area:
-
-| File | Read when working on |
-|------|----------------------|
-| [agent_docs/design.md](agent_docs/design.md) | architecture decisions and rationale (why things are the way they are) |
-| [agent_docs/crypto.md](agent_docs/crypto.md) | key hierarchy, AEAD, HKDF, blob format, history encryption, root key rotation |
-| [agent_docs/backend.md](agent_docs/backend.md) | InstantDB schema, permission rules, Firebase auth flow, data operations |
-| [agent_docs/instantdb.md](agent_docs/instantdb.md) | full InstantDB setup: schema, perms, auth flow, frontend code, config, CSP |
-| [agent_docs/backup.md](agent_docs/backup.md) | backup pipeline, R2/S3/GCS targets, restore flow, export format |
-| [agent_docs/security.md](agent_docs/security.md) | security properties and guarantees, session scope, CSP |
-| [agent_docs/testing.md](agent_docs/testing.md) | test coverage matrix, how each suite works |
-| [agent_docs/tech-stack.md](agent_docs/tech-stack.md) | library choices, annotated source tree |
-| [agent_docs/features.md](agent_docs/features.md) | full feature list |
+- `agent_docs/design.md` - architectural decisions
+- `agent_docs/backend.md` - Worker API and R2 I/O contract
+- `agent_docs/crypto.md` - encryption/compression and blob format
+- `agent_docs/security.md` - threat model and guarantees
+- `agent_docs/features.md` - feature surface
+- `agent_docs/tech-stack.md` - technologies and project layout
+- `agent_docs/testing.md` - testing strategy
+- `agent_docs/backup.md` - backup removal notes

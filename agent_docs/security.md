@@ -1,19 +1,21 @@
 # Security Notes
 
-**The master key is everything.** Anyone with your config file can decrypt all your data if they also access the InstantDB store. Keep the config file off shared machines and out of version control.
+- The root master key in config JSON is high-value secret material. Protect it.
+- Worker verifies Firebase ID tokens and enforces authenticated access.
+- Worker and R2 handle ciphertext only; plaintext vault data is processed client-side.
+- Encrypted blob integrity is protected with authenticated encryption tag verification.
+- Any modified ciphertext should fail decryption.
+- Session key material should remain in memory only and be cleared on logout/reload.
 
-**InstantDB never sees plaintext.** All encryption and decryption happens in the browser. InstantDB stores only ciphertext blobs. Permission rules prevent other users from reading your ciphertext, but the ciphertext itself is worthless without the Root Master Key from the config file.
+## Storage Scope
 
-**Per-entry keys.** Each entry is encrypted with its own randomly generated document key. Compromise of one entry's key does not affect others.
+- No database credentials or SQL schema are in scope.
+- No backup credentials are in scope.
+- Storage is exclusively R2 object read/write via Worker.
 
-**AEAD integrity.** Every encrypted value is authenticated by the Ascon-Keccak-512 AEAD tag. Tampered ciphertext or tag causes decryption to fail before any plaintext is returned.
+## Path Controls
 
-**No separate MAC step.** Authentication is built into the AEAD cipher; there is no HMAC post-processing step. The tag covers both the ciphertext and the associated key material.
+R2 destination uses config-driven path parts:
+`bucket-name/prefix/file-name`
 
-**Email/Password auth.** Authentication is fully delegated to Firebase. The app exchanges credentials for an RS256 ID token, then calls `db.auth.signInWithIdToken()`. InstantDB verifies the token against Firebase's public JWKs; no password or hash is ever sent to InstantDB. See `agent_docs/backend.md` for the full auth flow and `agent_docs/design.md` for why Firebase was chosen.
-
-**Session scope.** The session is held in JS memory only. Nothing is written to `sessionStorage`, `localStorage`, or any other browser store. A hard reload (F5) returns to the config upload screen. The logout button explicitly clears the in-memory key and Firebase token.
-
-**Content Security Policy.** A CSP meta tag in `index.html` restricts scripts, connections, styles, fonts, and images to known-good origins. `connect-src` allows only `'self'`, `https://*.instantdb.com`, and `wss://*.instantdb.com`.
-
-**Root master key rotation.** Rotating the root master key re-encrypts only the 192-byte user master key blob in InstantDB. Entry keys and values are unaffected. The old key immediately stops working once the new blob is written. If the new key is not saved before confirming, data cannot be recovered.
+Validate these values server-side to prevent invalid key writes.
