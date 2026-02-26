@@ -522,7 +522,7 @@ export async function rotateRootMasterKey(newRootMasterKeyBytes) {
   }
   await ensureVaultLoaded();
 
-  const previous = rootMasterKeyBytes;
+  const previous = rootMasterKeyBytes instanceof Uint8Array ? rootMasterKeyBytes.slice() : null;
   setRootMasterKey(newRootMasterKeyBytes);
 
   try {
