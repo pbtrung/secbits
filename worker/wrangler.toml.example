@@ -2,10 +2,6 @@ name = "secbits-worker"
 main = "src/index.js"
 compatibility_date = "2026-02-26"
 
-[vars]
-FIREBASE_PROJECT_ID = "<firebase-project-id>"
-R2_BUCKET_NAME = "<bucket-name>"
-
 [[r2_buckets]]
 binding = "SECBITS_R2"
 bucket_name = "<bucket-name>"

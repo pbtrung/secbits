@@ -1,4 +1,4 @@
-const CERTS_URL = 'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
+const CERTS_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
 
 let certCache = {
   expiresAt: 0,
@@ -8,17 +8,6 @@ let certCache = {
 function parseMaxAge(cacheControl) {
   const match = String(cacheControl || '').match(/max-age=(\d+)/i);
   return match ? Number(match[1]) : 300;
-}
-
-function pemToDer(pem) {
-  const b64 = pem
-    .replace('-----BEGIN CERTIFICATE-----', '')
-    .replace('-----END CERTIFICATE-----', '')
-    .replace(/\s+/g, '');
-  const binary = atob(b64);
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
-  return out.buffer;
 }
 
 function b64urlToBytes(value) {
@@ -44,16 +33,16 @@ async function loadGoogleCerts() {
   const body = await res.json();
 
   const keys = new Map();
-  const entries = Object.entries(body || {});
-  for (const [kid, certPem] of entries) {
+  const jwks = Array.isArray(body?.keys) ? body.keys : [];
+  for (const jwk of jwks) {
     const key = await crypto.subtle.importKey(
-      'spki',
-      pemToDer(certPem),
+      'jwk',
+      jwk,
       { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
       false,
       ['verify'],
     );
-    keys.set(kid, key);
+    keys.set(jwk.kid, key);
   }
 
   const maxAge = parseMaxAge(res.headers.get('cache-control'));

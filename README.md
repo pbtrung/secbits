@@ -51,6 +51,7 @@ Set Worker secrets:
 ```bash
 cd worker
 wrangler secret put FIREBASE_PROJECT_ID
+wrangler secret put R2_BUCKET_NAME
 wrangler deploy
 ```
 

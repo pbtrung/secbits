@@ -384,7 +384,7 @@ async function readVaultFromRemote() {
     throw new Error('Wrong root master key');
   }
 
-  const brotli = (await import('brotli-wasm')).default;
+  const brotli = await (await import('brotli-wasm')).default;
   const plainBytes = brotli.decompress(jsonBytes);
   const text = new TextDecoder().decode(plainBytes);
   const parsed = JSON.parse(text);
@@ -401,7 +401,7 @@ async function writeVaultToRemote(entries) {
   const exportData = buildExportData({ username: userName, entries });
 
   const jsonBytes = new TextEncoder().encode(JSON.stringify(exportData));
-  const brotli = (await import('brotli-wasm')).default;
+  const brotli = await (await import('brotli-wasm')).default;
   const compressed = brotli.compress(jsonBytes);
   const encryptedBlob = await encryptBytesToBlob(rootKey, compressed);
 
