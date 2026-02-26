@@ -1,4 +1,10 @@
 function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, selectedTag, trashMode = false, mobile }) {
+  const formatDeletedAt = (ts) => {
+    const d = new Date(ts);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  };
+
   return (
     <div
       className={`d-flex flex-column bg-white ${mobile ? 'h-100' : 'h-100 border-end'}`}
@@ -36,7 +42,7 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
                 </div>
                 <small className={`text-truncate d-block ${selectedEntryId === entry.id ? 'text-light' : 'text-muted'}`}>
                   {trashMode
-                    ? `Deleted ${entry.deletedAt ? new Date(entry.deletedAt).toLocaleString() : ''}`.trim()
+                    ? `Deleted ${entry.deletedAt ? formatDeletedAt(entry.deletedAt) : ''}`.trim()
                     : entry.username}
                 </small>
                 <div className="mt-1">

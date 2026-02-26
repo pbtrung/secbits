@@ -122,6 +122,11 @@ function EntryDetail({
   const [historyIdx, setHistoryIdx] = useState(0);
   const notesHideTimerRef = useRef(null);
   const tagInputRef = useRef(null);
+  const formatDeletedAt = (ts) => {
+    const d = new Date(ts);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  };
 
   const commits = entry._commits || [];
 
@@ -504,7 +509,7 @@ function EntryDetail({
           {isTrashView && (
             <div className="small text-muted mt-1">
               <i className="bi bi-trash me-1"></i>
-              Deleted {entry.deletedAt ? new Date(entry.deletedAt).toLocaleString() : ''}
+              Deleted {entry.deletedAt ? formatDeletedAt(entry.deletedAt) : ''}
             </div>
           )}
         </div>
@@ -945,16 +950,6 @@ function EntryDetail({
                 <><i className="bi bi-arrow-counterclockwise me-1"></i>Restore</>
               )}
             </button>
-            {commits.length > 0 && (
-              <button
-                type="button"
-                className="btn btn-sm btn-outline-secondary"
-                onClick={() => { setHistoryIdx(0); setShowHistory(true); }}
-              >
-                <i className="bi bi-git me-1"></i>
-                {commits.length} version{commits.length !== 1 ? 's' : ''}
-              </button>
-            )}
             <button className="btn btn-danger ms-auto" onClick={handleDelete} disabled={saving || deleting}>
               {deleting ? (
                 <><span className="spinner-border spinner-border-sm me-1"></span>Deleting...</>
@@ -982,7 +977,7 @@ function EntryDetail({
           </button>
         )}
 
-        {commits.length > 0 && (
+        {!isTrashView && commits.length > 0 && (
           <button
             type="button"
             className="btn btn-sm btn-outline-secondary"

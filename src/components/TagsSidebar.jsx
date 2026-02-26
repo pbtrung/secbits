@@ -41,10 +41,20 @@ function TagsSidebar({
               }`}
               onClick={() => onSelectTag(tag)}
             >
-              <span className="text-truncate me-2">{tag}</span>
+              <span className="text-truncate me-2 ps-3">{tag}</span>
               <span className="badge rounded-pill text-bg-light">{tagCounts[tag] || 0}</span>
             </button>
           ))}
+          <button
+            className={`list-group-item list-group-item-action d-flex justify-content-between align-items-center ${
+              !settingsMode && trashMode ? 'active' : ''
+            } ${trashCount === 0 ? 'disabled' : ''}`}
+            onClick={onOpenTrash}
+            disabled={trashCount === 0}
+          >
+            <span>Trash</span>
+            <span className="badge rounded-pill text-bg-light">{trashCount}</span>
+          </button>
         </div>
       </div>
       {userName && (
@@ -57,14 +67,6 @@ function TagsSidebar({
             title="Settings"
           >
             <i className="bi bi-gear"></i>
-          </button>
-          <button
-            className={`btn btn-sm btn-link ms-2 flex-shrink-0 p-1 rounded logout-btn ${trashMode ? 'text-primary' : 'text-muted'} ${trashCount === 0 ? 'disabled' : ''}`}
-            onClick={onOpenTrash}
-            title={trashCount === 0 ? 'Trash is empty' : 'Trash'}
-            disabled={trashCount === 0}
-          >
-            <i className="bi bi-trash"></i>
           </button>
           {onLogout && (
             <button
