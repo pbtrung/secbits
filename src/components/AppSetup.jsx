@@ -19,6 +19,7 @@ function AppSetup({ onReady }) {
     if (!json.firebase_api_key) throw new Error('Missing required field: firebase_api_key');
     if (!json.r2 || typeof json.r2 !== 'object') throw new Error('Missing required field: r2');
     if (!json.r2.bucket_name) throw new Error('Missing required field: r2.bucket_name');
+    if (!json.r2.prefix) throw new Error('Missing required field: r2.prefix');
     if (!json.r2.file_name) throw new Error('Missing required field: r2.file_name');
     if (!json.root_master_key) throw new Error('Missing required field: root_master_key');
     if (!json.vault_id) throw new Error('Missing required field: vault_id');
@@ -133,6 +134,7 @@ function AppSetup({ onReady }) {
   "vault_id": "<random string, e.g. openssl rand -base64 32>",
   "r2": {
     "bucket_name": "<bucket-name>",
+    "prefix": "<path-prefix>",
     "file_name": "<file-name>"
   }
 }`}
