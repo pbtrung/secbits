@@ -1,13 +1,200 @@
 import { useState, useEffect, useCallback } from 'react';
 import { bytesToB64, decodeRootMasterKey } from '../crypto';
-import { buildExportData, fetchUserEntries, getUsername, getVaultStats, rotateRootMasterKey } from '../api';
+import { buildExportData, fetchUserEntries, getUsername, rotateRootMasterKey } from '../api';
 
 function formatBytes(bytes) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  if (bytes === 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB'];
   const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   const value = bytes / Math.pow(1024, i);
   return `${value % 1 === 0 ? value : value.toFixed(2)} ${units[i]}`;
+}
+
+function AboutPage() {
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const { entries } = await fetchUserEntries();
+
+        let totalBytes = 0;
+        let withPassword = 0, withUsername = 0, withNotes = 0;
+        let withUrls = 0, totalUrls = 0;
+        let withTotp = 0, totalTotp = 0;
+        let withCustomFields = 0, totalCustomFields = 0;
+        let withTags = 0;
+        let totalCommits = 0, maxCommits = 0, neverEdited = 0;
+        const tagCounts = new Map();
+        const entryList = [];
+
+        for (const entry of entries) {
+          const entryBytes = new TextEncoder().encode(JSON.stringify(entry)).length;
+          totalBytes += entryBytes;
+
+          if (entry.password) withPassword++;
+          if (entry.username) withUsername++;
+          if (entry.notes) withNotes++;
+          if (entry.urls?.length) { withUrls++; totalUrls += entry.urls.length; }
+          if (entry.totpSecrets?.length) { withTotp++; totalTotp += entry.totpSecrets.length; }
+          if (entry.customFields?.length) { withCustomFields++; totalCustomFields += entry.customFields.length; }
+          if (entry.tags?.length) {
+            withTags++;
+            entry.tags.forEach(t => tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1));
+          }
+
+          const commitCount = entry._commits?.length ?? 1;
+          totalCommits += commitCount;
+          if (commitCount > maxCommits) maxCommits = commitCount;
+          if (commitCount === 1) neverEdited++;
+
+          entryList.push({ bytes: entryBytes, title: entry.title || null, username: entry.username || null });
+        }
+
+        entryList.sort((a, b) => b.bytes - a.bytes);
+
+        const topTags = [...tagCounts.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([tag, count]) => ({ tag, count }));
+
+        const count = entries.length;
+        setStats({
+          count,
+          totalBytes,
+          avgBytes: count ? Math.round(totalBytes / count) : 0,
+          decryptedCount: count,
+          withPassword, withUsername, withNotes,
+          withUrls, totalUrls,
+          withTotp, totalTotp,
+          withCustomFields, totalCustomFields,
+          withTags,
+          avgCommits: count ? (totalCommits / count).toFixed(1) : '—',
+          maxCommits,
+          neverEdited,
+          topTags,
+          top5: entryList.slice(0, 5),
+        });
+      } catch {
+        setStats(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  return (
+    <div className="p-4" style={{ maxWidth: 500 }}>
+      <h5 className="fw-bold mb-3">
+        <i className="bi bi-info-circle me-2"></i>About
+      </h5>
+      {loading ? (
+        <div className="text-muted">
+          <span className="spinner-border spinner-border-sm me-2"></span>Loading stats...
+        </div>
+      ) : stats ? (
+        <div>
+          <div className="text-muted small fw-semibold mb-1">Overview</div>
+          <table className="table table-sm mb-3">
+            <tbody>
+              <tr>
+                <td className="text-muted">Entries</td>
+                <td className="fw-semibold">{stats.count}</td>
+              </tr>
+              <tr>
+                <td className="text-muted">Total stored size</td>
+                <td className="fw-semibold">{formatBytes(stats.totalBytes)}</td>
+              </tr>
+              <tr>
+                <td className="text-muted">Avg entry size</td>
+                <td className="fw-semibold">{formatBytes(stats.avgBytes)}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          {stats.decryptedCount > 0 && (<>
+            <div className="text-muted small fw-semibold mb-1">Field coverage</div>
+            <table className="table table-sm mb-3">
+              <tbody>
+                {[
+                  ['Password', stats.withPassword, null],
+                  ['Username', stats.withUsername, null],
+                  ['Notes', stats.withNotes, null],
+                  ['URLs', stats.withUrls, stats.totalUrls > 0 ? `${stats.totalUrls} total` : null],
+                  ['TOTP secrets', stats.withTotp, stats.totalTotp > 0 ? `${stats.totalTotp} total` : null],
+                  ['Custom fields', stats.withCustomFields, stats.totalCustomFields > 0 ? `${stats.totalCustomFields} total` : null],
+                  ['Tags', stats.withTags, null],
+                ].map(([label, n, note]) => (
+                  <tr key={label}>
+                    <td className="text-muted">{label}</td>
+                    <td className="fw-semibold">
+                      {n} / {stats.decryptedCount}
+                      {note && <span className="text-muted fw-normal ms-2 small">({note})</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div className="text-muted small fw-semibold mb-1">Version history</div>
+            <table className="table table-sm mb-3">
+              <tbody>
+                <tr>
+                  <td className="text-muted">Avg commits per entry</td>
+                  <td className="fw-semibold">{stats.avgCommits}</td>
+                </tr>
+                <tr>
+                  <td className="text-muted">Max commits on one entry</td>
+                  <td className="fw-semibold">{stats.maxCommits}</td>
+                </tr>
+                <tr>
+                  <td className="text-muted">Never edited</td>
+                  <td className="fw-semibold">{stats.neverEdited}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            {stats.topTags.length > 0 && (<>
+              <div className="text-muted small fw-semibold mb-1">Top tags</div>
+              <div className="mb-3">
+                {stats.topTags.map(({ tag, count }) => (
+                  <span key={tag} className="badge bg-secondary me-1 mb-1">
+                    {tag} <span className="opacity-75">({count})</span>
+                  </span>
+                ))}
+              </div>
+            </>)}
+          </>)}
+
+          {stats.top5.length > 0 && (<>
+            <div className="text-muted small fw-semibold mb-1">Top {stats.top5.length} largest entries</div>
+            <table className="table table-sm">
+              <thead>
+                <tr>
+                  <th className="text-muted fw-normal">Title</th>
+                  <th className="text-muted fw-normal">Username</th>
+                  <th className="text-muted fw-normal">Size</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.top5.map((e, i) => (
+                  <tr key={i}>
+                    <td className="fw-semibold">{e.title ?? <span className="text-muted fst-italic">—</span>}</td>
+                    <td className="text-muted small">{e.username || <span className="fst-italic">—</span>}</td>
+                    <td className="fw-semibold">{e.bytes.toLocaleString()} B</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>)}
+        </div>
+      ) : (
+        <div className="text-danger small">Failed to load stats.</div>
+      )}
+    </div>
+  );
 }
 
 function ExportPage() {
@@ -172,34 +359,6 @@ function SecurityPage() {
           {status.msg}
         </div>
       )}
-    </div>
-  );
-}
-
-function AboutPage() {
-  const stats = getVaultStats();
-
-  return (
-    <div className="p-4" style={{ maxWidth: 500 }}>
-      <h5 className="fw-bold mb-3">
-        <i className="bi bi-info-circle me-2"></i>About
-      </h5>
-      <table className="table table-sm mb-0">
-        <tbody>
-          <tr>
-            <td className="text-muted">Entries</td>
-            <td className="fw-semibold">{stats.count}</td>
-          </tr>
-          <tr>
-            <td className="text-muted">Vault JSON size</td>
-            <td className="fw-semibold">{formatBytes(stats.totalBytes)}</td>
-          </tr>
-          <tr>
-            <td className="text-muted">Average entry size</td>
-            <td className="fw-semibold">{formatBytes(stats.avgBytes)}</td>
-          </tr>
-        </tbody>
-      </table>
     </div>
   );
 }
