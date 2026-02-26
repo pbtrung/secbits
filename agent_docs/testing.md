@@ -1,31 +1,36 @@
 # Testing
 
-## Focus Areas
-
-1. Firebase auth integration at client and Worker boundary.
-2. Worker token verification and unauthorized access rejection.
-3. R2 write path (`PUT /vault`) with config-driven key resolution.
-4. R2 read path (`GET /vault`) including first-login empty state.
-5. Crypto pipeline round-trip:
-   - export JSON
-   - compress
-   - encrypt
-   - decrypt
-   - decompress
-   - parse JSON
-6. Tamper detection for encrypted blobs.
-7. Config validation for `bucket_name`, `prefix`, and `file_name`.
-
-## Suggested Commands
+## Test Runner
 
 ```bash
-npx vitest run
-npx vitest
+npx vitest run      # single run
+npx vitest          # watch mode
 ```
+
+## Test Files
+
+| File | Covers |
+|------|--------|
+| `crypto.test.js` | `encryptBytesToBlob` / `decryptBlobBytes` round-trip, tamper detection, `bytesToB64` |
+| `crypto-root-key.test.js` | `decodeRootMasterKey` validation (length, base64) |
+| `leancrypto.test.js` | Raw HKDF and AEAD primitives via leancrypto WASM |
+| `totp.test.js` | RFC 6238 TOTP code generation and test vectors |
+| `validation.test.js` | URL validation and other input validators |
+| `export-data.test.js` | `buildExportData` payload shape |
+
+## Critical Path Coverage
+
+1. **Crypto round-trip**: export JSON → compress → encrypt → decrypt → decompress → parse JSON produces identical output.
+2. **Tamper detection**: any modification to ciphertext or AEAD tag causes decryption failure before returning plaintext.
+3. **Wrong key rejection**: decryption with an incorrect root master key throws.
+4. **First-login empty state**: `POST /vault/read` with no existing R2 object returns `{ exists: false, payload_b64: null }`.
+5. **Config validation**: invalid `bucket_name`, `prefix`, or `file_name` values are rejected by the Worker with 400.
+6. **Firebase token enforcement**: requests without a valid Bearer token receive 401.
 
 ## Regression Priorities
 
-- Login must read vault from R2 (not any database).
-- Save must overwrite/update encrypted vault object in R2.
-- Backup-related UI/API paths must not exist.
-- No migration flow should be required or invoked.
+- Login reads vault from R2 via `POST /vault/read`.
+- Save writes encrypted vault to R2 via `POST /vault/write`.
+- Decryption with wrong root master key fails at the AEAD tag check.
+- TOTP codes match RFC 6238 test vectors.
+- Config JSON with a `root_master_key` shorter than 256 decoded bytes is rejected at startup.

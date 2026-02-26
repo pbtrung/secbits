@@ -65,9 +65,8 @@ All path variables are read from config JSON.
 
 - `agent_docs/design.md` - architectural decisions
 - `agent_docs/backend.md` - Worker API and R2 I/O contract
-- `agent_docs/crypto.md` - encryption/compression and blob format
+- `agent_docs/crypto.md` - cipher spec, blob format, pipeline
 - `agent_docs/security.md` - threat model and guarantees
 - `agent_docs/features.md` - feature surface
 - `agent_docs/tech-stack.md` - technologies and project layout
 - `agent_docs/testing.md` - testing strategy
-- `agent_docs/backup.md` - backup removal notes

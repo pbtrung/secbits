@@ -100,12 +100,6 @@ wrangler dev
 3. App loads encrypted state from R2 through Worker.
 4. Save operations overwrite the R2 object with a new encrypted export blob.
 
-## Notes
-
-- Start from scratch for this design.
-- No migration path is required.
-- Backup feature is removed.
-
 ## Documentation
 
 See `agent_docs/` for architecture and implementation details.

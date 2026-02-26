@@ -1,69 +1,104 @@
-# Backend Architecture
+# Backend
 
-Backend is Cloudflare Worker + Cloudflare R2.
+Cloudflare Worker + Cloudflare R2.
 
-```text
+```
 Browser -> Worker -> R2
 ```
 
-Authentication is Firebase ID token (`Authorization: Bearer <token>`). Worker verifies token and uses `token.sub` as user identity.
+Authentication: Firebase ID token (`Authorization: Bearer <token>`). The Worker verifies the token and uses `token.sub` as user identity. All routes except `/health` require a valid token.
 
 ## Storage Model
 
-- One encrypted object per user vault state.
-- Object bytes are produced client-side by:
-  - export JSON
-  - compress
-  - encrypt
-- Worker never decrypts plaintext vault content.
+One encrypted binary object per user vault. The Worker never handles plaintext vault content — it reads and writes opaque bytes only.
 
-R2 object location is config-driven with:
-`bucket-name/prefix/file-name`
+R2 object path is config-driven:
+```
+{prefix}{file_name}
+```
+within the bucket bound to the Worker. All path parts are validated server-side.
 
-All three path parts are read from the client config JSON and sent to Worker as request parameters.
-
-## Worker API
-
-All routes require a valid Firebase token.
+## API
 
 | Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/vault` | Read encrypted vault blob from R2 |
-| `PUT` | `/vault` | Write encrypted vault blob to R2 |
-| `GET` | `/health` | Optional health check |
+|--------|------|---------|
+| `POST` | `/vault/read` | Read encrypted vault blob from R2 |
+| `POST` | `/vault/write` | Write encrypted vault blob to R2 |
+| `GET`  | `/health` | Health check (no auth required) |
 
-Suggested request shape for `/vault` routes:
+All vault routes require `Content-Type: application/json` and `Authorization: Bearer <firebase-id-token>`.
 
+---
+
+### POST /vault/read
+
+Request body:
 ```json
 {
-  "r2": {
-    "bucket_name": "secbits-data",
-    "prefix": "users/",
-    "file_name": "vault.bin"
-  }
+  "bucket_name": "secbits-data",
+  "prefix": "users/",
+  "file_name": "vault.bin"
 }
 ```
 
-`PUT /vault` additionally includes encrypted payload bytes (or base64 payload) and metadata fields if needed.
+Response (object exists):
+```json
+{
+  "exists": true,
+  "payload_b64": "<base64-encoded encrypted blob>",
+  "key": "users/vault.bin",
+  "size": 4096,
+  "etag": "\"abc123\"",
+  "uploaded": "2026-01-01T00:00:00.000Z"
+}
+```
 
-## Write Flow
+Response (first login / object not yet created):
+```json
+{
+  "exists": false,
+  "key": "users/vault.bin",
+  "payload_b64": null
+}
+```
 
-1. Worker verifies Firebase token.
-2. Worker validates `bucket_name`, `prefix`, `file_name`.
-3. Worker writes encrypted blob to R2 key `prefix + file_name` in `bucket_name`.
-4. Worker returns write metadata (etag/version/timestamp when available).
+---
 
-## Read Flow
+### POST /vault/write
 
-1. Worker verifies Firebase token.
-2. Worker resolves R2 object key from request config fields.
-3. Worker reads object bytes.
-4. Worker returns encrypted blob to client.
+Request body:
+```json
+{
+  "bucket_name": "secbits-data",
+  "prefix": "users/",
+  "file_name": "vault.bin",
+  "payload_b64": "<base64-encoded encrypted blob>"
+}
+```
 
-If object does not exist (first login), return 404 or an explicit empty-state response.
+Response:
+```json
+{
+  "ok": true,
+  "key": "users/vault.bin",
+  "size": 4096
+}
+```
 
-## Removed Components
+---
 
-- No Turso/libSQL/D1 usage.
-- No `entries` table or relational schema.
-- No backup-specific APIs.
+## Path Validation
+
+The Worker validates all path parts before constructing the R2 key:
+- `bucket_name` must match the Worker's `R2_BUCKET_NAME` environment variable.
+- `prefix` and `file_name` must not be empty, must not contain `..` or `\`.
+- `prefix` is normalized to always end with `/` if non-empty.
+
+## Worker Secrets
+
+| Secret | Purpose |
+|--------|---------|
+| `FIREBASE_PROJECT_ID` | Used to verify the `aud` claim in Firebase ID tokens |
+| `R2_BUCKET_NAME` | Validated against the client-supplied `bucket_name` |
+
+The R2 bucket is bound to the Worker via `wrangler.toml` (binding name: `SECBITS_R2`).
