@@ -21,8 +21,6 @@ const AUTO_BACKUP_KEY = 'secbits:auto_backup_enabled';
 const LAST_BACKUP_KEY = 'secbits:last_backup_at';
 const MAX_RESTORE_BYTES = 10 * 1024 * 1024;
 const MAX_DECOMPRESSED_BYTES = 50 * 1024 * 1024;
-const ENTRY_ID_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-const ENTRY_ID_LEN = 42;
 
 let runningAutoBackup = null;
 let rerunAutoBackup = false;
@@ -46,11 +44,6 @@ function b64ToBytes(b64) {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
-}
-
-function generateEntryId() {
-  const buf = crypto.getRandomValues(new Uint8Array(ENTRY_ID_LEN));
-  return Array.from(buf, (b) => ENTRY_ID_CHARS[b % ENTRY_ID_CHARS.length]).join('');
 }
 
 function normalizePrefix(prefix) {
@@ -308,11 +301,8 @@ function buildRawEntriesForRestore(exportData, userMasterKey) {
       const wrappedEntryKey = await wrapEntryKey(userMasterKey, docKey);
       const valueBytes = await encryptEntryHistoryWithDocKey(docKey, doc.value);
       return {
-        id: generateEntryId(),
         entry_key: bytesToB64(wrappedEntryKey),
         value: bytesToB64(valueBytes),
-        createdAt: doc.createdAt,
-        updatedAt: doc.updatedAt,
       };
     }),
   );

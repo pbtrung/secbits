@@ -1,3 +1,4 @@
+import { createDb } from './instantdb';
 import {
   decryptEntryHistoryWithDocKey,
   encryptEntryHistoryWithDocKey,
@@ -7,27 +8,13 @@ import {
   wrapEntryKey,
 } from './crypto';
 
-let workerUrl = null;
-let firebaseApiKey = null;
-let idToken = null;
-let refreshToken = null;
-let idTokenExp = 0;
+let db = null;
+let userId = null;
 let userMasterKeyBytes = null;
 let rootMasterKeyBytes = null;
 let backupTargets = [];
 const MAX_COMMITS = 20;
 const MAX_VALUE_BYTES = 1_900_000;
-const TOKEN_REFRESH_SKEW_SECONDS = 300;
-
-// ─── ID generation ────────────────────────────────────────────────────────────
-
-const ID_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-const ID_LEN = 42;
-
-function generateId() {
-  const arr = crypto.getRandomValues(new Uint8Array(ID_LEN));
-  return Array.from(arr, b => ID_CHARS[b % ID_CHARS.length]).join('');
-}
 
 // ─── Binary helpers ───────────────────────────────────────────────────────────
 
@@ -62,87 +49,15 @@ function checkValueSize(value) {
   }
 }
 
-// ─── HTTP helpers ─────────────────────────────────────────────────────────────
-
-async function apiFetch(path, options = {}) {
-  await ensureFreshIdToken();
-  const headers = { 'Content-Type': 'application/json' };
-  if (idToken) headers.Authorization = `Bearer ${idToken}`;
-  const res = await fetch(`${workerUrl}${path}`, { ...options, headers });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `HTTP ${res.status}`);
-  }
-  return res.json();
-}
-
-const apiGet = path => apiFetch(path, { method: 'GET' });
-const apiPost = (path, body) => apiFetch(path, { method: 'POST', body: JSON.stringify(body) });
-const apiPut = (path, body) => apiFetch(path, { method: 'PUT', body: JSON.stringify(body) });
-const apiDelete = path => apiFetch(path, { method: 'DELETE' });
-
 // ─── Public auth / session ────────────────────────────────────────────────────
 
-function decodeJwtPayload(token) {
-  const parts = token?.split('.');
-  if (!parts || parts.length < 2) return null;
-  const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-  const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
-  try {
-    return JSON.parse(atob(padded));
-  } catch {
-    return null;
-  }
-}
-
-function setIdTokenState(nextIdToken, nextRefreshToken = refreshToken) {
-  idToken = nextIdToken;
-  refreshToken = nextRefreshToken;
-  const payload = decodeJwtPayload(nextIdToken);
-  idTokenExp = Number(payload?.exp) || 0;
-}
-
-async function refreshIdTokenIfNeeded() {
-  const now = Math.floor(Date.now() / 1000);
-  if (!refreshToken || !idToken || idTokenExp - now > TOKEN_REFRESH_SKEW_SECONDS) {
-    return;
-  }
-
-  const res = await fetch(
-    `https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(firebaseApiKey)}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-      }),
-    },
-  );
-  if (!res.ok) {
-    throw new Error('Failed to refresh Firebase token');
-  }
-
-  const data = await res.json();
-  if (!data?.id_token || !data?.refresh_token) {
-    throw new Error('Invalid Firebase refresh response');
-  }
-  setIdTokenState(data.id_token, data.refresh_token);
-}
-
-async function ensureFreshIdToken() {
-  if (!idToken) throw new Error('Not authenticated');
-  await refreshIdTokenIfNeeded();
-}
-
 export async function initApi(config) {
-  workerUrl = config.worker_url.replace(/\/$/, '');
-  firebaseApiKey = config.firebase_api_key;
   backupTargets = Array.isArray(config.backup) ? config.backup.slice() : [];
-  if (!firebaseApiKey) throw new Error('Missing required field: firebase_api_key');
+  if (!config.firebase_api_key) throw new Error('Missing required field: firebase_api_key');
+  if (!config.instant_app_id) throw new Error('Missing required field: instant_app_id');
 
   const res = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(firebaseApiKey)}`,
+    `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(config.firebase_api_key)}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -154,15 +69,13 @@ export async function initApi(config) {
     },
   );
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data?.error?.message || 'Firebase authentication failed');
-  }
-  if (!data?.idToken || !data?.refreshToken || !data?.localId) {
-    throw new Error('Invalid Firebase authentication response');
-  }
+  if (!res.ok) throw new Error(data?.error?.message || 'Firebase authentication failed');
+  if (!data?.idToken) throw new Error('Invalid Firebase authentication response');
 
-  setIdTokenState(data.idToken, data.refreshToken);
-  return { userId: data.localId };
+  db = createDb(config.instant_app_id);
+  const user = await db.auth.signInWithIdToken({ idToken: data.idToken, clientName: 'firebase' });
+  userId = user.id;
+  return { userId };
 }
 
 function zeroizeBytes(bytes) {
@@ -170,9 +83,7 @@ function zeroizeBytes(bytes) {
 }
 
 export function setUserMasterKey(keyBytes) {
-  if (!(keyBytes instanceof Uint8Array)) {
-    throw new Error('User master key must be bytes');
-  }
+  if (!(keyBytes instanceof Uint8Array)) throw new Error('User master key must be bytes');
   zeroizeBytes(userMasterKeyBytes);
   userMasterKeyBytes = keyBytes.slice();
 }
@@ -182,9 +93,7 @@ export function getUserMasterKey() {
 }
 
 export function setRootMasterKey(keyBytes) {
-  if (!(keyBytes instanceof Uint8Array)) {
-    throw new Error('Root master key must be bytes');
-  }
+  if (!(keyBytes instanceof Uint8Array)) throw new Error('Root master key must be bytes');
   zeroizeBytes(rootMasterKeyBytes);
   rootMasterKeyBytes = keyBytes.slice();
 }
@@ -202,46 +111,54 @@ export function clearUserMasterKey() {
   zeroizeBytes(rootMasterKeyBytes);
   userMasterKeyBytes = null;
   rootMasterKeyBytes = null;
-  idToken = null;
-  refreshToken = null;
-  idTokenExp = 0;
-  firebaseApiKey = null;
   backupTargets = [];
-  workerUrl = null;
+  if (db) {
+    db.auth.signOut().catch(() => {});
+    db = null;
+  }
+  userId = null;
 }
 
 export async function rotateRootMasterKey(newRootMasterKeyBytes) {
   const currentUMK = getUserMasterKey();
   if (!currentUMK) throw new Error('Session key not available');
   const newBlob = await rewrapUserMasterKey(newRootMasterKeyBytes, currentUMK);
-  await saveUserMasterKey(newBlob);       // POST /me/profile — only server write
-  setRootMasterKey(newRootMasterKeyBytes); // update in-memory root key
+  await saveUserMasterKey(newBlob);
+  setRootMasterKey(newRootMasterKeyBytes);
 }
 
 // ─── User profile ─────────────────────────────────────────────────────────────
 
 export async function fetchUser() {
-  const data = await apiGet('/me/profile');
+  const { data } = await db.queryOnce({ profiles: {} });
+  const profile = data?.profiles?.[0] ?? null;
+  if (!profile) return { username: null, user_master_key: null };
   return {
-    username: data.username,
-    user_master_key: data.user_master_key ? fromB64(data.user_master_key) : null,
+    username: profile.username ?? null,
+    user_master_key: profile.user_master_key ? fromB64(profile.user_master_key) : null,
   };
 }
 
 export async function saveUserMasterKey(userMasterKeyBlob, username = undefined) {
   const bytes = toUint8Array(userMasterKeyBlob);
   if (!bytes) throw new Error('user_master_key must be bytes');
-  await apiPost('/me/profile', {
-    user_master_key: toB64(bytes),
-    ...(typeof username === 'string' && username.trim() ? { username: username.trim() } : {}),
-  });
+  const { data } = await db.queryOnce({ profiles: {} });
+  const profileId = data?.profiles?.[0]?.id ?? db.id();
+  await db.transact(
+    db.tx.profiles[profileId]
+      .update({
+        user_master_key: toB64(bytes),
+        ...(typeof username === 'string' && username.trim() ? { username: username.trim() } : {}),
+      })
+      .link({ $user: userId }),
+  );
 }
 
 // ─── Raw docs ─────────────────────────────────────────────────────────────────
 
 export async function fetchRawUserDocs() {
-  const entries = await apiGet('/entries');
-  return entries.map(e => ({
+  const { data } = await db.queryOnce({ entries: {} });
+  return (data?.entries ?? []).map(e => ({
     id: e.id,
     entry_key: fromB64(e.entry_key),
     value: fromB64(e.value),
@@ -512,9 +429,7 @@ export async function fetchUserEntries() {
 
 export async function createUserEntry(entry) {
   const payload = toEntryPayload(entry);
-  if (!userMasterKeyBytes) {
-    throw new Error('Entry master key is not initialized');
-  }
+  if (!userMasterKeyBytes) throw new Error('Entry master key is not initialized');
 
   const docKeyBytes = generateEntryDocKey();
   const entryKeyBytes = await wrapEntryKey(userMasterKeyBytes, docKeyBytes);
@@ -524,22 +439,21 @@ export async function createUserEntry(entry) {
   );
   checkValueSize(valueBytes);
 
-  const id = generateId();
-  await apiPost('/entries', {
-    id,
-    entry_key: toB64(entryKeyBytes),
-    value: toB64(valueBytes),
-  });
-  return { id, ...history.commits[0].snapshot, _commits: history.commits };
+  const entryId = db.id();
+  await db.transact(
+    db.tx.entries[entryId]
+      .update({ entry_key: toB64(entryKeyBytes), value: toB64(valueBytes) })
+      .link({ $user: userId }),
+  );
+  return { id: entryId, ...history.commits[0].snapshot, _commits: history.commits };
 }
 
 export async function updateUserEntry(entryId, entry) {
   const payload = toEntryPayload(entry);
-  if (!userMasterKeyBytes) {
-    throw new Error('Entry master key is not initialized');
-  }
+  if (!userMasterKeyBytes) throw new Error('Entry master key is not initialized');
 
-  const existing = await apiGet(`/entries/${entryId}`).catch(() => null);
+  const { data } = await db.queryOnce({ entries: {} });
+  const existing = data?.entries?.find(e => e.id === entryId) ?? null;
   const existingEntryKeyBytes = existing?.entry_key ? fromB64(existing.entry_key) : null;
   const existingValueBytes = existing?.value ? fromB64(existing.value) : null;
 
@@ -552,64 +466,64 @@ export async function updateUserEntry(entryId, entry) {
     : { head: null, commits: [] };
 
   const history = await buildNextHistory(existingHistory, payload);
-
   const entryKeyBytes = existingEntryKeyBytes ?? await wrapEntryKey(userMasterKeyBytes, docKeyBytes);
   const valueBytes = await encryptEntryHistoryWithDocKey(
     docKeyBytes, serializeHistoryForStorage(history),
   );
   checkValueSize(valueBytes);
 
-  await apiPut(`/entries/${entryId}`, {
-    entry_key: toB64(entryKeyBytes),
-    value: toB64(valueBytes),
-  });
-
-  const latestSnapshot = history.commits[0]?.snapshot ?? payload;
-  return { id: String(entryId), ...latestSnapshot, _commits: history.commits };
+  await db.transact(
+    db.tx.entries[entryId].update({ entry_key: toB64(entryKeyBytes), value: toB64(valueBytes) }),
+  );
+  return { id: entryId, ...(history.commits[0]?.snapshot ?? payload), _commits: history.commits };
 }
 
 export async function restoreEntryVersion(entryId, commitHash) {
-  if (!userMasterKeyBytes) {
-    throw new Error('Entry master key is not initialized');
-  }
+  if (!userMasterKeyBytes) throw new Error('Entry master key is not initialized');
 
-  const existing = await apiGet(`/entries/${entryId}`);
+  const { data } = await db.queryOnce({ entries: {} });
+  const existing = data?.entries?.find(e => e.id === entryId);
   if (!existing) throw new Error('Entry not found');
 
   const existingEntryKeyBytes = fromB64(existing.entry_key);
   const docKeyBytes = await unwrapEntryKey(userMasterKeyBytes, existingEntryKeyBytes);
-  const existingValueBytes = fromB64(existing.value);
-  const existingHistory = await decryptAndParseHistory(docKeyBytes, existingValueBytes);
+  const existingHistory = await decryptAndParseHistory(docKeyBytes, fromB64(existing.value));
 
   const targetCommit = existingHistory.commits.find((c) => c.hash === commitHash);
   if (!targetCommit) throw new Error(`Commit ${commitHash} not found`);
 
   const restoredPayload = { ...targetCommit.snapshot, timestamp: new Date().toISOString() };
   const history = await buildNextHistory(existingHistory, restoredPayload);
-
   const valueBytes = await encryptEntryHistoryWithDocKey(
     docKeyBytes, serializeHistoryForStorage(history),
   );
   checkValueSize(valueBytes);
 
-  await apiPut(`/entries/${entryId}`, {
-    entry_key: toB64(existingEntryKeyBytes),
-    value: toB64(valueBytes),
-  });
-
-  const latestSnapshot = history.commits[0]?.snapshot ?? restoredPayload;
-  return { id: String(entryId), ...latestSnapshot, _commits: history.commits };
+  await db.transact(
+    db.tx.entries[entryId].update({ entry_key: toB64(existingEntryKeyBytes), value: toB64(valueBytes) }),
+  );
+  return { id: entryId, ...(history.commits[0]?.snapshot ?? restoredPayload), _commits: history.commits };
 }
 
 export async function deleteUserEntry(entryId) {
-  await apiDelete(`/entries/${entryId}`);
+  await db.transact(db.tx.entries[entryId].delete());
 }
 
 export async function replaceUserEntries(rawEntries) {
-  if (!Array.isArray(rawEntries)) {
-    throw new Error('rawEntries must be an array');
-  }
-  await apiPost('/entries/replace', { entries: rawEntries });
+  if (!Array.isArray(rawEntries)) throw new Error('rawEntries must be an array');
+  const { data } = await db.queryOnce({ entries: {} });
+  const existingEntries = data?.entries ?? [];
+  await db.transact([
+    ...existingEntries.map(e => db.tx.entries[e.id].delete()),
+    ...rawEntries.map(e =>
+      db.tx.entries[db.id()]
+        .update({
+          entry_key: typeof e.entry_key === 'string' ? e.entry_key : toB64(e.entry_key),
+          value: typeof e.value === 'string' ? e.value : toB64(e.value),
+        })
+        .link({ $user: userId }),
+    ),
+  ]);
 }
 
 export const __historyFormatTestOnly = {

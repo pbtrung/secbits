@@ -9,20 +9,14 @@ function AppSetup({ onReady }) {
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef();
 
-  const validate = (config) => {
-    if (!config.worker_url) return 'Missing required field: worker_url';
-    return null;
-  };
-
   const processConfigText = async (text) => {
     clearUserMasterKey();
     const json = JSON.parse(text);
-    const err = validate(json);
-    if (err) throw new Error(err);
 
     if (!json.email) throw new Error('Missing required field: email');
     if (!json.password) throw new Error('Missing required field: password');
     if (!json.firebase_api_key) throw new Error('Missing required field: firebase_api_key');
+    if (!json.instant_app_id) throw new Error('Missing required field: instant_app_id');
     if (!json.root_master_key) throw new Error('Missing required field: root_master_key');
 
     const rootMasterKeyBytes = decodeRootMasterKey(json.root_master_key);
@@ -151,11 +145,11 @@ function AppSetup({ onReady }) {
             <p className="text-muted small mb-2">Expected JSON format:</p>
             <pre className="bg-light rounded p-2 small mb-0" style={{ fontSize: '0.75rem' }}>
 {`{
-  "username": "<username>",
-  "worker_url": "https://<worker>.<account>.workers.dev",
+  "username": "<display-name>",
   "email": "user@example.com",
   "password": "xxx",
   "firebase_api_key": "<firebase-web-api-key>",
+  "instant_app_id": "<instant-app-id>",
   "root_master_key": "<base64, >=256 bytes>"
 }`}
             </pre>
