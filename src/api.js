@@ -265,14 +265,6 @@ export function getRootMasterKey() {
   return rootMasterKeyBytes;
 }
 
-export function setUserMasterKey(_unused) {
-  // Kept for compatibility with existing tests/import sites.
-}
-
-export function getUserMasterKey() {
-  return null;
-}
-
 export function decodeRootMasterKeyFromConfig(value) {
   return decodeRootMasterKey(value);
 }
