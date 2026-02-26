@@ -2,9 +2,6 @@
 
 A self-hosted, end-to-end encrypted password manager.
 
-This design is **Firebase Auth -> Cloudflare Worker -> Cloudflare R2** only.
-There is **no Turso/libSQL/D1 database** and **no backup subsystem**.
-
 ## Architecture
 
 ```text

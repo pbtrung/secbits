@@ -2,14 +2,11 @@
 
 Self-hosted, end-to-end encrypted password manager.
 
-Current architecture is strictly:
+Stack:
 - Frontend: React + Vite
 - Auth: Firebase Authentication (email/password, ID token)
 - Backend: Cloudflare Worker
 - Storage: Cloudflare R2 object storage
-
-There is no SQL database in this design.
-There is no backup subsystem in this design.
 
 ## Layout
 
