@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
-import { initApi, fetchUser, saveUserMasterKey, setRootMasterKey, setUserMasterKey, clearUserMasterKey } from '../api';
-import { decodeRootMasterKey, setupUserMasterKey, verifyUserMasterKey } from '../crypto';
+import { initApi, setRootMasterKey, clearUserMasterKey } from '../api';
+import { decodeRootMasterKey } from '../crypto';
 
 function AppSetup({ onReady }) {
   const [error, setError] = useState(null);
@@ -15,40 +15,18 @@ function AppSetup({ onReady }) {
 
     if (!json.email) throw new Error('Missing required field: email');
     if (!json.password) throw new Error('Missing required field: password');
+    if (!json.worker_url) throw new Error('Missing required field: worker_url');
     if (!json.firebase_api_key) throw new Error('Missing required field: firebase_api_key');
-    if (!json.instant_app_id) throw new Error('Missing required field: instant_app_id');
+    if (!json.r2 || typeof json.r2 !== 'object') throw new Error('Missing required field: r2');
+    if (!json.r2.bucket_name) throw new Error('Missing required field: r2.bucket_name');
+    if (!json.r2.file_name) throw new Error('Missing required field: r2.file_name');
     if (!json.root_master_key) throw new Error('Missing required field: root_master_key');
 
     const rootMasterKeyBytes = decodeRootMasterKey(json.root_master_key);
     setRootMasterKey(rootMasterKeyBytes);
 
     setStatus('Authenticating...');
-    const { userId } = await initApi(json);
-
-    setStatus('Fetching user...');
-    const userData = await fetchUser();
-    if (!userData) throw new Error('User not found');
-    const username = userData.username || json.username || '';
-    if (!username) throw new Error('Username is empty');
-
-    const storedUserMasterKey = userData.user_master_key;
-    let userMasterKey;
-    if (!storedUserMasterKey) {
-      setStatus('Setting up encryption...');
-      const { userMasterKeyBlob, userMasterKey: generated } = await setupUserMasterKey(rootMasterKeyBytes);
-      await saveUserMasterKey(userMasterKeyBlob, username);
-      userMasterKey = generated;
-    } else {
-      setStatus('Verifying master key...');
-      userMasterKey = await verifyUserMasterKey(rootMasterKeyBytes, storedUserMasterKey);
-      if (!userData.username && json.username) {
-        await saveUserMasterKey(storedUserMasterKey, username);
-      }
-    }
-
-    setUserMasterKey(userMasterKey);
-    userMasterKey.fill(0);
-
+    const { userId, username } = await initApi(json);
     return { userId, username };
   };
 
@@ -146,11 +124,16 @@ function AppSetup({ onReady }) {
             <pre className="bg-light rounded p-2 small mb-0" style={{ fontSize: '0.75rem' }}>
 {`{
   "username": "<display-name>",
+  "worker_url": "https://<worker>.<account>.workers.dev",
   "email": "user@example.com",
   "password": "xxx",
   "firebase_api_key": "<firebase-web-api-key>",
-  "instant_app_id": "<instant-app-id>",
-  "root_master_key": "<base64, >=256 bytes>"
+  "root_master_key": "<base64, >=256 bytes>",
+  "r2": {
+    "bucket_name": "<bucket-name>",
+    "prefix": "<prefix/>",
+    "file_name": "<file-name>"
+  }
 }`}
             </pre>
           </div>

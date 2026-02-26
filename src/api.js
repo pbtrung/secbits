@@ -1,171 +1,114 @@
-import { createDb } from './instantdb';
-import {
-  decryptEntryHistoryWithDocKey,
-  encryptEntryHistoryWithDocKey,
-  generateEntryDocKey,
-  rewrapUserMasterKey,
-  unwrapEntryKey,
-  wrapEntryKey,
-} from './crypto';
+import { bytesToB64, decodeRootMasterKey, decryptBlobBytes, encryptBytesToBlob } from './crypto';
 
-let db = null;
-let userId = null;
-let userMasterKeyBytes = null;
-let rootMasterKeyBytes = null;
-let backupTargets = [];
 const MAX_COMMITS = 20;
-const MAX_VALUE_BYTES = 1_900_000;
+const ENTRY_ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
-// ─── Binary helpers ───────────────────────────────────────────────────────────
+let session = null;
+let rootMasterKeyBytes = null;
+let entriesCache = [];
+let userName = '';
+let vaultLoaded = false;
 
-function toB64(bytes) {
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
+function zeroizeBytes(bytes) {
+  if (bytes instanceof Uint8Array) bytes.fill(0);
 }
 
-function fromB64(b64) {
+function randomEntryId(length = 42) {
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  let out = '';
+  for (let i = 0; i < length; i++) {
+    out += ENTRY_ID_ALPHABET[bytes[i] % ENTRY_ID_ALPHABET.length];
+  }
+  return out;
+}
+
+function b64ToBytes(b64) {
   const binary = atob(b64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
 }
 
-function toUint8Array(value) {
-  if (value instanceof Uint8Array) return value;
-  return null;
-}
-
-// ─── Size check ───────────────────────────────────────────────────────────────
-
-function checkValueSize(value) {
-  const bytes = toUint8Array(value);
-  if (!bytes) throw new Error('Encrypted value must be bytes');
-  if (bytes.length >= MAX_VALUE_BYTES) {
-    throw new Error(
-      `Entry data is too large (${Math.ceil(bytes.length / 1000)} KB). ` +
-      `Maximum allowed is ${MAX_VALUE_BYTES / 1000} KB. Try reducing notes or removing attachments.`,
-    );
+function parseJwtPayload(idToken) {
+  const parts = String(idToken).split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const body = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = body + '='.repeat((4 - (body.length % 4)) % 4);
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
   }
 }
 
-// ─── Public auth / session ────────────────────────────────────────────────────
-
-export async function initApi(config) {
-  backupTargets = Array.isArray(config.backup) ? config.backup.slice() : [];
-  if (!config.firebase_api_key) throw new Error('Missing required field: firebase_api_key');
-  if (!config.instant_app_id) throw new Error('Missing required field: instant_app_id');
-
-  const res = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(config.firebase_api_key)}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: config.email,
-        password: config.password,
-        returnSecureToken: true,
-      }),
-    },
-  );
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error?.message || 'Firebase authentication failed');
-  if (!data?.idToken) throw new Error('Invalid Firebase authentication response');
-
-  db = createDb(config.instant_app_id);
-  const user = await db.auth.signInWithIdToken({ idToken: data.idToken, clientName: 'firebase' });
-  userId = user.id;
-  return { userId };
+function ensureSession() {
+  if (!session) throw new Error('Session is not initialized');
+  return session;
 }
 
-function zeroizeBytes(bytes) {
-  if (bytes instanceof Uint8Array) bytes.fill(0);
-}
-
-export function setUserMasterKey(keyBytes) {
-  if (!(keyBytes instanceof Uint8Array)) throw new Error('User master key must be bytes');
-  zeroizeBytes(userMasterKeyBytes);
-  userMasterKeyBytes = keyBytes.slice();
-}
-
-export function getUserMasterKey() {
-  return userMasterKeyBytes;
-}
-
-export function setRootMasterKey(keyBytes) {
-  if (!(keyBytes instanceof Uint8Array)) throw new Error('Root master key must be bytes');
-  zeroizeBytes(rootMasterKeyBytes);
-  rootMasterKeyBytes = keyBytes.slice();
-}
-
-export function getRootMasterKey() {
+function ensureRootKey() {
+  if (!(rootMasterKeyBytes instanceof Uint8Array)) {
+    throw new Error('Root master key is not initialized');
+  }
   return rootMasterKeyBytes;
 }
 
-export function getBackupTargets() {
-  return backupTargets.slice();
+function normalizePrefix(prefix) {
+  const value = String(prefix || '');
+  if (!value) return '';
+  return value.endsWith('/') ? value : `${value}/`;
 }
 
-export function clearUserMasterKey() {
-  zeroizeBytes(userMasterKeyBytes);
-  zeroizeBytes(rootMasterKeyBytes);
-  userMasterKeyBytes = null;
-  rootMasterKeyBytes = null;
-  backupTargets = [];
-  if (db) {
-    db.auth.signOut().catch(() => {});
-    db = null;
+function normalizeR2Config(r2) {
+  if (!r2 || typeof r2 !== 'object') throw new Error('Missing required field: r2');
+  const bucket_name = String(r2.bucket_name || '').trim();
+  const prefix = normalizePrefix(r2.prefix);
+  const file_name = String(r2.file_name || '').trim();
+  if (!bucket_name) throw new Error('Missing required field: r2.bucket_name');
+  if (!file_name) throw new Error('Missing required field: r2.file_name');
+  return { bucket_name, prefix, file_name };
+}
+
+async function refreshIdTokenIfNeeded() {
+  const s = ensureSession();
+  if (!s.idToken || !s.refreshToken || !s.firebaseApiKey) throw new Error('Auth session is incomplete');
+
+  const now = Date.now();
+  if (s.idTokenExpiresAtMs - now > 5 * 60 * 1000) return;
+
+  const res = await fetch(`https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(s.firebaseApiKey)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(s.refreshToken)}`,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.id_token) {
+    throw new Error(data?.error?.message || 'Failed to refresh Firebase token');
   }
-  userId = null;
+
+  const payload = parseJwtPayload(data.id_token);
+  const expMs = payload?.exp ? Number(payload.exp) * 1000 : now + 45 * 60 * 1000;
+
+  s.idToken = data.id_token;
+  s.refreshToken = data.refresh_token || s.refreshToken;
+  s.idTokenExpiresAtMs = expMs;
 }
 
-export async function rotateRootMasterKey(newRootMasterKeyBytes) {
-  const currentUMK = getUserMasterKey();
-  if (!currentUMK) throw new Error('Session key not available');
-  const newBlob = await rewrapUserMasterKey(newRootMasterKeyBytes, currentUMK);
-  await saveUserMasterKey(newBlob);
-  setRootMasterKey(newRootMasterKeyBytes);
+async function workerFetch(path, options = {}) {
+  const s = ensureSession();
+  await refreshIdTokenIfNeeded();
+
+  const url = new URL(path, s.workerUrl);
+  const headers = new Headers(options.headers || {});
+  headers.set('Authorization', `Bearer ${s.idToken}`);
+
+  const res = await fetch(url.toString(), {
+    ...options,
+    headers,
+  });
+
+  return res;
 }
-
-// ─── User profile ─────────────────────────────────────────────────────────────
-
-export async function fetchUser() {
-  const { data } = await db.queryOnce({ profiles: {} });
-  const profile = data?.profiles?.[0] ?? null;
-  if (!profile) return { username: null, user_master_key: null };
-  return {
-    username: profile.username ?? null,
-    user_master_key: profile.user_master_key ? fromB64(profile.user_master_key) : null,
-  };
-}
-
-export async function saveUserMasterKey(userMasterKeyBlob, username = undefined) {
-  const bytes = toUint8Array(userMasterKeyBlob);
-  if (!bytes) throw new Error('user_master_key must be bytes');
-  const { data } = await db.queryOnce({ profiles: {} });
-  const profileId = data?.profiles?.[0]?.id ?? db.id();
-  await db.transact(
-    db.tx.profiles[profileId]
-      .update({
-        user_master_key: toB64(bytes),
-        ...(typeof username === 'string' && username.trim() ? { username: username.trim() } : {}),
-      })
-      .link({ $user: userId }),
-  );
-}
-
-// ─── Raw docs ─────────────────────────────────────────────────────────────────
-
-export async function fetchRawUserDocs() {
-  const { data } = await db.queryOnce({ entries: {} });
-  return (data?.entries ?? []).map(e => ({
-    id: e.id,
-    entry_key: fromB64(e.entry_key),
-    value: fromB64(e.value),
-  }));
-}
-
-// ─── Normalization helpers ────────────────────────────────────────────────────
 
 function normalizeTags(tags) {
   if (Array.isArray(tags)) {
@@ -200,51 +143,38 @@ function normalizeTotpSecrets(totpSecrets) {
   return totpSecrets.map((secret) => String(secret ?? '')).filter((secret) => secret.length > 0);
 }
 
+function normalizeTimestamp(timestamp) {
+  if (typeof timestamp === 'string') {
+    const ms = Date.parse(timestamp);
+    if (Number.isFinite(ms)) return new Date(ms).toISOString();
+  }
+  return new Date().toISOString();
+}
+
 function normalizeEntryShape(entry) {
   const safe = entry && typeof entry === 'object' ? entry : {};
   const customFields = normalizeCustomFields(
     Array.isArray(safe.customFields) ? safe.customFields : safe.hiddenFields,
   );
-  const { hiddenFields, ...rest } = safe;
   return {
-    ...rest,
     title: typeof safe.title === 'string' ? safe.title : '',
     username: typeof safe.username === 'string' ? safe.username : '',
     password: typeof safe.password === 'string' ? safe.password : '',
     notes: typeof safe.notes === 'string' ? safe.notes : '',
-    timestamp: normalizeTimestamp(safe.timestamp),
-    tags: normalizeTags(safe.tags),
+    urls: Array.isArray(safe.urls) ? safe.urls.map((v) => String(v ?? '')) : [],
     totpSecrets: normalizeTotpSecrets(safe.totpSecrets),
     customFields,
+    tags: normalizeTags(safe.tags),
+    timestamp: normalizeTimestamp(safe.timestamp),
   };
 }
-
-function normalizeTimestamp(timestamp) {
-  if (typeof timestamp === 'string') {
-    const ms = Date.parse(timestamp);
-    if (Number.isFinite(ms)) {
-      return new Date(ms).toISOString();
-    }
-  }
-  return new Date().toISOString();
-}
-
-function toEntryPayload(entry) {
-  const { id, _placeholder, _isNew, _snapshots, _commits, ...payload } = entry || {};
-  return {
-    ...normalizeEntryShape(payload),
-    timestamp: new Date().toISOString(),
-  };
-}
-
-// ─── Commit-chain helpers ─────────────────────────────────────────────────────
 
 async function contentHash(obj) {
   const stable = {};
-  for (const k of Object.keys(obj).sort()) stable[k] = obj[k];
+  for (const key of Object.keys(obj).sort()) stable[key] = obj[key];
   const data = new TextEncoder().encode(JSON.stringify(stable));
-  const buf = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(buf))
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('')
     .slice(0, 12);
@@ -254,144 +184,19 @@ const TRACKED_FIELDS = ['title', 'username', 'password', 'notes', 'urls', 'totpS
 
 function diffFields(prevSnapshot, nextSnapshot) {
   return TRACKED_FIELDS.filter(
-    (f) => JSON.stringify(prevSnapshot?.[f]) !== JSON.stringify(nextSnapshot?.[f]),
+    (field) => JSON.stringify(prevSnapshot?.[field]) !== JSON.stringify(nextSnapshot?.[field]),
   );
 }
 
-function normalizeChangedFields(changed) {
-  if (!Array.isArray(changed)) return [];
-  return changed.map((f) => (f === 'hiddenFields' ? 'customFields' : f));
-}
-
-function normalizeCommitMeta(commit) {
-  return {
-    hash: commit?.hash ?? null,
-    parent: commit?.parent ?? null,
-    timestamp: normalizeTimestamp(commit?.timestamp),
-    changed: normalizeChangedFields(commit?.changed),
-  };
-}
-
-function buildSnapshotDelta(previousSnapshot, nextSnapshot) {
-  const prev = previousSnapshot && typeof previousSnapshot === 'object' ? previousSnapshot : {};
-  const next = nextSnapshot && typeof nextSnapshot === 'object' ? nextSnapshot : {};
-
-  const set = {};
-  const unset = [];
-  const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
-
-  for (const key of keys) {
-    const prevHas = Object.prototype.hasOwnProperty.call(prev, key);
-    const nextHas = Object.prototype.hasOwnProperty.call(next, key);
-    if (!nextHas) {
-      unset.push(key);
-      continue;
-    }
-    if (!prevHas || JSON.stringify(prev[key]) !== JSON.stringify(next[key])) {
-      set[key] = next[key];
-    }
-  }
-
-  return { set, unset };
-}
-
-function applySnapshotDelta(previousSnapshot, delta) {
-  const snapshot = {
-    ...(previousSnapshot && typeof previousSnapshot === 'object' ? previousSnapshot : {}),
-  };
-
-  if (Array.isArray(delta?.unset)) {
-    for (const key of delta.unset) {
-      delete snapshot[key];
-    }
-  }
-
-  if (delta?.set && typeof delta.set === 'object') {
-    for (const [key, value] of Object.entries(delta.set)) {
-      snapshot[key] = value;
-    }
-  }
-
-  return normalizeEntryShape(snapshot);
-}
-
-function serializeHistoryForStorage(history) {
-  const commits = Array.isArray(history?.commits) ? history.commits.slice(0, MAX_COMMITS) : [];
-  if (commits.length === 0) {
-    return { head: null, head_snapshot: null, commits: [] };
-  }
-
-  const snapshots = commits.map((c) => normalizeEntryShape(c?.snapshot));
-  const compactCommits = commits.map((commit, index) => {
-    const compact = normalizeCommitMeta(commit);
-    if (index > 0) {
-      compact.delta = buildSnapshotDelta(snapshots[index - 1], snapshots[index]);
-    }
-    return compact;
-  });
-
-  return {
-    head: history?.head ?? compactCommits[0].hash ?? null,
-    head_snapshot: snapshots[0],
-    commits: compactCommits,
-  };
-}
-
-function parseCompactHistory(parsed) {
-  const rawCommits = parsed.commits
-    .filter((c) => c && typeof c === 'object')
-    .slice(0, MAX_COMMITS);
-  if (!(parsed.head_snapshot && typeof parsed.head_snapshot === 'object') || rawCommits.length === 0) {
-    return { head: parsed.head ?? null, commits: [] };
-  }
-
-  let currentSnapshot = normalizeEntryShape(parsed.head_snapshot);
-  const commits = [];
-  rawCommits.forEach((raw, index) => {
-    const snapshot = index === 0
-      ? currentSnapshot
-      : applySnapshotDelta(currentSnapshot, raw.delta);
-    currentSnapshot = snapshot;
-    commits.push({
-      ...normalizeCommitMeta(raw),
-      snapshot,
-    });
-  });
-
-  return { head: parsed.head ?? commits[0]?.hash ?? null, commits };
-}
-
-function parseHistoryJson(parsed) {
-  if (!(parsed && typeof parsed === 'object' && Array.isArray(parsed.commits))) {
-    return { head: null, commits: [] };
-  }
-  return parseCompactHistory(parsed);
-}
-
-async function decryptAndParseHistory(docKeyBytes, valueBytes) {
-  const parsed = await decryptEntryHistoryWithDocKey(docKeyBytes, valueBytes);
-  return parseHistoryJson(parsed);
-}
-
-async function parseEntryHistory(value, entryKeyBlob) {
-  const valueBytes = toUint8Array(value);
-  const entryKeyBytes = toUint8Array(entryKeyBlob);
-  if (!valueBytes || !entryKeyBytes) return { head: null, commits: [] };
-  if (!userMasterKeyBytes) {
-    throw new Error('Entry master key is not initialized');
-  }
-  const docKeyBytes = await unwrapEntryKey(userMasterKeyBytes, entryKeyBytes);
-  return decryptAndParseHistory(docKeyBytes, valueBytes);
-}
-
-async function buildNextHistory(existingHistory, payload) {
-  const headCommit = existingHistory.commits[0] ?? null;
+async function buildNextHistory(existingCommits, payload) {
+  const commits = Array.isArray(existingCommits) ? existingCommits : [];
+  const headCommit = commits[0] ?? null;
 
   const { timestamp, ...content } = payload;
   const hash = await contentHash(content);
 
   if (headCommit && headCommit.hash === hash) {
-    return existingHistory;
+    return commits;
   }
 
   const newCommit = {
@@ -402,133 +207,338 @@ async function buildNextHistory(existingHistory, payload) {
     snapshot: payload,
   };
 
-  const commits = [newCommit, ...existingHistory.commits].slice(0, MAX_COMMITS);
-  return { head: hash, commits };
+  return [newCommit, ...commits].slice(0, MAX_COMMITS);
 }
 
-// ─── fetchUserEntries ─────────────────────────────────────────────────────────
+function normalizeEntryForState(entry) {
+  const safe = entry && typeof entry === 'object' ? entry : {};
+  const normalized = normalizeEntryShape(safe);
+  const commits = Array.isArray(safe._commits)
+    ? safe._commits
+      .filter((c) => c && typeof c === 'object' && c.snapshot && typeof c.snapshot === 'object')
+      .map((c) => ({
+        hash: typeof c.hash === 'string' ? c.hash : null,
+        parent: c.parent == null ? null : String(c.parent),
+        timestamp: normalizeTimestamp(c.timestamp),
+        changed: Array.isArray(c.changed) ? c.changed.map((f) => String(f)) : [],
+        snapshot: normalizeEntryShape(c.snapshot),
+      }))
+      .slice(0, MAX_COMMITS)
+    : [];
+
+  if (commits.length === 0) {
+    const snapshot = { ...normalized, timestamp: normalizeTimestamp(normalized.timestamp) };
+    return {
+      id: typeof safe.id === 'string' ? safe.id : randomEntryId(),
+      ...normalized,
+      _commits: [{
+        hash: null,
+        parent: null,
+        timestamp: snapshot.timestamp,
+        changed: [],
+        snapshot,
+      }],
+    };
+  }
+
+  const latest = commits[0].snapshot;
+  return {
+    id: typeof safe.id === 'string' ? safe.id : randomEntryId(),
+    ...latest,
+    _commits: commits,
+  };
+}
+
+function normalizeVaultData(data) {
+  if (!Array.isArray(data)) return [];
+  return data.map(normalizeEntryForState);
+}
+
+export function setRootMasterKey(keyBytes) {
+  if (!(keyBytes instanceof Uint8Array)) throw new Error('Root master key must be bytes');
+  zeroizeBytes(rootMasterKeyBytes);
+  rootMasterKeyBytes = keyBytes.slice();
+}
+
+export function getRootMasterKey() {
+  return rootMasterKeyBytes;
+}
+
+export function setUserMasterKey(_unused) {
+  // Kept for compatibility with existing tests/import sites.
+}
+
+export function getUserMasterKey() {
+  return null;
+}
+
+export function decodeRootMasterKeyFromConfig(value) {
+  return decodeRootMasterKey(value);
+}
+
+export async function initApi(config) {
+  const workerUrl = String(config.worker_url || '').trim();
+  if (!workerUrl) throw new Error('Missing required field: worker_url');
+  if (!config.email) throw new Error('Missing required field: email');
+  if (!config.password) throw new Error('Missing required field: password');
+  if (!config.firebase_api_key) throw new Error('Missing required field: firebase_api_key');
+
+  const r2 = normalizeR2Config(config.r2);
+
+  const signInRes = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(config.firebase_api_key)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: config.email,
+        password: config.password,
+        returnSecureToken: true,
+      }),
+    },
+  );
+
+  const auth = await signInRes.json().catch(() => ({}));
+  if (!signInRes.ok || !auth?.idToken) {
+    throw new Error(auth?.error?.message || 'Firebase authentication failed');
+  }
+
+  const payload = parseJwtPayload(auth.idToken);
+  const now = Date.now();
+
+  session = {
+    workerUrl: workerUrl.endsWith('/') ? workerUrl : `${workerUrl}/`,
+    firebaseApiKey: config.firebase_api_key,
+    idToken: auth.idToken,
+    refreshToken: auth.refreshToken,
+    idTokenExpiresAtMs: payload?.exp ? Number(payload.exp) * 1000 : now + 45 * 60 * 1000,
+    uid: auth.localId || payload?.sub || null,
+    r2,
+  };
+
+  userName = typeof config.username === 'string' ? config.username : '';
+  entriesCache = [];
+  vaultLoaded = false;
+
+  return {
+    userId: session.uid || 'unknown-user',
+    username: userName,
+  };
+}
+
+export function clearUserMasterKey() {
+  zeroizeBytes(rootMasterKeyBytes);
+  rootMasterKeyBytes = null;
+  session = null;
+  entriesCache = [];
+  userName = '';
+  vaultLoaded = false;
+}
+
+function vaultKeySearchParams(r2) {
+  const params = new URLSearchParams();
+  params.set('bucket_name', r2.bucket_name);
+  params.set('prefix', r2.prefix);
+  params.set('file_name', r2.file_name);
+  return params.toString();
+}
+
+export function buildExportData({ username, entries }) {
+  return {
+    version: 1,
+    username: typeof username === 'string' ? username : '',
+    data: Array.isArray(entries) ? entries : [],
+  };
+}
+
+async function readVaultFromRemote() {
+  const s = ensureSession();
+  const res = await workerFetch(`/vault?${vaultKeySearchParams(s.r2)}`);
+
+  if (res.status === 404) {
+    return { username: userName, data: [] };
+  }
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || `Failed to read vault (${res.status})`);
+  }
+
+  const body = await res.json();
+  const payloadB64 = body?.payload_b64;
+  if (!payloadB64) {
+    return { username: userName, data: [] };
+  }
+
+  const blobBytes = b64ToBytes(payloadB64);
+  const rootKey = ensureRootKey();
+
+  let jsonBytes;
+  try {
+    jsonBytes = await decryptBlobBytes(rootKey, blobBytes);
+  } catch {
+    throw new Error('Wrong root master key');
+  }
+
+  const brotli = (await import('brotli-wasm')).default;
+  const plainBytes = brotli.decompress(jsonBytes);
+  const text = new TextDecoder().decode(plainBytes);
+  const parsed = JSON.parse(text);
+
+  return {
+    username: typeof parsed?.username === 'string' ? parsed.username : userName,
+    data: Array.isArray(parsed?.data) ? parsed.data : [],
+  };
+}
+
+async function writeVaultToRemote(entries) {
+  const s = ensureSession();
+  const rootKey = ensureRootKey();
+  const exportData = buildExportData({ username: userName, entries });
+
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(exportData));
+  const brotli = (await import('brotli-wasm')).default;
+  const compressed = brotli.compress(jsonBytes);
+  const encryptedBlob = await encryptBytesToBlob(rootKey, compressed);
+
+  const res = await workerFetch('/vault', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      r2: s.r2,
+      payload_b64: bytesToB64(encryptedBlob),
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || `Failed to write vault (${res.status})`);
+  }
+}
+
+async function ensureVaultLoaded() {
+  if (vaultLoaded) return;
+  const vault = await readVaultFromRemote();
+  userName = vault.username || userName;
+  entriesCache = normalizeVaultData(vault.data);
+  vaultLoaded = true;
+}
 
 export async function fetchUserEntries() {
-  const docs = await fetchRawUserDocs();
-  const entries = [];
-  let failedCount = 0;
-  for (const raw of docs) {
-    try {
-      const history = await parseEntryHistory(raw.value, raw.entry_key);
-      if (history.commits.length === 0) continue;
-      const latest = history.commits[0].snapshot;
-      entries.push({ id: raw.id, ...normalizeEntryShape(latest), _commits: history.commits });
-    } catch {
-      failedCount++;
-    }
-  }
-  return { entries, failedCount };
+  await ensureVaultLoaded();
+  return {
+    entries: entriesCache.map((e) => ({ ...e, _commits: Array.isArray(e._commits) ? e._commits : [] })),
+    failedCount: 0,
+  };
 }
 
-// ─── Public CRUD ──────────────────────────────────────────────────────────────
+function toEntryPayload(entry) {
+  return {
+    ...normalizeEntryShape(entry),
+    timestamp: new Date().toISOString(),
+  };
+}
 
 export async function createUserEntry(entry) {
+  await ensureVaultLoaded();
+
   const payload = toEntryPayload(entry);
-  if (!userMasterKeyBytes) throw new Error('Entry master key is not initialized');
+  const commits = await buildNextHistory([], payload);
+  const created = {
+    id: randomEntryId(),
+    ...payload,
+    _commits: commits,
+  };
 
-  const docKeyBytes = generateEntryDocKey();
-  const entryKeyBytes = await wrapEntryKey(userMasterKeyBytes, docKeyBytes);
-  const history = await buildNextHistory({ head: null, commits: [] }, payload);
-  const valueBytes = await encryptEntryHistoryWithDocKey(
-    docKeyBytes, serializeHistoryForStorage(history),
-  );
-  checkValueSize(valueBytes);
-
-  const entryId = db.id();
-  await db.transact(
-    db.tx.entries[entryId]
-      .update({ entry_key: toB64(entryKeyBytes), value: toB64(valueBytes) })
-      .link({ $user: userId }),
-  );
-  return { id: entryId, ...history.commits[0].snapshot, _commits: history.commits };
+  entriesCache = [created, ...entriesCache];
+  await writeVaultToRemote(entriesCache);
+  return created;
 }
 
 export async function updateUserEntry(entryId, entry) {
+  await ensureVaultLoaded();
+
+  const idx = entriesCache.findIndex((e) => e.id === entryId);
+  if (idx < 0) throw new Error('Entry not found');
+
   const payload = toEntryPayload(entry);
-  if (!userMasterKeyBytes) throw new Error('Entry master key is not initialized');
+  const commits = await buildNextHistory(entriesCache[idx]._commits, payload);
+  const updated = {
+    id: entryId,
+    ...payload,
+    _commits: commits,
+  };
 
-  const { data } = await db.queryOnce({ entries: {} });
-  const existing = data?.entries?.find(e => e.id === entryId) ?? null;
-  const existingEntryKeyBytes = existing?.entry_key ? fromB64(existing.entry_key) : null;
-  const existingValueBytes = existing?.value ? fromB64(existing.value) : null;
-
-  const docKeyBytes = existingEntryKeyBytes
-    ? await unwrapEntryKey(userMasterKeyBytes, existingEntryKeyBytes)
-    : generateEntryDocKey();
-
-  const existingHistory = existingEntryKeyBytes && existingValueBytes
-    ? await decryptAndParseHistory(docKeyBytes, existingValueBytes)
-    : { head: null, commits: [] };
-
-  const history = await buildNextHistory(existingHistory, payload);
-  const entryKeyBytes = existingEntryKeyBytes ?? await wrapEntryKey(userMasterKeyBytes, docKeyBytes);
-  const valueBytes = await encryptEntryHistoryWithDocKey(
-    docKeyBytes, serializeHistoryForStorage(history),
-  );
-  checkValueSize(valueBytes);
-
-  await db.transact(
-    db.tx.entries[entryId].update({ entry_key: toB64(entryKeyBytes), value: toB64(valueBytes) }),
-  );
-  return { id: entryId, ...(history.commits[0]?.snapshot ?? payload), _commits: history.commits };
+  entriesCache = entriesCache.map((e, i) => (i === idx ? updated : e));
+  await writeVaultToRemote(entriesCache);
+  return updated;
 }
 
 export async function restoreEntryVersion(entryId, commitHash) {
-  if (!userMasterKeyBytes) throw new Error('Entry master key is not initialized');
+  await ensureVaultLoaded();
 
-  const { data } = await db.queryOnce({ entries: {} });
-  const existing = data?.entries?.find(e => e.id === entryId);
-  if (!existing) throw new Error('Entry not found');
+  const idx = entriesCache.findIndex((e) => e.id === entryId);
+  if (idx < 0) throw new Error('Entry not found');
 
-  const existingEntryKeyBytes = fromB64(existing.entry_key);
-  const docKeyBytes = await unwrapEntryKey(userMasterKeyBytes, existingEntryKeyBytes);
-  const existingHistory = await decryptAndParseHistory(docKeyBytes, fromB64(existing.value));
+  const commits = entriesCache[idx]._commits || [];
+  const target = commits.find((c) => c.hash === commitHash);
+  if (!target) throw new Error('Commit not found');
 
-  const targetCommit = existingHistory.commits.find((c) => c.hash === commitHash);
-  if (!targetCommit) throw new Error(`Commit ${commitHash} not found`);
+  const payload = {
+    ...normalizeEntryShape(target.snapshot),
+    timestamp: new Date().toISOString(),
+  };
 
-  const restoredPayload = { ...targetCommit.snapshot, timestamp: new Date().toISOString() };
-  const history = await buildNextHistory(existingHistory, restoredPayload);
-  const valueBytes = await encryptEntryHistoryWithDocKey(
-    docKeyBytes, serializeHistoryForStorage(history),
-  );
-  checkValueSize(valueBytes);
+  const nextCommits = await buildNextHistory(commits, payload);
+  const restored = {
+    id: entryId,
+    ...payload,
+    _commits: nextCommits,
+  };
 
-  await db.transact(
-    db.tx.entries[entryId].update({ entry_key: toB64(existingEntryKeyBytes), value: toB64(valueBytes) }),
-  );
-  return { id: entryId, ...(history.commits[0]?.snapshot ?? restoredPayload), _commits: history.commits };
+  entriesCache = entriesCache.map((e, i) => (i === idx ? restored : e));
+  await writeVaultToRemote(entriesCache);
+  return restored;
 }
 
 export async function deleteUserEntry(entryId) {
-  await db.transact(db.tx.entries[entryId].delete());
+  await ensureVaultLoaded();
+  const next = entriesCache.filter((e) => e.id !== entryId);
+  entriesCache = next;
+  await writeVaultToRemote(entriesCache);
 }
 
-export async function replaceUserEntries(rawEntries) {
-  if (!Array.isArray(rawEntries)) throw new Error('rawEntries must be an array');
-  const { data } = await db.queryOnce({ entries: {} });
-  const existingEntries = data?.entries ?? [];
-  await db.transact([
-    ...existingEntries.map(e => db.tx.entries[e.id].delete()),
-    ...rawEntries.map(e =>
-      db.tx.entries[db.id()]
-        .update({
-          entry_key: typeof e.entry_key === 'string' ? e.entry_key : toB64(e.entry_key),
-          value: typeof e.value === 'string' ? e.value : toB64(e.value),
-        })
-        .link({ $user: userId }),
-    ),
-  ]);
+export async function rotateRootMasterKey(newRootMasterKeyBytes) {
+  if (!(newRootMasterKeyBytes instanceof Uint8Array)) {
+    throw new Error('New root master key must be bytes');
+  }
+  await ensureVaultLoaded();
+
+  const previous = rootMasterKeyBytes;
+  setRootMasterKey(newRootMasterKeyBytes);
+
+  try {
+    await writeVaultToRemote(entriesCache);
+  } catch (err) {
+    zeroizeBytes(rootMasterKeyBytes);
+    rootMasterKeyBytes = previous;
+    throw err;
+  }
+
+  zeroizeBytes(previous);
+}
+
+export function getVaultStats() {
+  const count = entriesCache.length;
+  const payload = JSON.stringify(buildExportData({ username: userName, entries: entriesCache }));
+  const totalBytes = new TextEncoder().encode(payload).length;
+  return {
+    count,
+    totalBytes,
+    avgBytes: count ? Math.round(totalBytes / count) : 0,
+  };
 }
 
 export const __historyFormatTestOnly = {
-  applySnapshotDelta,
-  buildSnapshotDelta,
-  parseHistoryJson,
-  serializeHistoryForStorage,
+  normalizeEntryShape,
 };
