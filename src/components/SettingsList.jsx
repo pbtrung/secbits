@@ -1,5 +1,6 @@
 function SettingsList({ selectedPage, onSelectPage, mobile }) {
   const items = [
+    { id: 'export', label: 'Export', icon: 'bi-download' },
     { id: 'security', label: 'Security', icon: 'bi-shield-lock' },
     { id: 'about', label: 'About', icon: 'bi-info-circle' },
   ];

@@ -326,6 +326,10 @@ export async function initApi(config) {
   };
 }
 
+export function getUsername() {
+  return userName;
+}
+
 export function clearUserMasterKey() {
   zeroizeBytes(rootMasterKeyBytes);
   rootMasterKeyBytes = null;
