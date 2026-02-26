@@ -1,8 +1,30 @@
 function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, selectedTag, trashMode = false, mobile }) {
-  const formatDeletedAt = (ts) => {
+  const formatExact = (ts) => {
     const d = new Date(ts);
     const pad = (n) => String(n).padStart(2, '0');
     return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  };
+
+  const formatDeletedLabel = (ts) => {
+    const deletedAt = new Date(ts);
+    if (!Number.isFinite(deletedAt.getTime())) return { text: 'Deleted', exact: '' };
+    const exact = formatExact(ts);
+
+    const now = new Date();
+    const dayMs = 24 * 60 * 60 * 1000;
+    const startNow = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startDeleted = new Date(deletedAt.getFullYear(), deletedAt.getMonth(), deletedAt.getDate());
+    const dayDiff = Math.floor((startNow - startDeleted) / dayMs);
+    const time = exact.split(' ')[1];
+
+    if (dayDiff >= 0 && dayDiff <= 7) {
+      if (dayDiff === 0) return { text: `Deleted today at ${time}`, exact };
+      if (dayDiff === 1) return { text: `Deleted yesterday at ${time}`, exact };
+      return { text: `Deleted ${dayDiff} days ago at ${time}`, exact };
+    }
+
+    const date = exact.split(' ')[0];
+    return { text: `Deleted on ${date} at ${time}`, exact };
   };
 
   return (
@@ -41,9 +63,12 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
                   {entry.title || <span className="fst-italic text-muted">Untitled</span>}
                 </div>
                 <small className={`text-truncate d-block ${selectedEntryId === entry.id ? 'text-light' : 'text-muted'}`}>
-                  {trashMode
-                    ? `Deleted ${entry.deletedAt ? formatDeletedAt(entry.deletedAt) : ''}`.trim()
-                    : entry.username}
+                  {trashMode ? (
+                    (() => {
+                      const label = formatDeletedLabel(entry.deletedAt);
+                      return <span title={label.exact}>{label.text}</span>;
+                    })()
+                  ) : entry.username}
                 </small>
                 <div className="mt-1">
                   {entry.tags.map((t) => (
