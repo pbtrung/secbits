@@ -50,9 +50,11 @@ function normalizeR2Config(r2) {
   if (!r2 || typeof r2 !== 'object') throw new Error('Missing required field: r2');
   const bucket_name = String(r2.bucket_name || '').trim();
   const file_name = String(r2.file_name || '').trim();
+  const prefix = String(r2.prefix || '').trim();
   if (!bucket_name) throw new Error('Missing required field: r2.bucket_name');
   if (!file_name) throw new Error('Missing required field: r2.file_name');
-  return { bucket_name, file_name };
+  if (!prefix) throw new Error('Missing required field: r2.prefix');
+  return { bucket_name, file_name, prefix };
 }
 
 async function refreshIdTokenIfNeeded() {
@@ -163,7 +165,7 @@ async function contentHash(obj) {
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('')
-    .slice(0, 12);
+    .slice(0, 32);
 }
 
 const TRACKED_FIELDS = ['title', 'username', 'password', 'notes', 'urls', 'totpSecrets', 'customFields', 'tags'];
@@ -339,6 +341,7 @@ export function clearUserMasterKey() {
 function vaultKeySearchParams(r2, vaultId) {
   return {
     bucket_name: r2.bucket_name,
+    prefix: r2.prefix,
     vault_id: vaultId,
     file_name: r2.file_name,
   };

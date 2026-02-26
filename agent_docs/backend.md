@@ -20,9 +20,9 @@ Entry IDs are client-generated UUIDs (`crypto.randomUUID()`).
 
 R2 object key:
 ```
-{vault_id}/{file_name}
+{prefix}/{vault_id}/{file_name}
 ```
-`vault_id` is a stable random string supplied by the client from its config JSON. It is validated and sanitized server-side. The bearer token is still verified on every request; `vault_id` determines the storage path independently of the auth provider.
+All three path segments are supplied by the client from its config JSON (`r2.prefix`, `vault_id`, `r2.file_name`). They are validated and sanitized server-side. The bearer token is still verified on every request; `vault_id` determines the storage path independently of the auth provider.
 
 ## API
 
@@ -42,6 +42,7 @@ Request body:
 ```json
 {
   "bucket_name": "secbits-data",
+  "prefix": "<r2.prefix from config>",
   "vault_id": "<vault_id from config>",
   "file_name": "vault.bin"
 }
@@ -76,6 +77,7 @@ Request body:
 ```json
 {
   "bucket_name": "secbits-data",
+  "prefix": "<r2.prefix from config>",
   "vault_id": "<vault_id from config>",
   "file_name": "vault.bin",
   "payload_b64": "<base64-encoded encrypted blob>"
@@ -97,7 +99,7 @@ Response:
 
 The Worker validates all path parts before constructing the R2 key:
 - `bucket_name` must match the Worker's `R2_BUCKET_NAME` environment variable.
-- `vault_id` and `file_name` must not be empty and must not contain `..` or `\`.
+- `prefix`, `vault_id`, and `file_name` must not be empty and must not contain `..` or `\`.
 
 ## Worker Secrets
 

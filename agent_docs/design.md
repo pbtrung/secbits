@@ -99,8 +99,8 @@ Export JSON shape:
 
 ---
 
-## R2 Path Derived from vault_id
+## R2 Path Derived from Config
 
-**Decision:** The R2 object key is `{vault_id}/{file_name}`, where `vault_id` is a stable random string from the client config, sent in the request body and validated server-side. The bearer token is still verified on every request; `vault_id` determines the storage path independently of the auth provider.
+**Decision:** The R2 object key is `{prefix}/{vault_id}/{file_name}`, where all three segments (`r2.prefix`, `vault_id`, `r2.file_name`) come from the client config JSON, are sent in the request body, and are validated server-side. The bearer token is still verified on every request; `vault_id` determines the storage namespace independently of the auth provider.
 
-**Why:** Tying the path namespace to an auth-provider identity (e.g. Firebase UID) would couple storage layout to the auth layer — switching auth backends would relocate the vault and require data migration. Using a config-supplied `vault_id` keeps the path stable across auth changes. Path isolation relies on the secrecy of `vault_id`, which lives in the config alongside the root master key — consistent with the overall trust model where the config file is the trust anchor.
+**Why:** Tying the path namespace to an auth-provider identity (e.g. Firebase UID) would couple storage layout to the auth layer — switching auth backends would relocate the vault and require data migration. Using config-supplied path segments keeps the path stable across auth changes. A configurable `prefix` allows deployers to organise objects within the bucket (e.g. by environment or tenant) without changing the vault identity. Path isolation relies on the secrecy of `vault_id`, which lives in the config alongside the root master key — consistent with the overall trust model where the config file is the trust anchor.

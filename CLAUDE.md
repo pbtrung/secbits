@@ -57,9 +57,10 @@ Key fields:
 - `root_master_key`
 - `vault_id` (stable random string; used as R2 path namespace; auth-provider independent)
 - `r2.bucket_name`
+- `r2.prefix`
 - `r2.file_name`
 
-R2 path format: `{vault_id}/{file_name}` — auth-provider independent; `vault_id` is sent in the request body and validated server-side.
+R2 path format: `{r2.prefix}/{vault_id}/{file_name}` — all three segments from config; auth-provider independent; sent in the request body and validated server-side.
 
 ## Agent Docs
 
