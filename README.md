@@ -60,7 +60,7 @@ Save as `secbits-config.json` and keep it private.
 
 ```json
 {
-  "username": "<display name>",
+  "username": "<display-name>",
   "worker_url": "https://<worker>.<account>.workers.dev",
   "email": "you@example.com",
   "password": "your-firebase-password",
