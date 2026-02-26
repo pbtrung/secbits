@@ -8,6 +8,7 @@ let rootMasterKeyBytes = null;
 let entriesCache = [];
 let userName = '';
 let vaultLoaded = false;
+let vaultBlobSize = 0;
 
 function zeroizeBytes(bytes) {
   if (bytes instanceof Uint8Array) bytes.fill(0);
@@ -337,6 +338,7 @@ export function clearUserMasterKey() {
   entriesCache = [];
   userName = '';
   vaultLoaded = false;
+  vaultBlobSize = 0;
 }
 
 function vaultKeySearchParams(r2) {
@@ -379,6 +381,7 @@ async function readVaultFromRemote() {
   }
 
   const blobBytes = b64ToBytes(payloadB64);
+  vaultBlobSize = blobBytes.length;
   const rootKey = ensureRootKey();
 
   let jsonBytes;
@@ -408,6 +411,7 @@ async function writeVaultToRemote(entries) {
   const brotli = await (await import('brotli-wasm')).default;
   const compressed = brotli.compress(jsonBytes);
   const encryptedBlob = await encryptBytesToBlob(rootKey, compressed);
+  vaultBlobSize = encryptedBlob.length;
 
   const res = await workerFetch('/vault/write', {
     method: 'POST',
@@ -544,6 +548,7 @@ export function getVaultStats() {
     count,
     totalBytes,
     avgBytes: count ? Math.round(totalBytes / count) : 0,
+    blobSize: vaultBlobSize,
   };
 }
 

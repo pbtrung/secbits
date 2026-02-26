@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { bytesToB64, decodeRootMasterKey } from '../crypto';
-import { buildExportData, fetchUserEntries, getUsername, rotateRootMasterKey } from '../api';
+import { buildExportData, fetchUserEntries, getUsername, getVaultStats, rotateRootMasterKey } from '../api';
 
 function formatBytes(bytes) {
   if (bytes === 0) return '0 B';
@@ -17,6 +17,7 @@ function AboutPage() {
   useEffect(() => {
     const load = async () => {
       try {
+        const vaultStats = getVaultStats();
         const { entries } = await fetchUserEntries();
 
         let totalBytes = 0;
@@ -62,7 +63,8 @@ function AboutPage() {
         const count = entries.length;
         setStats({
           count,
-          totalBytes,
+          blobSize: vaultStats.blobSize,
+          entriesJsonSize: vaultStats.totalBytes,
           avgBytes: count ? Math.round(totalBytes / count) : 0,
           decryptedCount: count,
           withPassword, withUsername, withNotes,
@@ -105,7 +107,11 @@ function AboutPage() {
               </tr>
               <tr>
                 <td className="text-muted">Total stored size</td>
-                <td className="fw-semibold">{formatBytes(stats.totalBytes)}</td>
+                <td className="fw-semibold">{formatBytes(stats.blobSize)}</td>
+              </tr>
+              <tr>
+                <td className="text-muted">Total entries size</td>
+                <td className="fw-semibold">{formatBytes(stats.entriesJsonSize)}</td>
               </tr>
               <tr>
                 <td className="text-muted">Avg entry size</td>
