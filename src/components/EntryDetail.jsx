@@ -950,6 +950,16 @@ function EntryDetail({
                 <><i className="bi bi-arrow-counterclockwise me-1"></i>Restore</>
               )}
             </button>
+            {commits.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-secondary"
+                onClick={() => { setHistoryIdx(0); setShowHistory(true); }}
+              >
+                <i className="bi bi-git me-1"></i>
+                {commits.length} version{commits.length !== 1 ? 's' : ''}
+              </button>
+            )}
             <button className="btn btn-danger ms-auto" onClick={handleDelete} disabled={saving || deleting}>
               {deleting ? (
                 <><span className="spinner-border spinner-border-sm me-1"></span>Deleting...</>
