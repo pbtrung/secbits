@@ -45,7 +45,7 @@ Save as `secbits-config.json`. **Keep this file private.**
 
 ```json
 {
-  "username": "<display name>",
+  "username": "<display-name>",
   "email": "you@example.com",
   "password": "your-firebase-password",
   "firebase_api_key": "<firebase-web-api-key>",
