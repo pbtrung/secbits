@@ -6,9 +6,9 @@ Architecture decisions and their rationale.
 
 ## Client-Side Cryptography
 
-**Decision:** All encryption and decryption runs in the browser. The Cloudflare Worker and Turso database store only ciphertext blobs.
+**Decision:** All encryption and decryption runs in the browser. InstantDB stores only ciphertext blobs.
 
-**Why:** The Worker is a CRUD API exposed to the internet. A compromised Worker, a Turso data breach, or a cloud-provider insider threat reveals nothing about entry content when the server never handles plaintext. This reduces the trust requirement for the entire backend to zero — the Worker can be treated as an untrusted pipe.
+**Why:** InstantDB is a managed cloud service. A data breach or insider threat at the provider reveals nothing about entry content when the client never sends plaintext. This reduces the trust requirement for the entire backend to zero — InstantDB can be treated as an untrusted store.
 
 Contrast with server-side crypto: the server becomes a target. Compromise of the server key compromises every user's data simultaneously.
 
@@ -38,15 +38,15 @@ Contrast with AES-256-GCM via WebCrypto: only classical security, 96-bit IV (IV 
 
 **Why:**
 
-- **Root key rotation** rewraps only the 192-byte UMK blob in Turso. Entry data is untouched regardless of how many entries exist. With direct RMK-to-entry encryption, rotation would require downloading, decrypting, re-encrypting, and re-uploading every entry.
+- **Root key rotation** rewraps only the 192-byte UMK blob in InstantDB. Entry data is untouched regardless of how many entries exist. With direct RMK-to-entry encryption, rotation would require downloading, decrypting, re-encrypting, and re-uploading every entry.
 - **Key isolation**: compromise of a single doc key affects only that entry; all others remain protected.
-- **Trust layers**: the RMK never touches the server; UMK and doc keys reach the server only as opaque ciphertext blobs.
+- **Trust layers**: the RMK never leaves the browser; UMK and doc keys reach InstantDB only as opaque ciphertext blobs.
 
 ---
 
 ## Per-Entry Document Keys
 
-**Decision:** Each entry is encrypted with its own randomly generated 64-byte document key. The doc key is AEAD-encrypted with the UMK and stored alongside the entry (`entry_key` column).
+**Decision:** Each entry is encrypted with its own randomly generated 64-byte document key. The doc key is AEAD-encrypted with the UMK and stored alongside the entry (`entry_key` attribute).
 
 **Why:** Mirrors envelope encryption (AWS KMS pattern). The master key wraps data keys rather than encrypting data directly. This gives per-entry revocability and bounds the blast radius of any key compromise to a single entry.
 
@@ -75,19 +75,17 @@ Contrast with full-snapshot-per-commit: unbounded storage growth, no size benefi
 
 ## Firebase Authentication
 
-**Decision:** Email/password auth via Firebase Authentication; the app exchanges credentials for an RS256 JWT and forwards it as `Authorization: Bearer` on every Worker request.
+**Decision:** Email/password auth via Firebase Authentication. The app exchanges credentials for an RS256 JWT, then calls `db.auth.signInWithIdToken()` to authenticate with InstantDB.
 
-**Why:** Firebase manages password hashing, account storage, token issuance, and key rotation. RS256 tokens are verifiable by any party holding the Firebase public keys, so the Worker authenticates requests without contacting Firebase at request time (after an initial JWK fetch + cache). This avoids a synchronous external call on the critical path.
+**Why:** Firebase manages password hashing, account storage, token issuance, and key rotation. InstantDB has a first-class Firebase OAuth integration — it verifies the RS256 token against Firebase's public JWKs and maps the user by email, with no custom token-exchange endpoint required.
 
 ---
 
-## Cloudflare Workers + Turso
+## InstantDB for Storage
 
-**Decision:** Stateless edge Workers handle the API; Turso Cloud (managed libSQL/SQLite) stores user and entry rows.
+**Decision:** InstantDB stores user profiles and entries; the browser SDK handles all data access directly with no custom API server.
 
-**Why:** No server provisioning or maintenance. Turso is SQLite-compatible — the schema is already written for a relational model, and the Worker connects over HTTP using `@libsql/client/web` with no embedded replica. Workers have sub-millisecond cold starts globally. Cost is effectively zero at personal-use scale. The data model (users + entries, no complex joins) is a comfortable fit for a managed SQL service.
-
-Contrast with a traditional VPS: ongoing maintenance, patching, uptime. Contrast with Firebase Firestore: NoSQL document model maps awkwardly to structured entry rows.
+**Why:** No server to provision, deploy, or maintain. The browser SDK replaces a hand-written CRUD API. Permission rules (`auth.id in data.ref('$user.id')`) enforce user isolation server-side. The data model (profiles + entries, linked to users) is a natural fit for InstantDB's namespace-and-links graph model. Real-time sync comes for free.
 
 ---
 

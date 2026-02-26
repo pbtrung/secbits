@@ -4,7 +4,7 @@ A self-hosted, end-to-end encrypted password manager. All data is encrypted in t
 
 ## Backend Setup
 
-The backend is a Cloudflare Worker + Turso Cloud (libSQL) database with Firebase Authentication.
+The backend is **Firebase Authentication** + **InstantDB**. No custom API server is required.
 
 ### 1. Firebase
 
@@ -19,35 +19,17 @@ Optional CLI user creation:
 node scripts/create-firebase-user.mjs --api-key <key> --email you@example.com --password yourpassword
 ```
 
-### 2. Turso database
+### 2. InstantDB
 
-```bash
-turso db create <db-name>
-turso db shell <db-name> < worker/schema.sql
-turso db show <db-name> --url      # note the URL
-turso db tokens create <db-name>   # note the token
-```
+1. Create an app at [instantdb.com](https://www.instantdb.com) — note the **App ID**.
+2. In the dashboard: **Auth** → add OAuth client → Firebase → enter Firebase Project ID, client name `firebase`.
+3. Push schema and permissions:
+   ```bash
+   npx instant-cli@latest push schema
+   npx instant-cli@latest push perms
+   ```
 
-### 3. Worker
-
-```bash
-npm install -g wrangler
-wrangler login
-```
-
-Copy `worker/wrangler.toml.example` → `worker/wrangler.toml` and fill in `name`.
-
-```bash
-cd worker
-wrangler secret put FIREBASE_PROJECT_ID   # Firebase Project ID
-wrangler secret put TURSO_DATABASE_URL    # libsql://<db>-<org>.turso.io
-wrangler secret put TURSO_AUTH_TOKEN      # token from step 2
-wrangler deploy
-```
-
-Note the Worker URL printed — you'll need it for the config file.
-
-### 4. Root master key
+### 3. Root master key
 
 Generate in a browser console or Node:
 ```js
@@ -64,10 +46,10 @@ Save as `secbits-config.json`. **Keep this file private.**
 ```json
 {
   "username": "<display name>",
-  "worker_url": "https://<worker>.<account>.workers.dev",
   "email": "you@example.com",
   "password": "your-firebase-password",
   "firebase_api_key": "<firebase-web-api-key>",
+  "instant_app_id": "<instant-app-id>",
   "root_master_key": "<base64-encoded key, ≥256 bytes when decoded>",
   "backup": [
     {
@@ -85,10 +67,10 @@ Save as `secbits-config.json`. **Keep this file private.**
 | Field | Required | Description |
 |---|---|---|
 | `username` | Yes | Display name |
-| `worker_url` | Yes | Cloudflare Worker URL |
 | `email` | Yes | Firebase email |
 | `password` | Yes | Firebase password |
 | `firebase_api_key` | Yes | Firebase Web API key |
+| `instant_app_id` | Yes | InstantDB App ID |
 | `root_master_key` | Yes | Base64-encoded random key, must decode to ≥256 bytes |
 | `backup` | No | Cloud backup targets (R2, S3, GCS). See [agent_docs/backup.md](agent_docs/backup.md). |
 
@@ -97,7 +79,7 @@ Save as `secbits-config.json`. **Keep this file private.**
 Requires Node.js 18+ and npm 9+.
 
 ```bash
-npm install        # frontend deps
+npm install        # deps
 npm run build      # output → dist/
 ```
 
@@ -109,16 +91,13 @@ npm run build      # output → dist/
 **Local dev:**
 ```bash
 npm run dev        # frontend → http://localhost:5173
-cd worker && wrangler dev  # Worker → http://localhost:8787
 ```
-
-For local Worker dev, add `http://localhost:8787` to `connect-src` in `index.html`'s CSP and set `worker_url` accordingly in your config.
 
 ## Usage
 
 ### First login
 
-Drag and drop (or click to browse) your config `.json` onto the upload area. The app signs into Firebase, connects to the Worker, and loads your entries. The session is held in memory — a hard reload (F5) or logout clears it.
+Drag and drop (or click to browse) your config `.json` onto the upload area. The app signs into Firebase, authenticates with InstantDB, and loads your entries. The session is held in memory — a hard reload (F5) or logout clears it.
 
 ### Entries
 
@@ -144,7 +123,7 @@ Each save appends a commit (up to 20). Use the **N versions** button to open the
 2. Copy the generated key and update your config JSON and any secure backup.
 3. Check the confirmation checkbox, then click **Change**.
 
-The old key stops working immediately after the server write. If the new key is not saved first, recovery is impossible.
+The old key stops working immediately after the write. If the new key is not saved first, recovery is impossible.
 
 ## Testing
 

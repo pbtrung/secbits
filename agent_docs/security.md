@@ -1,8 +1,8 @@
 # Security Notes
 
-**The master key is everything.** Anyone with your config file can decrypt all your data if they also compromise the Worker or D1 database. Keep the config file off shared machines and out of version control.
+**The master key is everything.** Anyone with your config file can decrypt all your data if they also access the InstantDB store. Keep the config file off shared machines and out of version control.
 
-**The Worker never sees plaintext.** All encryption and decryption happens in the browser. The Worker and D1 only store ciphertext blobs.
+**InstantDB never sees plaintext.** All encryption and decryption happens in the browser. InstantDB stores only ciphertext blobs. Permission rules prevent other users from reading your ciphertext, but the ciphertext itself is worthless without the Root Master Key from the config file.
 
 **Per-entry keys.** Each entry is encrypted with its own randomly generated document key. Compromise of one entry's key does not affect others.
 
@@ -10,12 +10,10 @@
 
 **No separate MAC step.** Authentication is built into the AEAD cipher; there is no HMAC post-processing step. The tag covers both the ciphertext and the associated key material.
 
-**Email/Password auth.** The Worker never handles passwords, stores password hashes, or issues tokens of its own. Authentication is fully delegated to Firebase; the Worker only verifies the RS256 token signature. See `agent_docs/backend.md` for verification steps and `agent_docs/design.md` for why Firebase was chosen.
+**Email/Password auth.** Authentication is fully delegated to Firebase. The app exchanges credentials for an RS256 ID token, then calls `db.auth.signInWithIdToken()`. InstantDB verifies the token against Firebase's public JWKs; no password or hash is ever sent to InstantDB. See `agent_docs/backend.md` for the full auth flow and `agent_docs/design.md` for why Firebase was chosen.
 
-**`wrangler.toml` is gitignored.** It contains the D1 `database_id` and worker name. A template (`worker/wrangler.toml.example`) is committed instead. `FIREBASE_PROJECT_ID` is stored as a Wrangler secret and never appears in any file.
+**Session scope.** The session is held in JS memory only. Nothing is written to `sessionStorage`, `localStorage`, or any other browser store. A hard reload (F5) returns to the config upload screen. The logout button explicitly clears the in-memory key and Firebase token.
 
-**Session scope.** The session is held in JS memory only. Nothing is written to `sessionStorage`, `localStorage`, or any other browser store. A hard reload (F5) returns to the config upload screen. The logout button explicitly clears the in-memory key and JWT token.
+**Content Security Policy.** A CSP meta tag in `index.html` restricts scripts, connections, styles, fonts, and images to known-good origins. `connect-src` allows only `'self'`, `https://*.instantdb.com`, and `wss://*.instantdb.com`.
 
-**Content Security Policy.** A CSP meta tag in `index.html` restricts scripts, connections, styles, fonts, and images to known-good origins. `connect-src` allows only `'self'` and `https://*.workers.dev`.
-
-**Root master key rotation.** Rotating the root master key re-encrypts only the 192-byte user master key blob in D1. Entry keys and values are unaffected. The old key immediately stops working once the new blob is written. If the new key is not saved before confirming, data cannot be recovered.
+**Root master key rotation.** Rotating the root master key re-encrypts only the 192-byte user master key blob in InstantDB. Entry keys and values are unaffected. The old key immediately stops working once the new blob is written. If the new key is not saved before confirming, data cannot be recovered.

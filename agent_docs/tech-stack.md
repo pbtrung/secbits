@@ -11,9 +11,8 @@
 | AEAD cipher + KDF | leancrypto WASM | Ascon-Keccak-512, HKDF-SHA3-512 via Emscripten UMD bundle |
 | TOTP HMAC | @noble/hashes | HMAC-SHA1 |
 | Compression | brotli-wasm | WASM-based Brotli codec |
-| Database | Cloudflare D1 (SQLite) | Serverless SQLite at the edge |
+| Database | InstantDB | Managed real-time graph DB; browser SDK, no custom API server |
 | Auth | Firebase Authentication | Email/password; RS256 ID token, 1-hour expiry |
-| Backend runtime | Cloudflare Workers | Stateless edge compute |
 | Testing | Vitest | Node test environment |
 
 ## Project Structure
@@ -24,6 +23,8 @@ secbits/
 ├── index.html                        # HTML shell with CSP meta tag
 ├── vite.config.js                    # Vite + React + WASM plugins; Vitest config
 ├── package.json
+├── instant.schema.ts                 # InstantDB namespace + link definitions
+├── instant.perms.ts                  # InstantDB permission rules
 ├── agent_docs/                       # Detailed reference docs (read on demand)
 │   ├── features.md
 │   ├── crypto.md
@@ -31,15 +32,8 @@ secbits/
 │   ├── tech-stack.md
 │   ├── testing.md
 │   ├── backup.md
-│   └── backend.md
-├── worker/                           # Cloudflare Worker (backend API)
-│   ├── wrangler.toml                 # Local config (gitignored)
-│   ├── wrangler.toml.example         # Template with placeholder values
-│   ├── schema.sql                    # D1 table definitions
-│   └── src/
-│       ├── index.js                  # HTTP router, CORS, all route handlers
-│       ├── firebase.js               # Firebase RS256 token verification
-│       └── db.js                     # D1 query helpers (users + entries)
+│   ├── backend.md
+│   └── instantdb.md
 ├── scripts/
 │   └── create-firebase-user.mjs     # CLI: create a Firebase user via Auth REST API
 ├── perf.test.js                      # Standalone Node perf/load script
@@ -53,8 +47,9 @@ secbits/
 └── src/
     ├── main.jsx                     # Entry point, mounts React root
     ├── App.jsx                      # Root component, all session state
+    ├── instantdb.js                 # InstantDB init (db export)
     ├── crypto.js                    # All cryptographic operations (leancrypto WASM)
-    ├── api.js                       # Worker HTTP client: auth, user profile, entry CRUD
+    ├── api.js                       # InstantDB data operations: profile + entry CRUD
     ├── backup.js                    # Backup/restore/export pipeline
     ├── totp.js                      # TOTP generation (RFC 6238, HMAC-SHA1)
     ├── validation.js                # URL validation helper
