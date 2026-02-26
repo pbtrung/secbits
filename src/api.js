@@ -336,11 +336,11 @@ export function clearUserMasterKey() {
 }
 
 function vaultKeySearchParams(r2) {
-  const params = new URLSearchParams();
-  params.set('bucket_name', r2.bucket_name);
-  params.set('prefix', r2.prefix);
-  params.set('file_name', r2.file_name);
-  return params.toString();
+  return {
+    bucket_name: r2.bucket_name,
+    prefix: r2.prefix,
+    file_name: r2.file_name,
+  };
 }
 
 export function buildExportData({ username, entries }) {
@@ -353,7 +353,11 @@ export function buildExportData({ username, entries }) {
 
 async function readVaultFromRemote() {
   const s = ensureSession();
-  const res = await workerFetch(`/vault?${vaultKeySearchParams(s.r2)}`);
+  const res = await workerFetch('/vault/read', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(vaultKeySearchParams(s.r2)),
+  });
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -401,11 +405,11 @@ async function writeVaultToRemote(entries) {
   const compressed = brotli.compress(jsonBytes);
   const encryptedBlob = await encryptBytesToBlob(rootKey, compressed);
 
-  const res = await workerFetch('/vault', {
-    method: 'PUT',
+  const res = await workerFetch('/vault/write', {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      r2: s.r2,
+      ...vaultKeySearchParams(s.r2),
       payload_b64: bytesToB64(encryptedBlob),
     }),
   });

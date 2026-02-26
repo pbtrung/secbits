@@ -1,5 +1,12 @@
 import { verifyFirebaseToken } from './firebase';
 
+class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
 function corsHeaders(origin = '*') {
   return {
     'Access-Control-Allow-Origin': origin,
@@ -22,24 +29,24 @@ function json(data, status = 200, origin = '*') {
 
 function sanitizePathPart(value, field) {
   const out = String(value || '').trim();
-  if (!out) throw new Error(`Missing required field: ${field}`);
-  if (out.includes('..') || out.includes('\\')) throw new Error(`Invalid value for ${field}`);
+  if (!out) throw new HttpError(400, `Missing required field: ${field}`);
+  if (out.includes('..') || out.includes('\\')) throw new HttpError(400, `Invalid value for ${field}`);
   return out;
 }
 
 function normalizePrefix(prefixRaw) {
   const prefix = String(prefixRaw || '').trim();
   if (!prefix) return '';
-  if (prefix.includes('..') || prefix.includes('\\')) throw new Error('Invalid value for prefix');
+  if (prefix.includes('..') || prefix.includes('\\')) throw new HttpError(400, 'Invalid value for prefix');
   return prefix.endsWith('/') ? prefix : `${prefix}/`;
 }
 
 function resolveKey(bucketName, prefix, fileName, env) {
   if (!env.R2_BUCKET_NAME) {
-    throw new Error('Worker env R2_BUCKET_NAME is not configured');
+    throw new HttpError(500, 'Worker env R2_BUCKET_NAME is not configured');
   }
   if (bucketName !== env.R2_BUCKET_NAME) {
-    throw new Error(`Configured bucket_name does not match worker bucket (${env.R2_BUCKET_NAME})`);
+    throw new HttpError(400, `Configured bucket_name does not match worker bucket (${env.R2_BUCKET_NAME})`);
   }
   return `${prefix}${fileName}`;
 }
@@ -47,26 +54,28 @@ function resolveKey(bucketName, prefix, fileName, env) {
 async function requireAuth(request, env) {
   const header = request.headers.get('Authorization') || '';
   const match = header.match(/^Bearer\s+(.+)$/i);
-  if (!match) throw new Error('Missing bearer token');
-  return verifyFirebaseToken(match[1], env.FIREBASE_PROJECT_ID);
+  if (!match) throw new HttpError(401, 'Missing bearer token');
+  try {
+    return await verifyFirebaseToken(match[1], env.FIREBASE_PROJECT_ID);
+  } catch {
+    throw new HttpError(401, 'Invalid bearer token');
+  }
 }
 
-function resolveReadConfig(url) {
-  const bucket_name = sanitizePathPart(url.searchParams.get('bucket_name'), 'bucket_name');
-  const prefix = normalizePrefix(url.searchParams.get('prefix'));
-  const file_name = sanitizePathPart(url.searchParams.get('file_name'), 'file_name');
+function resolveReadConfig(body) {
+  if (!body || typeof body !== 'object') throw new HttpError(400, 'Invalid JSON body');
+  const bucket_name = sanitizePathPart(body.bucket_name, 'bucket_name');
+  const prefix = normalizePrefix(body.prefix);
+  const file_name = sanitizePathPart(body.file_name, 'file_name');
   return { bucket_name, prefix, file_name };
 }
 
-async function resolveWriteConfig(request) {
-  const body = await request.json().catch(() => null);
-  if (!body || typeof body !== 'object') throw new Error('Invalid JSON body');
-  const r2 = body.r2;
-  if (!r2 || typeof r2 !== 'object') throw new Error('Missing required field: r2');
+function resolveWriteConfig(body) {
+  if (!body || typeof body !== 'object') throw new HttpError(400, 'Invalid JSON body');
 
-  const bucket_name = sanitizePathPart(r2.bucket_name, 'r2.bucket_name');
-  const prefix = normalizePrefix(r2.prefix);
-  const file_name = sanitizePathPart(r2.file_name, 'r2.file_name');
+  const bucket_name = sanitizePathPart(body.bucket_name, 'bucket_name');
+  const prefix = normalizePrefix(body.prefix);
+  const file_name = sanitizePathPart(body.file_name, 'file_name');
   const payload_b64 = sanitizePathPart(body.payload_b64, 'payload_b64');
 
   let bytes;
@@ -75,7 +84,7 @@ async function resolveWriteConfig(request) {
     bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   } catch {
-    throw new Error('Invalid payload_b64');
+    throw new HttpError(400, 'Invalid payload_b64');
   }
 
   return {
@@ -102,9 +111,10 @@ export default {
         return json({ ok: true }, 200, origin);
       }
 
-      if (url.pathname === '/vault' && request.method === 'GET') {
+      if (url.pathname === '/vault/read' && request.method === 'POST') {
         await requireAuth(request, env);
-        const { bucket_name, prefix, file_name } = resolveReadConfig(url);
+        const body = await request.json().catch(() => null);
+        const { bucket_name, prefix, file_name } = resolveReadConfig(body);
         const key = resolveKey(bucket_name, prefix, file_name, env);
 
         const object = await env.SECBITS_R2.get(key);
@@ -131,9 +141,10 @@ export default {
         }, 200, origin);
       }
 
-      if (url.pathname === '/vault' && request.method === 'PUT') {
+      if (url.pathname === '/vault/write' && request.method === 'POST') {
         await requireAuth(request, env);
-        const config = await resolveWriteConfig(request);
+        const body = await request.json().catch(() => null);
+        const config = resolveWriteConfig(body);
         const key = resolveKey(config.bucket_name, config.prefix, config.file_name, env);
 
         await env.SECBITS_R2.put(key, config.bytes, {
@@ -145,7 +156,8 @@ export default {
 
       return json({ error: 'Not found' }, 404, origin);
     } catch (err) {
-      return json({ error: err?.message || 'Unexpected error' }, 400, origin);
+      const status = Number.isInteger(err?.status) ? err.status : 400;
+      return json({ error: err?.message || 'Unexpected error' }, status, origin);
     }
   },
 };
