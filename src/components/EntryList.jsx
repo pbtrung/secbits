@@ -1,4 +1,26 @@
+import { useState, useEffect, useRef } from 'react';
+
+const ENTRY_TYPE_OPTIONS = [
+  { type: 'login', icon: 'bi-person-badge', label: 'Login' },
+  { type: 'note',  icon: 'bi-sticky',       label: 'Secure Note' },
+  { type: 'card',  icon: 'bi-credit-card',  label: 'Credit Card' },
+];
+
 function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, selectedTag, trashMode = false, mobile }) {
+  const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    if (!typeDropdownOpen) return;
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setTypeDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [typeDropdownOpen]);
+
   const formatExact = (ts) => {
     const d = new Date(ts);
     const pad = (n) => String(n).padStart(2, '0');
@@ -37,13 +59,29 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
           {trashMode ? 'Deleted Entries' : (selectedTag ? `#${selectedTag}` : 'All Entries')}
         </h6>
         {!trashMode && (
-          <button
-            className="btn btn-sm btn-primary"
-            onClick={onNewEntry}
-            title="New Entry"
-          >
-            <i className="bi bi-plus-lg"></i>
-          </button>
+          <div className="dropdown" ref={dropdownRef}>
+            <button
+              className="btn btn-sm btn-primary dropdown-toggle"
+              onClick={() => setTypeDropdownOpen((v) => !v)}
+              title="New Entry"
+            >
+              <i className="bi bi-plus-lg"></i>
+            </button>
+            {typeDropdownOpen && (
+              <ul className="dropdown-menu dropdown-menu-end show mt-1">
+                {ENTRY_TYPE_OPTIONS.map(({ type, icon, label }) => (
+                  <li key={type}>
+                    <button
+                      className="dropdown-item"
+                      onClick={() => { setTypeDropdownOpen(false); onNewEntry(type); }}
+                    >
+                      <i className={`bi ${icon} me-2`}></i>{label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
       </div>
       <div className="overflow-auto flex-grow-1">

@@ -12,7 +12,9 @@
 
 ## Entry Types
 
-When adding a new entry the user first selects one of three types. The type is stored on the entry as a `type` field (`"login"`, `"note"`, `"card"`) and controls which fields are shown in the editor and detail view. The type is fixed at creation and cannot be changed afterward.
+When adding a new entry the user first selects one of three types. The type is stored on the entry as a `type` field (`"login"`, `"note"`, `"card"`) and controls which fields are shown in the editor and detail view. The type is fixed at creation and cannot be changed afterward. It is preserved in the vault export JSON alongside all other entry fields.
+
+**UI — type selection:** clicking the `+` button in the entry list opens a dropdown menu with three items (Login, Secure Note, Credit Card). Selecting an item creates a new entry of that type and immediately opens it in edit mode.
 
 **UI — type badge:**
 - **Read-only mode:** a non-interactive type badge is rendered directly below the entry title, using the same visual style as the "Deleted" badge shown on trashed entries.

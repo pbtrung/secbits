@@ -37,6 +37,8 @@ Export JSON shape:
 }
 ```
 
+Each entry object in `data` and `trash` carries a `type` field (`"login"`, `"note"`, or `"card"`) set at creation. Entries created before typed entries were introduced omit the field.
+
 `version` is a schema version integer. It exists so future format changes can be handled by branching on the version at parse time. Currently always `1`.
 
 `data` contains live entries. `trash` contains entries moved there by a soft delete; each carries all original fields, the full `_commits` history, and an added `deletedAt` ISO 8601 timestamp. Entries absent from both arrays are permanently gone.

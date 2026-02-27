@@ -132,12 +132,14 @@ function normalizeTimestamp(timestamp) {
   return new Date().toISOString();
 }
 
+const VALID_ENTRY_TYPES = ['login', 'note', 'card'];
+
 function normalizeEntryShape(entry) {
   const safe = entry && typeof entry === 'object' ? entry : {};
   const customFields = normalizeCustomFields(
     Array.isArray(safe.customFields) ? safe.customFields : safe.hiddenFields,
   );
-  return {
+  const result = {
     title: typeof safe.title === 'string' ? safe.title : '',
     username: typeof safe.username === 'string' ? safe.username : '',
     password: typeof safe.password === 'string' ? safe.password : '',
@@ -148,6 +150,8 @@ function normalizeEntryShape(entry) {
     tags: normalizeTags(safe.tags),
     timestamp: normalizeTimestamp(safe.timestamp),
   };
+  if (VALID_ENTRY_TYPES.includes(safe.type)) result.type = safe.type;
+  return result;
 }
 
 async function contentHash(obj) {
