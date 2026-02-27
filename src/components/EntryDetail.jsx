@@ -90,6 +90,12 @@ function normalizeEntryForDraft(entry) {
   };
 }
 
+const TYPE_META = {
+  login: { label: 'Login',       icon: 'bi-person-badge' },
+  note:  { label: 'Secure Note', icon: 'bi-sticky'       },
+  card:  { label: 'Credit Card', icon: 'bi-credit-card'  },
+};
+
 // ─── EntryDetail ──────────────────────────────────────────────────────────────
 
 function EntryDetail({
@@ -531,6 +537,12 @@ function EntryDetail({
             <div className="small text-muted mt-1" title={formatDeletedLabel(entry.deletedAt).exact}>
               <i className="bi bi-trash me-1"></i>
               {formatDeletedLabel(entry.deletedAt).text}
+            </div>
+          )}
+          {entry.type && TYPE_META[entry.type] && (
+            <div className="small text-muted mt-1">
+              <i className={`bi ${TYPE_META[entry.type].icon} me-1`}></i>
+              {TYPE_META[entry.type].label}
             </div>
           )}
         </div>

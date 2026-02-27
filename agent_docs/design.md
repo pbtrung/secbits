@@ -103,6 +103,14 @@ Export JSON shape:
 
 ---
 
+## Typed Entries (Login / Note / Card)
+
+**Decision:** Every entry carries a `type` field with one of three values: `"login"`, `"note"`, `"card"`. The user selects a type before the entry editor opens; the type is stored on the entry and determines which fields are rendered.
+
+**Why:** Displaying a flat list of every possible field for all entries (card number, TOTP, URLs, CVV, …) produces a noisy, context-free form. Typed entries surface only the fields that are meaningful for the selected credential kind, reducing visual noise and guiding the user toward correct data entry. The `type` field is a lightweight tag on the existing entry schema — no migration logic is needed, and all entry records remain uniform JSON objects in the same `data` array.
+
+---
+
 ## UUID Entry IDs
 
 **Decision:** New persisted entries are assigned IDs with `crypto.randomUUID()`.

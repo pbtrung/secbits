@@ -18,6 +18,41 @@ import {
   permanentlyDeleteUserEntry,
 } from './api';
 
+const ENTRY_TYPE_OPTIONS = [
+  { type: 'login', icon: 'bi-person-badge', label: 'Login', desc: 'Username, password, URLs, TOTP' },
+  { type: 'note',  icon: 'bi-sticky',       label: 'Secure Note', desc: 'Encrypted free-form text' },
+  { type: 'card',  icon: 'bi-credit-card',  label: 'Credit Card', desc: 'Card number, expiry, CVV' },
+];
+
+function TypePickerModal({ onSelect, onDismiss }) {
+  return (
+    <div
+      className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
+      style={{ background: 'rgba(0,0,0,0.45)', zIndex: 1050 }}
+      onClick={onDismiss}
+    >
+      <div className="card shadow p-4" style={{ minWidth: 300, maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+        <h6 className="fw-bold mb-3">New Entry — Select Type</h6>
+        <div className="d-flex flex-column gap-2">
+          {ENTRY_TYPE_OPTIONS.map(({ type, icon, label, desc }) => (
+            <button
+              key={type}
+              className="btn btn-outline-secondary text-start d-flex align-items-center gap-3 px-3 py-2"
+              onClick={() => onSelect(type)}
+            >
+              <i className={`bi ${icon} fs-4`}></i>
+              <div>
+                <div className="fw-semibold">{label}</div>
+                <div className="small text-muted">{desc}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   useEffect(() => {
@@ -88,6 +123,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
   const [searchQuery, setSearchQuery] = useState('');
   const [settingsMode, setSettingsMode] = useState(false);
   const [settingsPage, setSettingsPage] = useState(null);
+  const [typePickerOpen, setTypePickerOpen] = useState(false);
   const [tagsWidth, setTagsWidth] = useState(220);
   const [entriesWidth, setEntriesWidth] = useState(320);
   const userName = initialUserName;
@@ -191,13 +227,19 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
     if (isMobile) setMobileView('entries');
   }, [trashEntries.length, isMobile, confirmUnsavedChanges]);
 
-  const handleNewEntry = useCallback(() => {
+  const handleNewEntryClick = useCallback(() => {
     if (trashMode) return;
     if (!confirmUnsavedChanges()) return;
+    setTypePickerOpen(true);
+  }, [trashMode, confirmUnsavedChanges]);
+
+  const handleNewEntry = useCallback((type) => {
+    setTypePickerOpen(false);
     prevSelectedIdRef.current = selectedEntryIdRef.current;
     const newEntry = {
       id: `local-${crypto.randomUUID()}`,
       _isNew: true,
+      type,
       title: '',
       username: '',
       password: '',
@@ -211,7 +253,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
     setSelectedEntryId(newEntry.id);
     setEditingId(newEntry.id);
     if (isMobile) setMobileView('detail');
-  }, [selectedTag, isMobile, confirmUnsavedChanges, trashMode]);
+  }, [selectedTag, isMobile]);
 
   const handleSave = useCallback(async (updated) => {
     if (trashMode) return;
@@ -497,6 +539,10 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
         </div>
       )}
 
+      {typePickerOpen && (
+        <TypePickerModal onSelect={handleNewEntry} onDismiss={() => setTypePickerOpen(false)} />
+      )}
+
       {/* Main content */}
       <div className="flex-grow-1 overflow-hidden">
         {isMobile ? (
@@ -531,7 +577,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
                   entries={filteredEntries}
                   selectedEntryId={selectedEntryId}
                   onSelectEntry={handleSelectEntry}
-                  onNewEntry={handleNewEntry}
+                  onNewEntry={handleNewEntryClick}
                   selectedTag={selectedTag}
                   trashMode={trashMode}
                   mobile
@@ -579,7 +625,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
                   entries={filteredEntries}
                   selectedEntryId={selectedEntryId}
                   onSelectEntry={handleSelectEntry}
-                  onNewEntry={handleNewEntry}
+                  onNewEntry={handleNewEntryClick}
                   selectedTag={selectedTag}
                   trashMode={trashMode}
                 />

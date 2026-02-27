@@ -10,17 +10,51 @@
 | Trash | Deleted entries move to a trash bin with a deletion timestamp. Full commit history is preserved. Entries can be restored or permanently deleted from trash. |
 | Export | Download full decrypted vault as JSON (includes both live entries and trash). |
 
-## Entry Fields
+## Entry Types
+
+When adding a new entry the user first selects one of three types. The type is stored on the entry as a `type` field (`"login"`, `"note"`, `"card"`) and controls which fields are shown in the editor and detail view. The type is fixed at creation and cannot be changed afterward.
+
+**UI — type badge:**
+- **Read-only mode:** a non-interactive type badge is rendered directly below the entry title, using the same visual style as the "Deleted" badge shown on trashed entries.
+- **Edit mode:** the same badge is rendered below the title input field. It is display-only; no control to change the type is shown.
+
+### Login
+
+Credentials for a website or service.
 
 | Field | Notes |
 |-------|-------|
-| Title | Required identifier |
+| Title | Required |
 | Username | Optional |
-| Password | Optional |
+| Password | Optional; password generator available |
 | Notes | Free text |
 | URLs | Multiple URLs per entry |
 | TOTP secrets | Multiple RFC 6238 TOTP secrets per entry |
 | Custom fields | Arbitrary key/value pairs |
+| Tags | Multiple tags per entry |
+
+### Secure Note
+
+Free-form encrypted text.
+
+| Field | Notes |
+|-------|-------|
+| Title | Required |
+| Notes | Main content; free text |
+| Tags | Multiple tags per entry |
+
+### Credit Card
+
+Payment card details.
+
+| Field | Notes |
+|-------|-------|
+| Title | Required |
+| Cardholder name | Optional |
+| Card number | Optional |
+| Expiry | Optional; MM/YY format |
+| CVV | Optional |
+| Notes | Free text |
 | Tags | Multiple tags per entry |
 
 ## TOTP
