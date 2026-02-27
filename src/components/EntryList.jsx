@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import SidebarPanel from './SidebarPanel';
 import { ENTRY_TYPES, ENTRY_TYPE_META } from '../entryUtils.js';
 
 function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, selectedTag, trashMode = false, mobile }) {
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   const [typeDropdownAlign, setTypeDropdownAlign] = useState('start');
+  const [dropdownReady, setDropdownReady] = useState(false);
   const dropdownRef = useRef(null);
   const dropdownBtnRef = useRef(null);
   const dropdownMenuRef = useRef(null);
@@ -20,7 +21,7 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
     return () => document.removeEventListener('mousedown', handler);
   }, [typeDropdownOpen]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!typeDropdownOpen) return;
 
     const updateDropdownAlign = () => {
@@ -38,12 +39,12 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
       } else {
         setTypeDropdownAlign('end');
       }
+      setDropdownReady(true);
     };
 
-    const rafId = requestAnimationFrame(updateDropdownAlign);
+    updateDropdownAlign();
     window.addEventListener('resize', updateDropdownAlign);
     return () => {
-      cancelAnimationFrame(rafId);
       window.removeEventListener('resize', updateDropdownAlign);
     };
   }, [typeDropdownOpen]);
@@ -53,7 +54,13 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
       <button
         ref={dropdownBtnRef}
         className="btn btn-sm btn-primary"
-        onClick={() => setTypeDropdownOpen((v) => !v)}
+        onClick={() => {
+          setTypeDropdownOpen((v) => {
+            const next = !v;
+            if (next) setDropdownReady(false);
+            return next;
+          });
+        }}
         title="New Entry"
       >
         <i className="bi bi-plus-lg"></i>
@@ -63,8 +70,8 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
           ref={dropdownMenuRef}
           className="dropdown-menu show mt-1"
           style={typeDropdownAlign === 'start'
-            ? { left: 0, right: 'auto', maxWidth: 'calc(100vw - 1rem)' }
-            : { right: 0, left: 'auto', maxWidth: 'calc(100vw - 1rem)' }}
+            ? { left: 0, right: 'auto', maxWidth: 'calc(100vw - 1rem)', visibility: dropdownReady ? 'visible' : 'hidden' }
+            : { right: 0, left: 'auto', maxWidth: 'calc(100vw - 1rem)', visibility: dropdownReady ? 'visible' : 'hidden' }}
         >
           {ENTRY_TYPES.map(({ type, icon, label }) => (
             <li key={type}>
