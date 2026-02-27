@@ -361,16 +361,16 @@ function EntryDetail({
           ) : (
             <h3 className="fw-bold mb-0">{data.title}</h3>
           )}
-          {isTrashView && (
-            <div className="small text-muted mt-1" title={formatDeletedLabel(entry.deletedAt).exact}>
-              <i className="bi bi-trash me-1"></i>
-              {formatDeletedLabel(entry.deletedAt).text}
-            </div>
-          )}
           {entry.type && ENTRY_TYPE_META[entry.type] && (
             <div className="small text-muted mt-1">
               <i className={`bi ${ENTRY_TYPE_META[entry.type].icon} me-1`}></i>
               {ENTRY_TYPE_META[entry.type].label}
+            </div>
+          )}
+          {isTrashView && (
+            <div className="small text-muted mt-1" title={formatDeletedLabel(entry.deletedAt).exact}>
+              <i className="bi bi-trash me-1"></i>
+              {formatDeletedLabel(entry.deletedAt).text}
             </div>
           )}
         </div>

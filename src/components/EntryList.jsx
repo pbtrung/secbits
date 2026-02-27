@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import SidebarPanel from './SidebarPanel';
-import { formatDeletedLabel, ENTRY_TYPES, ENTRY_TYPE_META } from '../entryUtils.js';
+import { ENTRY_TYPES, ENTRY_TYPE_META } from '../entryUtils.js';
 
 function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, selectedTag, trashMode = false, mobile }) {
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
@@ -108,12 +108,7 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
                 {entry.title || <span className="fst-italic text-muted">Untitled</span>}
               </div>
               <small className={`text-truncate d-block ${selectedEntryId === entry.id ? 'text-light' : 'text-muted'}`}>
-                {trashMode ? (
-                  (() => {
-                    const label = formatDeletedLabel(entry.deletedAt);
-                    return <span title={label.exact}>{label.text}</span>;
-                  })()
-                ) : entry.username}
+                {entry.username}
               </small>
               <div>
                 {entry.tags.map((t) => (
