@@ -4,7 +4,10 @@ import { formatDeletedLabel, ENTRY_TYPES, ENTRY_TYPE_META } from '../entryUtils.
 
 function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, selectedTag, trashMode = false, mobile }) {
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
+  const [typeDropdownSide, setTypeDropdownSide] = useState('right');
   const dropdownRef = useRef(null);
+  const dropdownBtnRef = useRef(null);
+  const dropdownMenuRef = useRef(null);
 
   useEffect(() => {
     if (!typeDropdownOpen) return;
@@ -17,9 +20,37 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
     return () => document.removeEventListener('mousedown', handler);
   }, [typeDropdownOpen]);
 
+  useEffect(() => {
+    if (!typeDropdownOpen) return;
+
+    const updateDropdownSide = () => {
+      const btnRect = dropdownBtnRef.current?.getBoundingClientRect();
+      if (!btnRect) return;
+      const menuWidth = dropdownMenuRef.current?.offsetWidth || 220;
+      const rightSpace = window.innerWidth - btnRect.right;
+      const leftSpace = btnRect.left;
+
+      if (rightSpace >= menuWidth) {
+        setTypeDropdownSide('right');
+      } else if (leftSpace >= menuWidth) {
+        setTypeDropdownSide('left');
+      } else {
+        setTypeDropdownSide(rightSpace >= leftSpace ? 'right' : 'left');
+      }
+    };
+
+    const rafId = requestAnimationFrame(updateDropdownSide);
+    window.addEventListener('resize', updateDropdownSide);
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', updateDropdownSide);
+    };
+  }, [typeDropdownOpen]);
+
   const newEntryButton = !trashMode && (
     <div className="dropdown" ref={dropdownRef}>
       <button
+        ref={dropdownBtnRef}
         className="btn btn-sm btn-primary"
         onClick={() => setTypeDropdownOpen((v) => !v)}
         title="New Entry"
@@ -28,8 +59,11 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
       </button>
       {typeDropdownOpen && (
         <ul
+          ref={dropdownMenuRef}
           className="dropdown-menu show mt-1"
-          style={{ right: 0, left: 'auto' }}
+          style={typeDropdownSide === 'right'
+            ? { left: '100%', right: 'auto', marginLeft: '0.25rem' }
+            : { right: '100%', left: 'auto', marginRight: '0.25rem' }}
         >
           {ENTRY_TYPES.map(({ type, icon, label }) => (
             <li key={type}>
