@@ -11,7 +11,7 @@
 **End-to-end encryption.** All encryption and decryption runs in the browser. The Worker and R2 never handle plaintext.
 Both active entries (`data`) and deleted entries (`trash`) are encrypted in the same vault blob.
 
-**Authenticated encryption.** Every vault blob carries a 64-byte Ascon-Keccak-512 AEAD tag. Any modification to ciphertext or tag causes decryption to throw before returning any plaintext.
+**Authenticated encryption.** Every vault blob carries a 64-byte Ascon-Keccak-512 AEAD tag. The tag covers the full blob — magic bytes, version, salt, and ciphertext — via AEAD additional data. Any modification to any byte in the blob causes decryption to throw before returning any plaintext.
 
 **No IV reuse.** Each encryption derives a unique `(encKey, encIv)` from a fresh 64-byte random salt via HKDF-SHA3-512. IV reuse is structurally impossible.
 

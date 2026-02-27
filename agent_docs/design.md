@@ -59,6 +59,18 @@ Export JSON shape:
 
 ---
 
+## Blob Format Versioning and Authenticated Header
+
+**Decision:** Every encrypted blob is prefixed with a 9-byte header: 7-byte magic (`SecBits` UTF-8) and a 2-byte version (`major · minor`). The full header and salt are passed as AEAD additional data, so the tag covers the entire blob.
+
+**Why — magic bytes:** A blob without a recognisable prefix is opaque. The magic bytes allow any tool or the app itself to immediately identify a SecBits vault object in a hex dump or from raw R2 storage, and to fast-fail with a clear error when handed the wrong binary rather than producing a confusing "wrong key" message.
+
+**Why — version field:** The blob format may need to evolve (cipher upgrade, layout change). Without a version field there is no in-band signal to branch on at decode time. Two bytes (major · minor) provide 256 distinct values per component — more than sufficient for a format that changes rarely.
+
+**Why — authenticated additional data:** The salt was previously unauthenticated. An attacker with write access to R2 could replace the salt bytes to produce a targeted denial-of-service: the vault would fail to open with a misleading "wrong key" error while the ciphertext itself remained intact. Binding the magic, version, and salt into the AEAD additional data means any modification to any byte in the header causes tag verification to fail, making the full blob tamper-evident.
+
+---
+
 ## HKDF-SHA3-512 with Per-Blob Fresh Salt
 
 **Decision:** Every encryption derives a unique `(encKey, encIv)` pair from a fresh 64-byte random salt via HKDF-SHA3-512.

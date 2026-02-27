@@ -1,3 +1,9 @@
+const MAGIC = new Uint8Array([0x53, 0x65, 0x63, 0x42, 0x69, 0x74, 0x73]); // "SecBits"
+const CURRENT_VERSION = new Uint8Array([0x01, 0x00]); // v1.0
+const MAGIC_LEN = MAGIC.length;       // 7
+const VERSION_LEN = CURRENT_VERSION.length; // 2
+const HEADER_LEN = MAGIC_LEN + VERSION_LEN; // 9
+
 const SALT_LEN = 64;
 const ENC_KEY_LEN = 64;
 const ENC_IV_LEN = 64;
@@ -98,7 +104,7 @@ function hkdfSync(lib, keyBytes, salt) {
   }
 }
 
-function akEncrypt(lib, encKey, encIv, plainBytes) {
+function akEncrypt(lib, encKey, encIv, plainBytes, ad) {
   const sha3_512_ptr = resolveHashPtr(lib, lib._lc_sha3_512);
   const ctxPtrPtr = lib._malloc(4);
   let ctx = 0;
@@ -115,11 +121,12 @@ function akEncrypt(lib, encKey, encIv, plainBytes) {
   const ptPtr = writeBytes(lib, plainBytes);
   const ctPtr = lib._malloc(plainBytes.length);
   const tagPtr = lib._malloc(TAG_LEN);
+  const adPtr = ad && ad.length > 0 ? writeBytes(lib, ad) : 0;
   try {
     let rc = lib._lc_aead_setkey(ctx, keyPtr, encKey.length, ivPtr, encIv.length);
     if (rc !== 0) throw new Error(`lc_aead_setkey failed: rc=${rc}`);
 
-    rc = lib._lc_aead_encrypt(ctx, ptPtr, ctPtr, plainBytes.length, 0, 0, tagPtr, TAG_LEN);
+    rc = lib._lc_aead_encrypt(ctx, ptPtr, ctPtr, plainBytes.length, adPtr, ad ? ad.length : 0, tagPtr, TAG_LEN);
     if (rc !== 0) throw new Error(`lc_aead_encrypt failed: rc=${rc}`);
 
     const ciphertext = readBytes(lib, ctPtr, plainBytes.length);
@@ -131,11 +138,12 @@ function akEncrypt(lib, encKey, encIv, plainBytes) {
     lib._free(ptPtr);
     lib._free(ctPtr);
     lib._free(tagPtr);
+    if (adPtr) lib._free(adPtr);
     lib._lc_aead_zero_free(ctx);
   }
 }
 
-function akDecrypt(lib, encKey, encIv, ciphertext, tag) {
+function akDecrypt(lib, encKey, encIv, ciphertext, tag, ad) {
   const sha3_512_ptr = resolveHashPtr(lib, lib._lc_sha3_512);
   const ctxPtrPtr = lib._malloc(4);
   let ctx = 0;
@@ -152,11 +160,12 @@ function akDecrypt(lib, encKey, encIv, ciphertext, tag) {
   const ctPtr = writeBytes(lib, ciphertext);
   const ptPtr = lib._malloc(ciphertext.length);
   const tagPtr = writeBytes(lib, tag);
+  const adPtr = ad && ad.length > 0 ? writeBytes(lib, ad) : 0;
   try {
     let rc = lib._lc_aead_setkey(ctx, keyPtr, encKey.length, ivPtr, encIv.length);
     if (rc !== 0) throw new Error(`lc_aead_setkey failed: rc=${rc}`);
 
-    rc = lib._lc_aead_decrypt(ctx, ctPtr, ptPtr, ciphertext.length, 0, 0, tagPtr, TAG_LEN);
+    rc = lib._lc_aead_decrypt(ctx, ctPtr, ptPtr, ciphertext.length, adPtr, ad ? ad.length : 0, tagPtr, TAG_LEN);
     if (rc !== 0) throw new Error('Invalid encrypted value: authentication failed');
 
     return readBytes(lib, ptPtr, ciphertext.length);
@@ -166,6 +175,7 @@ function akDecrypt(lib, encKey, encIv, ciphertext, tag) {
     lib._free(ctPtr);
     lib._free(ptPtr);
     lib._free(tagPtr);
+    if (adPtr) lib._free(adPtr);
     lib._lc_aead_zero_free(ctx);
   }
 }
@@ -186,21 +196,27 @@ export async function encryptBytesToBlob(keyBytes, plainBytes) {
   const lib = await getLc();
   const salt = getRandomBytes(SALT_LEN);
   const { encKey, encIv } = hkdfSync(lib, keyBytes, salt);
-  const { ciphertext, tag } = akEncrypt(lib, encKey, encIv, plainBytes);
-  return concat(salt, ciphertext, tag);
+  const ad = concat(MAGIC, CURRENT_VERSION, salt);
+  const { ciphertext, tag } = akEncrypt(lib, encKey, encIv, plainBytes, ad);
+  return concat(MAGIC, CURRENT_VERSION, salt, ciphertext, tag);
 }
 
 export async function decryptBlobBytes(keyBytes, blob) {
-  if (blob.length < SALT_LEN + TAG_LEN) {
+  if (blob.length < HEADER_LEN + SALT_LEN + TAG_LEN) {
     throw new Error('Invalid encrypted value');
   }
+  for (let i = 0; i < MAGIC_LEN; i++) {
+    if (blob[i] !== MAGIC[i]) throw new Error('Invalid encrypted value');
+  }
 
-  const salt = blob.slice(0, SALT_LEN);
-  const ciphertext = blob.slice(SALT_LEN, blob.length - TAG_LEN);
+  const version = blob.slice(MAGIC_LEN, HEADER_LEN);
+  const salt = blob.slice(HEADER_LEN, HEADER_LEN + SALT_LEN);
+  const ciphertext = blob.slice(HEADER_LEN + SALT_LEN, blob.length - TAG_LEN);
   const tag = blob.slice(blob.length - TAG_LEN);
+  const ad = concat(MAGIC, version, salt);
 
   const lib = await getLc();
   const { encKey, encIv } = hkdfSync(lib, keyBytes, salt);
-  return akDecrypt(lib, encKey, encIv, ciphertext, tag);
+  return akDecrypt(lib, encKey, encIv, ciphertext, tag, ad);
 }
 

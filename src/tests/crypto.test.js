@@ -2,6 +2,10 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import leancrypto from '../../public/leancrypto/leancrypto.js';
 import { bytesToB64, decryptBlobBytes, encryptBytesToBlob } from '../crypto.js';
 
+const MAGIC = new Uint8Array([0x53, 0x65, 0x63, 0x42, 0x69, 0x74, 0x73]); // "SecBits"
+const MAGIC_LEN = 7;
+const VERSION_LEN = 2;
+const HEADER_LEN = MAGIC_LEN + VERSION_LEN; // 9
 const SALT_LEN = 64;
 const TAG_LEN = 64;
 
@@ -23,26 +27,57 @@ describe('encryptBytesToBlob / decryptBlobBytes', () => {
     }
   });
 
-  it('blob has correct size and non-zero AEAD tag', async () => {
+  it('blob has correct size, magic header, and non-zero AEAD tag', async () => {
     const keyBytes = crypto.getRandomValues(new Uint8Array(64));
     const plain = crypto.getRandomValues(new Uint8Array(128));
 
     const c = await encryptBytesToBlob(keyBytes, plain);
 
-    expect(c.length).toBe(SALT_LEN + plain.length + TAG_LEN);
+    expect(c.length).toBe(HEADER_LEN + SALT_LEN + plain.length + TAG_LEN);
+
+    // magic bytes = "SecBits"
+    for (let i = 0; i < MAGIC_LEN; i++) {
+      expect(c[i]).toBe(MAGIC[i]);
+    }
+
+    // version = 1.0
+    expect(c[MAGIC_LEN]).toBe(0x01);
+    expect(c[MAGIC_LEN + 1]).toBe(0x00);
 
     const tag = c.slice(c.length - TAG_LEN);
     expect(tag.length).toBe(TAG_LEN);
     expect(tag.some(b => b !== 0)).toBe(true);
   });
 
-  it('rejects tampered blobs with authentication failure', async () => {
+  it('rejects tampered ciphertext with authentication failure', async () => {
     const keyBytes = crypto.getRandomValues(new Uint8Array(64));
     const plain = crypto.getRandomValues(new Uint8Array(128));
 
     const c = await encryptBytesToBlob(keyBytes, plain);
     const tampered = c.slice();
     tampered[tampered.length - 1] ^= 0x01;
+
+    await expect(decryptBlobBytes(keyBytes, tampered)).rejects.toThrow();
+  });
+
+  it('rejects tampered salt with authentication failure', async () => {
+    const keyBytes = crypto.getRandomValues(new Uint8Array(64));
+    const plain = crypto.getRandomValues(new Uint8Array(128));
+
+    const c = await encryptBytesToBlob(keyBytes, plain);
+    const tampered = c.slice();
+    tampered[HEADER_LEN] ^= 0x01; // flip first salt byte
+
+    await expect(decryptBlobBytes(keyBytes, tampered)).rejects.toThrow();
+  });
+
+  it('rejects tampered version byte with authentication failure', async () => {
+    const keyBytes = crypto.getRandomValues(new Uint8Array(64));
+    const plain = crypto.getRandomValues(new Uint8Array(128));
+
+    const c = await encryptBytesToBlob(keyBytes, plain);
+    const tampered = c.slice();
+    tampered[MAGIC_LEN] ^= 0x01; // flip major version byte
 
     await expect(decryptBlobBytes(keyBytes, tampered)).rejects.toThrow();
   });
