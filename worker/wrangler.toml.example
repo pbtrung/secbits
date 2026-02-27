@@ -5,3 +5,11 @@ compatibility_date = "2026-02-26"
 [[r2_buckets]]
 binding = "SECBITS_R2"
 bucket_name = "<bucket-name>"
+
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 60
+  period = 60

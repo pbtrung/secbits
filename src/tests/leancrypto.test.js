@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
-const leancrypto = require("../../public/leancrypto/leancrypto.js");
+const leancrypto = require("../../leancrypto/leancrypto.js");
 
 const EBADMSG = 9;
 const { SPHINCS_TEST_VECTORS } = require("./leancrypto.sphincs-vectors.js");

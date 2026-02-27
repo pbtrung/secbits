@@ -8,7 +8,7 @@ const { performance } = require('perf_hooks');
 const { randomBytes, randomInt, createHash } = require('crypto');
 
 // Make leancrypto available in Node exactly like src/crypto.js expects.
-globalThis.leancrypto = require('./public/leancrypto/leancrypto.js');
+globalThis.leancrypto = require('./leancrypto/leancrypto.js');
 
 const LIMITS = {
   TITLE_MAX: 200,

@@ -31,12 +31,18 @@ secbits/
 │   ├── security.md     threat model and guarantees
 │   ├── features.md     feature surface
 │   ├── tech-stack.md   this file
-│   └── testing.md      testing strategy
-├── public/
-│   └── leancrypto/     leancrypto WASM bundle
+│   ├── testing.md      testing strategy
+│   └── leancrypto.md   leancrypto WASM build instructions and JS API reference
+├── leancrypto/         leancrypto WASM bundle + build files (see agent_docs/leancrypto.md)
+│   ├── leancrypto.js   pre-built Emscripten module
+│   ├── leancrypto.wasm pre-built WASM binary
+│   ├── meson.build     WASM-specific Meson build (patches upstream)
+│   ├── wasm-cross.ini  Emscripten cross-compilation config
+│   ├── seeded_rng_wasm.c WASM RNG source (patches into leancrypto source tree)
+│   └── build-wasm.sh   emcc link script
 ├── worker/
 │   └── src/
-│       ├── index.js    routes, auth, R2 read/write
+│       ├── index.js    routes, auth, rate limiting, R2 read/write
 │       └── firebase.js Firebase RS256 JWK verification
 └── src/
     ├── App.jsx         root state and session flow
@@ -55,3 +61,4 @@ secbits/
 | `FIREBASE_PROJECT_ID` | Secret | Firebase token audience validation |
 | `R2_BUCKET_NAME` | Secret | Validated against client-supplied bucket name |
 | `SECBITS_R2` | R2 binding | R2 bucket handle for object reads/writes |
+| `RATE_LIMITER` | Rate limit binding | 60 requests / 60 seconds per Firebase UID |

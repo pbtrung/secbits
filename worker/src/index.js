@@ -56,6 +56,13 @@ async function requireAuth(request, env) {
   }
 }
 
+async function requireAuthAndLimit(request, env) {
+  const token = await requireAuth(request, env);
+  const { success } = await env.RATE_LIMITER.limit({ key: token.sub });
+  if (!success) throw new HttpError(429, 'Rate limit exceeded');
+  return token;
+}
+
 function resolveReadConfig(body) {
   if (!body || typeof body !== 'object') throw new HttpError(400, 'Invalid JSON body');
   const bucket_name = sanitizePathPart(body.bucket_name, 'bucket_name');
@@ -89,7 +96,7 @@ export default {
       }
 
       if (url.pathname === '/vault/read' && request.method === 'POST') {
-        await requireAuth(request, env);
+        await requireAuthAndLimit(request, env);
         const body = await request.json().catch(() => null);
         const { bucket_name, prefix, vault_id, file_name } = resolveReadConfig(body);
         const key = resolveKey(bucket_name, prefix, vault_id, file_name, env);
@@ -112,7 +119,7 @@ export default {
       }
 
       if (url.pathname === '/vault/write' && request.method === 'POST') {
-        await requireAuth(request, env);
+        await requireAuthAndLimit(request, env);
         const { bucket_name, prefix, vault_id, file_name } = resolveWriteHeaders(request);
         const key = resolveKey(bucket_name, prefix, vault_id, file_name, env);
 

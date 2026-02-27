@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import leancrypto from '../../public/leancrypto/leancrypto.js';
+import leancrypto from '../../leancrypto/leancrypto.js';
 import { bytesToB64, decryptBlobBytes, encryptBytesToBlob } from '../crypto.js';
 
 const MAGIC = new Uint8Array([0x53, 0x65, 0x63, 0x42, 0x69, 0x74, 0x73]); // "SecBits"
