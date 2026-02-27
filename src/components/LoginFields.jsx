@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { PasswordGenerator, PasswordStrengthBar } from './PasswordGenerator';
 import CopyBtn from './CopyBtn';
+import EyeToggleBtn from './EyeToggleBtn';
 import { generateTOTP } from '../totp.js';
 import { isHttpUrl } from '../validation.js';
 import {
@@ -101,9 +102,7 @@ function LoginFields({
                 onChange={(e) => onUpdate('password', e.target.value)}
                 maxLength={PASSWORD_MAX}
               />
-              <button className="btn btn-outline-secondary" onClick={() => onToggle('password')}>
-                <i className={`bi ${visiblePasswords['password'] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-              </button>
+              <EyeToggleBtn visible={visiblePasswords['password']} onToggle={() => onToggle('password')} />
             </div>
             <PasswordStrengthBar password={draft.password} />
             <PasswordGenerator
@@ -119,9 +118,7 @@ function LoginFields({
               value={data.password}
               readOnly
             />
-            <button className="btn btn-outline-secondary" onClick={() => onToggle('password')}>
-              <i className={`bi ${visiblePasswords['password'] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-            </button>
+            <EyeToggleBtn visible={visiblePasswords['password']} onToggle={() => onToggle('password')} />
             <CopyBtn text={data.password} label="password" copied={copied} onCopy={onCopy} />
           </div>
         )}
@@ -146,9 +143,7 @@ function LoginFields({
                     placeholder="TOTP secret"
                     maxLength={TOTP_SECRET_MAX}
                   />
-                  <button className="btn btn-outline-secondary" onClick={() => onToggle(`totp-${i}`)}>
-                    <i className={`bi ${visiblePasswords[`totp-${i}`] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-                  </button>
+                  <EyeToggleBtn visible={visiblePasswords[`totp-${i}`]} onToggle={() => onToggle(`totp-${i}`)} />
                   <button className="btn btn-outline-danger" onClick={() => onRemoveTotp(i)} title="Remove TOTP Secret">
                     <i className="bi bi-x-lg"></i>
                   </button>
@@ -183,9 +178,7 @@ function LoginFields({
                     value={secret}
                     readOnly
                   />
-                  <button className="btn btn-outline-secondary" onClick={() => onToggle(`totp-${i}`)}>
-                    <i className={`bi ${visiblePasswords[`totp-${i}`] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-                  </button>
+                  <EyeToggleBtn visible={visiblePasswords[`totp-${i}`]} onToggle={() => onToggle(`totp-${i}`)} />
                   <CopyBtn text={secret} label={`totp-${i}`} copied={copied} onCopy={onCopy} />
                 </div>
                 <TotpCode
@@ -280,9 +273,7 @@ function LoginFields({
                     onChange={(e) => onUpdateCustomField(field.id, 'value', e.target.value)}
                     maxLength={CUSTOM_FIELD_VALUE_MAX}
                   />
-                  <button className="btn btn-outline-secondary" onClick={() => onToggle(`hf-${field.id}`)}>
-                    <i className={`bi ${visiblePasswords[`hf-${field.id}`] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-                  </button>
+                  <EyeToggleBtn visible={visiblePasswords[`hf-${field.id}`]} onToggle={() => onToggle(`hf-${field.id}`)} />
                 </div>
                 <button className="btn btn-sm btn-outline-danger" onClick={() => onRemoveCustomField(field.id)}>
                   <i className="bi bi-trash"></i>
@@ -298,9 +289,7 @@ function LoginFields({
                     value={field.value}
                     readOnly
                   />
-                  <button className="btn btn-outline-secondary" onClick={() => onToggle(`hf-${field.id}`)}>
-                    <i className={`bi ${visiblePasswords[`hf-${field.id}`] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-                  </button>
+                  <EyeToggleBtn visible={visiblePasswords[`hf-${field.id}`]} onToggle={() => onToggle(`hf-${field.id}`)} />
                   <CopyBtn text={field.value} label={`hf-${field.id}`} copied={copied} onCopy={onCopy} />
                 </div>
               </div>

@@ -1,4 +1,5 @@
 import CopyBtn from './CopyBtn';
+import EyeToggleBtn from './EyeToggleBtn';
 import {
   CARD_HOLDER_MAX, CARD_NUMBER_MAX, CARD_EXPIRY_MAX, CARD_CVV_MAX,
 } from '../limits.js';
@@ -41,9 +42,7 @@ function CardFields({ draft, data, isEditing, visiblePasswords, onToggle, copied
               maxLength={CARD_NUMBER_MAX}
               placeholder="•••• •••• •••• ••••"
             />
-            <button className="btn btn-outline-secondary" onClick={() => onToggle('cardNumber')}>
-              <i className={`bi ${visiblePasswords['cardNumber'] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-            </button>
+            <EyeToggleBtn visible={visiblePasswords['cardNumber']} onToggle={() => onToggle('cardNumber')} />
           </div>
         ) : (
           <div className="input-group">
@@ -53,9 +52,7 @@ function CardFields({ draft, data, isEditing, visiblePasswords, onToggle, copied
               value={data.cardNumber || ''}
               readOnly
             />
-            <button className="btn btn-outline-secondary" onClick={() => onToggle('cardNumber')}>
-              <i className={`bi ${visiblePasswords['cardNumber'] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-            </button>
+            <EyeToggleBtn visible={visiblePasswords['cardNumber']} onToggle={() => onToggle('cardNumber')} />
             <CopyBtn text={data.cardNumber || ''} label="cardNumber" copied={copied} onCopy={onCopy} />
           </div>
         )}
@@ -97,9 +94,7 @@ function CardFields({ draft, data, isEditing, visiblePasswords, onToggle, copied
               onChange={(e) => onUpdate('cardCvv', e.target.value)}
               maxLength={CARD_CVV_MAX}
             />
-            <button className="btn btn-outline-secondary" onClick={() => onToggle('cardCvv')}>
-              <i className={`bi ${visiblePasswords['cardCvv'] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-            </button>
+            <EyeToggleBtn visible={visiblePasswords['cardCvv']} onToggle={() => onToggle('cardCvv')} />
           </div>
         ) : (
           <div className="input-group" style={{ maxWidth: 180 }}>
@@ -109,9 +104,7 @@ function CardFields({ draft, data, isEditing, visiblePasswords, onToggle, copied
               value={data.cardCvv || ''}
               readOnly
             />
-            <button className="btn btn-outline-secondary" onClick={() => onToggle('cardCvv')}>
-              <i className={`bi ${visiblePasswords['cardCvv'] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-            </button>
+            <EyeToggleBtn visible={visiblePasswords['cardCvv']} onToggle={() => onToggle('cardCvv')} />
             <CopyBtn text={data.cardCvv || ''} label="cardCvv" copied={copied} onCopy={onCopy} />
           </div>
         )}

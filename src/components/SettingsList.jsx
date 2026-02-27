@@ -1,3 +1,5 @@
+import PanelHeader from './PanelHeader';
+
 function SettingsList({ selectedPage, onSelectPage, mobile }) {
   const items = [
     { id: 'export', label: 'Export', icon: 'bi-download' },
@@ -7,11 +9,7 @@ function SettingsList({ selectedPage, onSelectPage, mobile }) {
 
   return (
     <div className={`d-flex flex-column bg-white ${mobile ? 'h-100' : 'h-100 border-end'}`}>
-      <div className="p-3 border-bottom">
-        <h6 className="text-uppercase text-muted mb-0 small fw-bold">
-          <i className="bi bi-gear me-1"></i> Settings
-        </h6>
-      </div>
+      <PanelHeader icon="bi-gear" title="Settings" />
       <div className="overflow-auto flex-grow-1">
         <div className="list-group list-group-flush">
           {items.map((item) => (

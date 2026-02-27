@@ -2,11 +2,14 @@ import { useState, useEffect, useRef } from 'react';
 import HistoryDiffModal from './HistoryDiffModal';
 import LoginFields from './LoginFields';
 import CardFields from './CardFields';
+import NotesField from './NotesField';
+import TagsField from './TagsField';
+import SpinnerBtn from './SpinnerBtn';
 import { isHttpUrl } from '../validation.js';
-import { formatExact, formatDeletedLabel, ENTRY_TYPE_META } from '../entryUtils.js';
+import { formatDeletedLabel, ENTRY_TYPE_META } from '../entryUtils.js';
 import {
-  TITLE_MAX, NOTES_MAX,
-  TAG_MAX, MAX_TAGS,
+  TITLE_MAX,
+  TAG_MAX,
   USERNAME_MAX, PASSWORD_MAX,
   URL_MAX, TOTP_SECRET_MAX,
   CUSTOM_FIELD_LABEL_MAX, CUSTOM_FIELD_VALUE_MAX,
@@ -79,16 +82,12 @@ function EntryDetail({
   const [visiblePasswords, setVisiblePasswords] = useState({});
   const [copied, setCopied] = useState(null);
   const [tagCurrentInput, setTagCurrentInput] = useState('');
-  const [tagSuggestions, setTagSuggestions] = useState([]);
-  const [showTagSuggestions, setShowTagSuggestions] = useState(false);
   const [totpErrors, setTotpErrors] = useState({});
   const [urlErrors, setUrlErrors] = useState({});
-  const [tagError, setTagError] = useState('');
   const [notesVisible, setNotesVisible] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [historyIdx, setHistoryIdx] = useState(0);
   const notesHideTimerRef = useRef(null);
-  const tagInputRef = useRef(null);
 
   const commits = entry._commits || [];
 
@@ -261,7 +260,6 @@ function EntryDetail({
       setUrlErrors((prev) => ({ ...prev, [index]: `URL must be ${URL_MAX} characters or fewer` }));
       return;
     }
-
     if (isHttpUrl(value)) {
       setUrlErrors((prev) => { const next = { ...prev }; delete next[index]; return next; });
     } else {
@@ -269,96 +267,10 @@ function EntryDetail({
     }
   };
 
-  const handleTagInputChange = (value) => {
-    if (value.includes(',')) {
-      const parts = value.split(',');
-      const toCommit = parts.slice(0, -1).map((p) => p.trim().toLowerCase()).filter(Boolean);
-      const remaining = parts[parts.length - 1];
-      if (toCommit.length > 0) {
-        setDraft((prev) => {
-          const existing = prev.tags || [];
-          const slots = MAX_TAGS - existing.length;
-          if (slots <= 0) { setTagError(`Maximum ${MAX_TAGS} tags allowed`); return prev; }
-          const unique = toCommit.filter((t) => !existing.includes(t)).slice(0, slots);
-          if (existing.length + unique.length >= MAX_TAGS) setTagError(`Maximum ${MAX_TAGS} tags allowed`);
-          else setTagError('');
-          return { ...prev, tags: [...existing, ...unique] };
-        });
-      }
-      setTagCurrentInput(remaining);
-      const trimmed = remaining.trim().toLowerCase();
-      if (trimmed.length > 0) {
-        const existingAfter = [...(draft.tags || []), ...toCommit];
-        const suggestions = allTags.filter((t) => t.startsWith(trimmed) && !existingAfter.includes(t) && t !== trimmed);
-        setTagSuggestions(suggestions);
-        setShowTagSuggestions(suggestions.length > 0);
-      } else {
-        setTagSuggestions([]);
-        setShowTagSuggestions(false);
-      }
-      return;
-    }
-    setTagCurrentInput(value);
-    const trimmed = value.trim().toLowerCase();
-    if (trimmed.length > 0) {
-      const existing = draft.tags || [];
-      const suggestions = allTags.filter((t) => t.startsWith(trimmed) && !existing.includes(t) && t !== trimmed);
-      setTagSuggestions(suggestions);
-      setShowTagSuggestions(suggestions.length > 0);
-    } else {
-      setTagSuggestions([]);
-      setShowTagSuggestions(false);
-    }
-  };
-
-  const handleTagKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      const trimmed = tagCurrentInput.trim().toLowerCase();
-      if (trimmed && !(draft.tags || []).includes(trimmed)) {
-        if ((draft.tags || []).length >= MAX_TAGS) {
-          setTagError(`Maximum ${MAX_TAGS} tags allowed`);
-        } else {
-          setDraft((prev) => ({ ...prev, tags: [...(prev.tags || []), trimmed] }));
-          setTagError('');
-        }
-      }
-      setTagCurrentInput('');
-      setTagSuggestions([]);
-      setShowTagSuggestions(false);
-    } else if (e.key === 'Backspace' && tagCurrentInput === '') {
-      const tags = draft.tags || [];
-      if (tags.length > 0) {
-        setDraft((prev) => ({ ...prev, tags: prev.tags.slice(0, -1) }));
-      }
-    }
-  };
-
-  const removeTag = (tag) => {
-    setDraft((prev) => ({ ...prev, tags: (prev.tags || []).filter((t) => t !== tag) }));
-    setTagError('');
-  };
-
-  const selectTagSuggestion = (tag) => {
-    if (!(draft.tags || []).includes(tag)) {
-      if ((draft.tags || []).length >= MAX_TAGS) {
-        setTagError(`Maximum ${MAX_TAGS} tags allowed`);
-        return;
-      }
-      setDraft((prev) => ({ ...prev, tags: [...(prev.tags || []), tag] }));
-      setTagError('');
-    }
-    setTagCurrentInput('');
-    setTagSuggestions([]);
-    setShowTagSuggestions(false);
-    tagInputRef.current?.focus();
-  };
-
   const handleSave = () => {
     const freshUrlErrors = {};
     draft.urls.forEach((url, i) => {
       if (!url) return;
-  
       if (url.length > URL_MAX) {
         freshUrlErrors[i] = `URL must be ${URL_MAX} characters or fewer`;
       } else if (!isHttpUrl(url)) {
@@ -416,9 +328,7 @@ function EntryDetail({
   const isLogin = !isNote && !isCard;
 
   const hasInvalidFields =
-    !!tagError ||
     draft.title.length > TITLE_MAX ||
-    draft.notes.length > NOTES_MAX ||
     draft.tags.some((t) => t.length > TAG_MAX) ||
     (isLogin && (
       Object.values(totpErrors).some(Boolean) ||
@@ -519,145 +429,36 @@ function EntryDetail({
       )}
 
       {/* Notes — all types */}
-      <div className="mb-3">
-        <div className="d-flex align-items-center justify-content-between mb-1">
-          <label className="form-label text-muted small fw-semibold mb-0">
-            <i className="bi bi-sticky me-1"></i> Notes
-          </label>
-          {!isEditing && (
-            <button
-              className="btn btn-sm btn-outline-secondary"
-              onClick={() => setNotesVisible((v) => !v)}
-              title={notesVisible ? 'Hide notes' : 'Reveal notes for 15 seconds'}
-            >
-              <i className={`bi ${notesVisible ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-            </button>
-          )}
-        </div>
-        {isEditing ? (
-          <>
-            <textarea
-              className={`form-control${draft.notes.length >= NOTES_MAX ? ' is-invalid' : ''}`}
-              rows={4}
-              value={draft.notes}
-              onChange={(e) => updateDraft('notes', e.target.value)}
-              placeholder="Add notes..."
-              maxLength={NOTES_MAX}
-            />
-            <div className="d-flex justify-content-end mt-1">
-              <span className={`small ${
-                draft.notes.length >= NOTES_MAX ? 'text-danger fw-semibold' :
-                draft.notes.length > NOTES_MAX * 0.9 ? 'text-warning fw-semibold' : 'text-muted'
-              }`}>
-                {draft.notes.length.toLocaleString()} / {NOTES_MAX.toLocaleString()} chars
-                {draft.notes.length >= NOTES_MAX ? ' — limit reached' :
-                 draft.notes.length > NOTES_MAX * 0.9 ? ' — nearing limit' : ''}
-              </span>
-            </div>
-            {draft.notes.length >= NOTES_MAX && (
-              <div className="text-danger small mt-1">
-                Notes cannot exceed {NOTES_MAX.toLocaleString()} characters
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="form-control bg-white" style={{ minHeight: 80, whiteSpace: 'pre-wrap' }}>
-            {data.notes ? (
-              notesVisible ? data.notes : <span className="text-muted">Hidden. Click eye to reveal.</span>
-            ) : (
-              <span className="text-muted">No notes</span>
-            )}
-          </div>
-        )}
-      </div>
+      <NotesField
+        isEditing={isEditing}
+        value={data.notes}
+        onChange={(val) => updateDraft('notes', val)}
+        visible={notesVisible}
+        onToggleVisible={() => setNotesVisible((v) => !v)}
+      />
 
       {/* Tags — all types */}
-      <div className="mb-4">
-        <label className="form-label text-muted small fw-semibold">
-          <i className="bi bi-tags me-1"></i> Tags
-        </label>
-        {isEditing ? (
-          <>
-          <div className="position-relative">
-            <div
-              className="form-control d-flex flex-wrap gap-1 align-items-center"
-              style={{ height: 'auto', minHeight: '38px', cursor: 'text', padding: '4px 8px' }}
-              onClick={() => tagInputRef.current?.focus()}
-            >
-              {(draft.tags || []).map((t) => (
-                <span key={t} className="badge bg-primary d-inline-flex align-items-center gap-1">
-                  {t}
-                  <button
-                    type="button"
-                    className="btn p-0 border-0 bg-transparent text-white lh-1"
-                    aria-label={`Remove ${t}`}
-                    onMouseDown={(e) => { e.preventDefault(); removeTag(t); }}
-                  ><i className="bi bi-x" /></button>
-                </span>
-              ))}
-              <input
-                ref={tagInputRef}
-                type="text"
-                value={tagCurrentInput}
-                onChange={(e) => handleTagInputChange(e.target.value)}
-                onKeyDown={handleTagKeyDown}
-                onBlur={() => setTimeout(() => setShowTagSuggestions(false), 150)}
-                placeholder={(draft.tags || []).length === 0 ? 'Add tags...' : ''}
-                maxLength={TAG_MAX}
-                style={{ border: 'none', outline: 'none', flex: '1', minWidth: '80px', padding: '0', background: 'transparent' }}
-              />
-            </div>
-            {showTagSuggestions && (
-              <ul className="dropdown-menu show position-absolute w-100 mt-1" style={{ zIndex: 1000, maxHeight: 200, overflowY: 'auto' }}>
-                {tagSuggestions.slice(0, 8).map((t) => (
-                  <li key={t}>
-                    <button
-                      className="dropdown-item"
-                      type="button"
-                      onMouseDown={(e) => { e.preventDefault(); selectTagSuggestion(t); }}
-                    >
-                      {t}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <div className="d-flex justify-content-between mt-1">
-            {tagError
-              ? <span className="text-danger small">{tagError}</span>
-              : <span />}
-            {(draft.tags || []).length > 0 && (
-              <span className={`small ${(draft.tags || []).length >= MAX_TAGS ? 'text-danger' : 'text-muted'}`}>
-                {(draft.tags || []).length} / {MAX_TAGS} tags
-              </span>
-            )}
-          </div>
-          </>
-        ) : (
-          <div>
-            {data.tags.map((t) => (
-              <span key={t} className="badge bg-primary me-1">{t}</span>
-            ))}
-          </div>
-        )}
-      </div>
+      <TagsField
+        key={entry.id}
+        tags={draft.tags}
+        onTagsChange={(newTags) => setDraft((prev) => ({ ...prev, tags: newTags }))}
+        isEditing={isEditing}
+        allTags={allTags}
+        onCurrentInputChange={setTagCurrentInput}
+      />
 
       {/* Action Buttons */}
       <div className="d-flex gap-2 align-items-center border-top pt-3 flex-wrap">
         {isTrashView ? (
           <>
-            <button
+            <SpinnerBtn
               className="btn btn-success"
               onClick={handleRestoreEntry}
               disabled={saving || deleting}
-            >
-              {saving ? (
-                <><span className="spinner-border spinner-border-sm me-1"></span>Restoring...</>
-              ) : (
-                <><i className="bi bi-arrow-counterclockwise me-1"></i>Restore</>
-              )}
-            </button>
+              busy={saving}
+              busyLabel="Restoring..."
+              icon="bi-arrow-counterclockwise"
+            >Restore</SpinnerBtn>
             {commits.length > 0 && (
               <button
                 type="button"
@@ -668,23 +469,25 @@ function EntryDetail({
                 {commits.length} version{commits.length !== 1 ? 's' : ''}
               </button>
             )}
-            <button className="btn btn-danger ms-auto" onClick={handleDelete} disabled={saving || deleting}>
-              {deleting ? (
-                <><span className="spinner-border spinner-border-sm me-1"></span>Deleting...</>
-              ) : (
-                <><i className="bi bi-trash me-1"></i>Delete</>
-              )}
-            </button>
+            <SpinnerBtn
+              className="btn btn-danger ms-auto"
+              onClick={handleDelete}
+              disabled={saving || deleting}
+              busy={deleting}
+              busyLabel="Deleting..."
+              icon="bi-trash"
+            >Delete</SpinnerBtn>
           </>
         ) : isEditing ? (
           <>
-            <button className="btn btn-success" onClick={handleSave} disabled={saveDisabled}>
-              {saving ? (
-                <><span className="spinner-border spinner-border-sm me-1"></span>Saving...</>
-              ) : (
-                <><i className="bi bi-check-lg me-1"></i>Save</>
-              )}
-            </button>
+            <SpinnerBtn
+              className="btn btn-success"
+              onClick={handleSave}
+              disabled={saveDisabled}
+              busy={saving}
+              busyLabel="Saving..."
+              icon="bi-check-lg"
+            >Save</SpinnerBtn>
             <button className="btn btn-secondary" onClick={onCancel}>
               Cancel
             </button>
@@ -707,13 +510,13 @@ function EntryDetail({
         )}
 
         {!entry._isNew && !isTrashView && (
-          <button className="btn btn-outline-danger ms-auto" onClick={handleDelete}>
-            {deleting ? (
-              <><span className="spinner-border spinner-border-sm me-1"></span>Deleting...</>
-            ) : (
-              <><i className="bi bi-trash me-1"></i>Delete</>
-            )}
-          </button>
+          <SpinnerBtn
+            className="btn btn-outline-danger ms-auto"
+            onClick={handleDelete}
+            busy={deleting}
+            busyLabel="Deleting..."
+            icon="bi-trash"
+          >Delete</SpinnerBtn>
         )}
       </div>
     </fieldset>

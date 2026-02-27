@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import SpinnerBtn from './SpinnerBtn';
 import { formatExact } from '../entryUtils.js';
 
 // LCS-based line diff. Returns [{type:'eq'|'add'|'del', v:string}].
@@ -320,8 +321,7 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
 
           <div className="modal-footer py-2">
             {idx > 0 && showDiff && (
-              <button
-                type="button"
+              <SpinnerBtn
                 className="btn btn-sm btn-outline-warning me-auto"
                 onClick={() => {
                   if (window.confirm('Restore this version? The current state will be preserved in history.')) {
@@ -329,12 +329,10 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
                   }
                 }}
                 disabled={saving}
-              >
-                {saving
-                  ? <><span className="spinner-border spinner-border-sm me-1"></span>Restoring...</>
-                  : <><i className="bi bi-arrow-counterclockwise me-1"></i>Restore this version</>
-                }
-              </button>
+                busy={saving}
+                busyLabel="Restoring..."
+                icon="bi-arrow-counterclockwise"
+              >Restore this version</SpinnerBtn>
             )}
             <button type="button" className="btn btn-sm btn-secondary" onClick={onClose} disabled={saving}>
               Close

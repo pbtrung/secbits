@@ -1,3 +1,5 @@
+import PanelHeader from './PanelHeader';
+
 function TagsSidebar({
   tags,
   allCount = 0,
@@ -17,11 +19,7 @@ function TagsSidebar({
     <div
       className={`d-flex flex-column bg-white ${mobile ? 'h-100' : 'h-100 border-end'}`}
     >
-      <div className="p-3 border-bottom">
-        <h6 className="text-uppercase text-muted mb-0 small fw-bold">
-          <i className="bi bi-tags me-1"></i> Tags
-        </h6>
-      </div>
+      <PanelHeader icon="bi-tags" title="Tags" />
       <div className="overflow-auto flex-grow-1">
         <div className="list-group list-group-flush">
           <button

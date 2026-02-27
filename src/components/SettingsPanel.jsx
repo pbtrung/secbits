@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import SpinnerBtn from './SpinnerBtn';
 import { bytesToB64, decodeRootMasterKey } from '../crypto';
 import { buildExportData, fetchUserEntries, getUsername, getVaultStats, rotateRootMasterKey } from '../api';
 
@@ -241,17 +242,13 @@ function ExportPage() {
       <div className="text-muted small mb-2">
         Export all entries as a decrypted JSON file for local backup or migration.
       </div>
-      <button
+      <SpinnerBtn
         className="btn btn-primary btn-sm"
         onClick={handleExport}
-        disabled={exporting}
-      >
-        {exporting ? (
-          <><span className="spinner-border spinner-border-sm me-1"></span>Exporting...</>
-        ) : (
-          <><i className="bi bi-download me-1"></i>Export all data</>
-        )}
-      </button>
+        busy={exporting}
+        busyLabel="Exporting..."
+        icon="bi-download"
+      >Export all data</SpinnerBtn>
     </div>
   );
 }
@@ -354,17 +351,13 @@ function SecurityPage() {
         </label>
       </div>
 
-      <button
+      <SpinnerBtn
         className="btn btn-danger btn-sm"
         onClick={handleChange}
-        disabled={!confirmed || loading}
-      >
-        {loading ? (
-          <><span className="spinner-border spinner-border-sm me-1"></span>Changing...</>
-        ) : (
-          'Change root master key'
-        )}
-      </button>
+        disabled={!confirmed}
+        busy={loading}
+        busyLabel="Changing..."
+      >Change root master key</SpinnerBtn>
 
       {status && (
         <div className={`alert alert-${status.type === 'success' ? 'success' : 'danger'} mt-3 small mb-0`}>
