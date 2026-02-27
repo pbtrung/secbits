@@ -31,6 +31,10 @@ Live RFC 6238 TOTP codes displayed inline. 30-second step, HMAC-SHA1, 6-digit ou
 
 Configurable password generator. Options: length, uppercase, lowercase, digits, symbols.
 
+Symbol set (30 chars): `!@#$%^&*()_+-=[]{}|;:,.<>?/~`'`
+
+`"` and `\` are excluded — both require escaping in JSON and would corrupt vault export.
+
 ## Search and Filter
 
 - Full-text search across entry titles and usernames.

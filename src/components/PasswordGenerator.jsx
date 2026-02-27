@@ -7,7 +7,7 @@ export function evaluateStrength(password) {
   if (/[a-z]/.test(password)) poolSize += 26;
   if (/[A-Z]/.test(password)) poolSize += 26;
   if (/[0-9]/.test(password)) poolSize += 10;
-  if (/[^a-zA-Z0-9]/.test(password)) poolSize += 32;
+  if (/[^a-zA-Z0-9]/.test(password)) poolSize += 30;
 
   if (poolSize === 0) poolSize = 1;
   const entropy = password.length * Math.log2(poolSize);
@@ -57,7 +57,7 @@ const CHARSETS = {
   lowercase: { label: 'a-z', chars: 'abcdefghijklmnopqrstuvwxyz' },
   uppercase: { label: 'A-Z', chars: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' },
   digits: { label: '0-9', chars: '0123456789' },
-  symbols: { label: '!@#', chars: '!@#$%^&*()_+-=[]{}|;:,.<>?/~`\'"\\' },
+  symbols: { label: '!@#', chars: '!@#$%^&*()_+-=[]{}|;:,.<>?/~`\'' },
 };
 
 function generatePassword(length, enabledSets) {
