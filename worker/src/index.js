@@ -10,9 +10,10 @@ class HttpError extends Error {
 function corsHeaders(origin = '*') {
   return {
     'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Vault-Bucket, X-Vault-Prefix, X-Vault-Id, X-Vault-File',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Max-Age': '86400',
+    'Access-Control-Expose-Headers': 'X-Vault-Size, X-Vault-Etag, X-Vault-Uploaded',
     Vary: 'Origin',
   };
 }
@@ -64,32 +65,12 @@ function resolveReadConfig(body) {
   return { bucket_name, prefix, vault_id, file_name };
 }
 
-function resolveWriteConfig(body) {
-  if (!body || typeof body !== 'object') throw new HttpError(400, 'Invalid JSON body');
-
-  const bucket_name = sanitizePathPart(body.bucket_name, 'bucket_name');
-  const prefix = sanitizePathPart(body.prefix, 'prefix');
-  const vault_id = sanitizePathPart(body.vault_id, 'vault_id');
-  const file_name = sanitizePathPart(body.file_name, 'file_name');
-  const payload_b64 = sanitizePathPart(body.payload_b64, 'payload_b64');
-
-  let bytes;
-  try {
-    const bin = atob(payload_b64);
-    bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  } catch {
-    throw new HttpError(400, 'Invalid payload_b64');
-  }
-
-  return {
-    bucket_name,
-    prefix,
-    vault_id,
-    file_name,
-    payload_b64,
-    bytes,
-  };
+function resolveWriteHeaders(request) {
+  const bucket_name = sanitizePathPart(request.headers.get('X-Vault-Bucket'), 'X-Vault-Bucket');
+  const prefix = sanitizePathPart(request.headers.get('X-Vault-Prefix'), 'X-Vault-Prefix');
+  const vault_id = sanitizePathPart(request.headers.get('X-Vault-Id'), 'X-Vault-Id');
+  const file_name = sanitizePathPart(request.headers.get('X-Vault-File'), 'X-Vault-File');
+  return { bucket_name, prefix, vault_id, file_name };
 }
 
 export default {
@@ -115,37 +96,34 @@ export default {
 
         const object = await env.SECBITS_R2.get(key);
         if (!object) {
-          return json({
-            exists: false,
-            payload_b64: null,
-          }, 200, origin);
+          return new Response(null, { status: 204, headers: corsHeaders(origin) });
         }
 
-        const bytes = new Uint8Array(await object.arrayBuffer());
-        let binary = '';
-        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-        const payload_b64 = btoa(binary);
-
-        return json({
-          exists: true,
-          payload_b64,
-          size: object.size,
-          etag: object.httpEtag,
-          uploaded: object.uploaded,
-        }, 200, origin);
+        return new Response(object.body, {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'X-Vault-Size': String(object.size),
+            'X-Vault-Etag': object.httpEtag,
+            'X-Vault-Uploaded': object.uploaded?.toISOString() ?? '',
+            ...corsHeaders(origin),
+          },
+        });
       }
 
       if (url.pathname === '/vault/write' && request.method === 'POST') {
         await requireAuth(request, env);
-        const body = await request.json().catch(() => null);
-        const config = resolveWriteConfig(body);
-        const key = resolveKey(config.bucket_name, config.prefix, config.vault_id, config.file_name, env);
+        const { bucket_name, prefix, vault_id, file_name } = resolveWriteHeaders(request);
+        const key = resolveKey(bucket_name, prefix, vault_id, file_name, env);
 
-        await env.SECBITS_R2.put(key, config.bytes, {
+        const bytes = await request.arrayBuffer();
+        if (!bytes.byteLength) throw new HttpError(400, 'Empty payload');
+
+        await env.SECBITS_R2.put(key, bytes, {
           httpMetadata: { contentType: 'application/octet-stream' },
         });
 
-        return json({ ok: true, size: config.bytes.length }, 200, origin);
+        return json({ ok: true, size: bytes.byteLength }, 200, origin);
       }
 
       return json({ error: 'Not found' }, 404, origin);

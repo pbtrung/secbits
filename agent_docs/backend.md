@@ -32,13 +32,13 @@ All three path segments are supplied by the client from its config JSON (`r2.pre
 | `POST` | `/vault/write` | Write encrypted vault blob to R2 |
 | `GET`  | `/health` | Health check (no auth required) |
 
-All vault routes require `Content-Type: application/json` and `Authorization: Bearer <firebase-id-token>`.
+All vault routes require `Authorization: Bearer <firebase-id-token>`. Read uses `Content-Type: application/json`; write uses `Content-Type: application/octet-stream`.
 
 ---
 
 ### POST /vault/read
 
-Request body:
+Request body (`application/json`):
 ```json
 {
   "bucket_name": "secbits-data",
@@ -48,47 +48,35 @@ Request body:
 }
 ```
 
-Response (object exists):
-```json
-{
-  "exists": true,
-  "payload_b64": "<base64-encoded encrypted blob>",
-  "key": "users/vault.bin",
-  "size": 4096,
-  "etag": "\"abc123\"",
-  "uploaded": "2026-01-01T00:00:00.000Z"
-}
+Response (object exists): `200 application/octet-stream` — raw encrypted blob bytes.
+Metadata in response headers:
+```
+X-Vault-Size: 4096
+X-Vault-Etag: "abc123"
+X-Vault-Uploaded: 2026-01-01T00:00:00.000Z
 ```
 
-Response (first login / object not yet created):
-```json
-{
-  "exists": false,
-  "key": "users/vault.bin",
-  "payload_b64": null
-}
-```
+Response (first login / object not yet created): `204 No Content` (no body).
 
 ---
 
 ### POST /vault/write
 
-Request body:
-```json
-{
-  "bucket_name": "secbits-data",
-  "prefix": "<r2.prefix from config>",
-  "vault_id": "<vault_id from config>",
-  "file_name": "vault.bin",
-  "payload_b64": "<base64-encoded encrypted blob>"
-}
+Request headers:
+```
+Content-Type: application/octet-stream
+X-Vault-Bucket: secbits-data
+X-Vault-Prefix: <r2.prefix from config>
+X-Vault-Id: <vault_id from config>
+X-Vault-File: vault.bin
 ```
 
-Response:
+Request body: raw encrypted blob bytes.
+
+Response (`application/json`):
 ```json
 {
   "ok": true,
-  "key": "users/vault.bin",
   "size": 4096
 }
 ```

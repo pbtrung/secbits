@@ -1,4 +1,4 @@
-import { bytesToB64, decodeRootMasterKey, decryptBlobBytes, encryptBytesToBlob } from './crypto';
+import { decodeRootMasterKey, decryptBlobBytes, encryptBytesToBlob } from './crypto';
 
 const MAX_COMMITS = 20;
 
@@ -13,13 +13,6 @@ let loadPromise = null;
 
 function zeroizeBytes(bytes) {
   if (bytes instanceof Uint8Array) bytes.fill(0);
-}
-
-function b64ToBytes(b64) {
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
 }
 
 function parseJwtPayload(idToken) {
@@ -364,22 +357,16 @@ async function readVaultFromRemote() {
     body: JSON.stringify(vaultKeySearchParams(s.r2, s.vaultId)),
   });
 
+  if (res.status === 204) {
+    return { username: userName, data: [], trash: [] };
+  }
+
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body?.error || `Failed to read vault (${res.status})`);
   }
 
-  const body = await res.json();
-  if (body?.exists === false) {
-    return { username: userName, data: [], trash: [] };
-  }
-
-  const payloadB64 = body?.payload_b64;
-  if (!payloadB64) {
-    return { username: userName, data: [], trash: [] };
-  }
-
-  const blobBytes = b64ToBytes(payloadB64);
+  const blobBytes = new Uint8Array(await res.arrayBuffer());
   vaultBlobSize = blobBytes.length;
   const rootKey = ensureRootKey();
 
@@ -415,11 +402,14 @@ async function writeVaultToRemote(entries, trash) {
 
   const res = await workerFetch('/vault/write', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ...vaultKeySearchParams(s.r2, s.vaultId),
-      payload_b64: bytesToB64(encryptedBlob),
-    }),
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-Vault-Bucket': s.r2.bucket_name,
+      'X-Vault-Prefix': s.r2.prefix,
+      'X-Vault-Id': s.vaultId,
+      'X-Vault-File': s.r2.file_name,
+    },
+    body: encryptedBlob,
   });
 
   if (!res.ok) {
