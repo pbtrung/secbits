@@ -63,7 +63,7 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
                 className={`list-group-item list-group-item-action px-3 d-flex flex-column justify-content-center ${
                   selectedEntryId === entry.id ? 'active' : ''
                 }`}
-                style={{ height: '5rem', overflow: 'hidden' }}
+                style={{ minHeight: '5rem' }}
                 onClick={() => onSelectEntry(entry.id)}
               >
                 <div className="fw-semibold text-truncate">
