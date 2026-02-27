@@ -73,4 +73,7 @@ fi
 
 popd >/dev/null
 
+echo "==> Cleaning up $LC_SRC"
+rm -rf "$LC_SRC"
+
 echo "Done: $OUT_JS  $OUT_WASM"
