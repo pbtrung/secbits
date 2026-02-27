@@ -71,6 +71,9 @@ if [[ "$OUT_WASM" != "${OUT_JS%.js}.wasm" ]]; then
   mv -f "${OUT_JS%.js}.wasm" "$OUT_WASM"
 fi
 
+# emcc sets +x on output files; strip it — these are data files, not executables
+chmod 644 "$OUT_JS" "$OUT_WASM"
+
 popd >/dev/null
 
 echo "==> Cleaning up $LC_SRC"
