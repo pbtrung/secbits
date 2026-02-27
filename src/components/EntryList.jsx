@@ -60,9 +60,10 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
             {entries.map((entry) => (
               <button
                 key={entry.id}
-                className={`list-group-item list-group-item-action py-3 ${
+                className={`list-group-item list-group-item-action px-3 d-flex flex-column justify-content-center ${
                   selectedEntryId === entry.id ? 'active' : ''
                 }`}
+                style={{ height: '5rem', overflow: 'hidden' }}
                 onClick={() => onSelectEntry(entry.id)}
               >
                 <div className="fw-semibold text-truncate">
@@ -79,7 +80,7 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
                     })()
                   ) : entry.username}
                 </small>
-                <div className="mt-1">
+                <div>
                   {entry.tags.map((t) => (
                     <span
                       key={t}
