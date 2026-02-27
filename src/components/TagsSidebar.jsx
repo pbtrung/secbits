@@ -26,6 +26,7 @@ function TagsSidebar({
             className={`list-group-item list-group-item-action d-flex justify-content-between align-items-center ${
               !settingsMode && !trashMode && selectedTag === null ? 'active' : ''
             }`}
+            style={{ height: '2.5rem' }}
             onClick={() => onSelectTag(null)}
           >
             <span>All</span>
@@ -37,6 +38,7 @@ function TagsSidebar({
               className={`list-group-item list-group-item-action d-flex justify-content-between align-items-center ${
                 !settingsMode && !trashMode && selectedTag === tag ? 'active' : ''
               }`}
+              style={{ height: '2.5rem' }}
               onClick={() => onSelectTag(tag)}
             >
               <span className="text-truncate me-2 ps-3">{tag}</span>
@@ -47,6 +49,7 @@ function TagsSidebar({
             className={`list-group-item list-group-item-action d-flex justify-content-between align-items-center ${
               !settingsMode && trashMode ? 'active' : ''
             } ${trashCount === 0 ? 'disabled' : ''}`}
+            style={{ height: '2.5rem' }}
             onClick={onOpenTrash}
             disabled={trashCount === 0}
           >
