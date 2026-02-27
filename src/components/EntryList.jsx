@@ -27,7 +27,10 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
         <i className="bi bi-plus-lg"></i>
       </button>
       {typeDropdownOpen && (
-        <ul className="dropdown-menu dropdown-menu-end show mt-1">
+        <ul
+          className="dropdown-menu show mt-1"
+          style={{ right: 0, left: 'auto' }}
+        >
           {ENTRY_TYPES.map(({ type, icon, label }) => (
             <li key={type}>
               <button
