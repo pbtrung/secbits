@@ -84,7 +84,7 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
     <SidebarPanel
       mobile={mobile}
       headerIcon={trashMode ? 'bi-trash' : 'bi-key'}
-      headerTitle={trashMode ? 'Deleted Entries' : (selectedTag ? `#${selectedTag}` : 'All Entries')}
+      headerTitle={trashMode ? 'Deleted Entries' : (selectedTag ? `#${selectedTag}` : 'All')}
       headerTrailing={newEntryButton}
     >
       {entries.length === 0 ? (
