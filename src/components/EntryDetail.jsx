@@ -3,6 +3,7 @@ import HistoryDiffModal from './HistoryDiffModal';
 import LoginFields from './LoginFields';
 import CardFields from './CardFields';
 import { isHttpUrl } from '../validation.js';
+import { formatExact, formatDeletedLabel, ENTRY_TYPE_META } from '../entryUtils.js';
 import {
   TITLE_MAX, NOTES_MAX,
   TAG_MAX, MAX_TAGS,
@@ -56,12 +57,6 @@ function normalizeEntryForDraft(entry) {
   return result;
 }
 
-const TYPE_META = {
-  login: { label: 'Login',       icon: 'bi-person-badge' },
-  note:  { label: 'Secure Note', icon: 'bi-sticky'       },
-  card:  { label: 'Credit Card', icon: 'bi-credit-card'  },
-};
-
 // ─── EntryDetail ──────────────────────────────────────────────────────────────
 
 function EntryDetail({
@@ -94,29 +89,6 @@ function EntryDetail({
   const [historyIdx, setHistoryIdx] = useState(0);
   const notesHideTimerRef = useRef(null);
   const tagInputRef = useRef(null);
-
-  const formatExact = (ts) => {
-    const d = new Date(ts);
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  };
-  const formatDeletedLabel = (ts) => {
-    const deletedAt = new Date(ts);
-    if (!Number.isFinite(deletedAt.getTime())) return { text: 'Deleted', exact: '' };
-    const exact = formatExact(ts);
-    const now = new Date();
-    const dayMs = 24 * 60 * 60 * 1000;
-    const startNow = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const startDeleted = new Date(deletedAt.getFullYear(), deletedAt.getMonth(), deletedAt.getDate());
-    const dayDiff = Math.floor((startNow - startDeleted) / dayMs);
-    const [date, time] = exact.split(' ');
-    if (dayDiff >= 0 && dayDiff <= 7) {
-      if (dayDiff === 0) return { text: `Deleted today at ${time}`, exact };
-      if (dayDiff === 1) return { text: `Deleted yesterday at ${time}`, exact };
-      return { text: `Deleted ${dayDiff} days ago at ${time}`, exact };
-    }
-    return { text: `Deleted on ${date} at ${time}`, exact };
-  };
 
   const commits = entry._commits || [];
 
@@ -498,10 +470,10 @@ function EntryDetail({
               {formatDeletedLabel(entry.deletedAt).text}
             </div>
           )}
-          {entry.type && TYPE_META[entry.type] && (
+          {entry.type && ENTRY_TYPE_META[entry.type] && (
             <div className="small text-muted mt-1">
-              <i className={`bi ${TYPE_META[entry.type].icon} me-1`}></i>
-              {TYPE_META[entry.type].label}
+              <i className={`bi ${ENTRY_TYPE_META[entry.type].icon} me-1`}></i>
+              {ENTRY_TYPE_META[entry.type].label}
             </div>
           )}
         </div>

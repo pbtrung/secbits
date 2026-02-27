@@ -1,18 +1,7 @@
+import CopyBtn from './CopyBtn';
 import {
   CARD_HOLDER_MAX, CARD_NUMBER_MAX, CARD_EXPIRY_MAX, CARD_CVV_MAX,
 } from '../limits.js';
-
-function CopyBtn({ text, label, copied, onCopy }) {
-  return (
-    <button
-      className="btn btn-sm btn-outline-secondary"
-      onClick={() => onCopy(text, label)}
-      title="Copy"
-    >
-      <i className={`bi ${copied === label ? 'bi-check-lg text-success' : 'bi-clipboard'}`}></i>
-    </button>
-  );
-}
 
 function CardFields({ draft, data, isEditing, visiblePasswords, onToggle, copied, onCopy, onUpdate }) {
   return (

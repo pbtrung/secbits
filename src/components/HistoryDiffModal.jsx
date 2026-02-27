@@ -1,10 +1,5 @@
 import { useEffect, useState } from 'react';
-
-function formatTimestamp(ts) {
-  const d = new Date(ts);
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
+import { formatExact } from '../entryUtils.js';
 
 // LCS-based line diff. Returns [{type:'eq'|'add'|'del', v:string}].
 function computeLineDiff(a, b) {
@@ -298,7 +293,7 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
                       <div className="text-muted mb-1" style={{ fontSize: '0.72em' }}>initial version</div>
                     )}
                     <div className="text-muted" style={{ fontSize: '0.7em' }}>
-                      {formatTimestamp(c.timestamp)}
+                      {formatExact(c.timestamp)}
                     </div>
                   </button>
                 ))}
@@ -313,7 +308,7 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
                       <code className="small">{selectedCommit.hash}</code>
                       {idx === 0 && <span className="badge bg-success">HEAD</span>}
                       <span className="text-muted small ms-auto">
-                        {formatTimestamp(selectedCommit.timestamp)}
+                        {formatExact(selectedCommit.timestamp)}
                       </span>
                     </div>
                     <CommitDiff commits={commits} idx={idx} />
