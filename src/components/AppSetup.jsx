@@ -76,7 +76,7 @@ function AppSetup({ onReady }) {
   };
 
   return (
-    <div className="vh-100 d-flex align-items-center justify-content-center bg-dark px-3">
+    <div className="min-vh-100 d-flex align-items-center justify-content-center bg-dark px-3 py-4">
       <div className="card shadow" style={{ maxWidth: 500, width: '100%' }}>
         <div className="card-body p-4">
           <div className="text-center mb-4">
