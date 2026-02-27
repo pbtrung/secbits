@@ -207,6 +207,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
       customFields: [],
       notes: '',
       tags: selectedTag ? [selectedTag] : [],
+      ...(type === 'card' ? { cardholderName: '', cardNumber: '', cardExpiry: '', cardCvv: '' } : {}),
     };
     setEntries((prev) => [newEntry, ...prev]);
     setSelectedEntryId(newEntry.id);

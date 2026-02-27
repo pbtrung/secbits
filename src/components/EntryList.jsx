@@ -61,7 +61,7 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
         {!trashMode && (
           <div className="dropdown" ref={dropdownRef}>
             <button
-              className="btn btn-sm btn-primary dropdown-toggle"
+              className="btn btn-sm btn-primary"
               onClick={() => setTypeDropdownOpen((v) => !v)}
               title="New Entry"
             >

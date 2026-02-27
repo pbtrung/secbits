@@ -11,6 +11,10 @@ export const TOTP_SECRET_MAX         = 256;    // base32 seeds are typically 16-
 export const CUSTOM_FIELD_LABEL_MAX  = 100;
 export const CUSTOM_FIELD_VALUE_MAX  = 1000;
 export const TAG_MAX                 = 50;
+export const CARD_HOLDER_MAX         = 200;
+export const CARD_NUMBER_MAX         = 30;
+export const CARD_EXPIRY_MAX         = 7;   // MM/YYYY
+export const CARD_CVV_MAX            = 10;
 
 // ─── Per-entry collection limits ─────────────────────────────────────────────
 export const MAX_URLS                = 20;

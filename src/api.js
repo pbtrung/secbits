@@ -151,6 +151,12 @@ function normalizeEntryShape(entry) {
     timestamp: normalizeTimestamp(safe.timestamp),
   };
   if (VALID_ENTRY_TYPES.includes(safe.type)) result.type = safe.type;
+  if (safe.type === 'card') {
+    result.cardholderName = typeof safe.cardholderName === 'string' ? safe.cardholderName : '';
+    result.cardNumber     = typeof safe.cardNumber     === 'string' ? safe.cardNumber     : '';
+    result.cardExpiry     = typeof safe.cardExpiry     === 'string' ? safe.cardExpiry     : '';
+    result.cardCvv        = typeof safe.cardCvv        === 'string' ? safe.cardCvv        : '';
+  }
   return result;
 }
 

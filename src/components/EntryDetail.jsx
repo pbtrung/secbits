@@ -1,61 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
-import { PasswordGenerator, PasswordStrengthBar } from './PasswordGenerator';
 import HistoryDiffModal from './HistoryDiffModal';
-import { generateTOTP } from '../totp.js';
+import LoginFields from './LoginFields';
+import CardFields from './CardFields';
 import { isHttpUrl } from '../validation.js';
 import {
-  TITLE_MAX, USERNAME_MAX, PASSWORD_MAX, NOTES_MAX,
+  TITLE_MAX, NOTES_MAX,
+  TAG_MAX, MAX_TAGS,
+  USERNAME_MAX, PASSWORD_MAX,
   URL_MAX, TOTP_SECRET_MAX,
   CUSTOM_FIELD_LABEL_MAX, CUSTOM_FIELD_VALUE_MAX,
-  TAG_MAX, MAX_URLS, MAX_TOTP_SECRETS, MAX_CUSTOM_FIELDS, MAX_TAGS,
+  CARD_HOLDER_MAX, CARD_NUMBER_MAX, CARD_EXPIRY_MAX, CARD_CVV_MAX,
 } from '../limits.js';
-
-function TotpCode({ secret, onCopy, copiedLabel }) {
-  const [code, setCode] = useState(() => generateTOTP(secret));
-  const [secondsLeft, setSecondsLeft] = useState(() => 30 - (Math.floor(Date.now() / 1000) % 30));
-
-  useEffect(() => {
-    const update = () => {
-      const now = Math.floor(Date.now() / 1000);
-      setSecondsLeft(30 - (now % 30));
-      setCode(generateTOTP(secret));
-    };
-    update();
-    const interval = setInterval(update, 1000);
-    return () => clearInterval(interval);
-  }, [secret]);
-
-  if (!code) return <span className="text-danger small ms-3">Invalid TOTP secret</span>;
-
-  const formatted = code.slice(0, 3) + '\u2009' + code.slice(3);
-  const progress = secondsLeft / 30;
-  const circumference = 2 * Math.PI * 10;
-
-  return (
-    <div className="d-flex align-items-center ms-3 gap-2 flex-shrink-0">
-      <span className="totp-code fw-bold">{formatted}</span>
-      <svg width="22" height="22" viewBox="0 0 24 24" className="flex-shrink-0">
-        <circle cx="12" cy="12" r="10" fill="none" stroke="#dee2e6" strokeWidth="2.5" />
-        <circle
-          cx="12" cy="12" r="10" fill="none"
-          stroke={secondsLeft <= 5 ? '#dc3545' : '#0d6efd'}
-          strokeWidth="2.5"
-          strokeDasharray={`${progress * circumference} ${circumference}`}
-          transform="rotate(-90 12 12)"
-          strokeLinecap="round"
-          style={{ transition: 'stroke-dasharray 1s linear, stroke 0.3s' }}
-        />
-      </svg>
-      <button
-        className="btn btn-sm btn-outline-secondary border-0 p-1"
-        onClick={() => onCopy(code)}
-        title="Copy code"
-      >
-        <i className={`bi ${copiedLabel ? 'bi-check-lg text-success' : 'bi-clipboard'}`}></i>
-      </button>
-    </div>
-  );
-}
 
 function hasDraftChanges(draft, entry, tagCurrentInput) {
   const normalizeText = (value) => (typeof value === 'string' ? value : '');
@@ -72,6 +27,10 @@ function hasDraftChanges(draft, entry, tagCurrentInput) {
     normalizeText(draft?.username) !== normalizeText(entry?.username) ||
     normalizeText(draft?.password) !== normalizeText(entry?.password) ||
     normalizeText(draft?.notes) !== normalizeText(entry?.notes) ||
+    normalizeText(draft?.cardholderName) !== normalizeText(entry?.cardholderName) ||
+    normalizeText(draft?.cardNumber) !== normalizeText(entry?.cardNumber) ||
+    normalizeText(draft?.cardExpiry) !== normalizeText(entry?.cardExpiry) ||
+    normalizeText(draft?.cardCvv) !== normalizeText(entry?.cardCvv) ||
     JSON.stringify(normalizeArray(draft?.urls)) !== JSON.stringify(normalizeArray(entry?.urls)) ||
     JSON.stringify(normalizeArray(draft?.totpSecrets)) !== JSON.stringify(normalizeArray(entry?.totpSecrets)) ||
     JSON.stringify(normalizeArray(draft?.customFields)) !== JSON.stringify(normalizeArray(entry?.customFields)) ||
@@ -81,13 +40,20 @@ function hasDraftChanges(draft, entry, tagCurrentInput) {
 
 function normalizeEntryForDraft(entry) {
   const safe = entry && typeof entry === 'object' ? entry : {};
-  return {
+  const result = {
     ...safe,
     urls: Array.isArray(safe.urls) ? safe.urls : [],
     totpSecrets: Array.isArray(safe.totpSecrets) ? safe.totpSecrets : [],
     customFields: Array.isArray(safe.customFields) ? safe.customFields : (Array.isArray(safe.hiddenFields) ? safe.hiddenFields : []),
     tags: Array.isArray(safe.tags) ? safe.tags : [],
   };
+  if (safe.type === 'card') {
+    result.cardholderName = typeof safe.cardholderName === 'string' ? safe.cardholderName : '';
+    result.cardNumber     = typeof safe.cardNumber     === 'string' ? safe.cardNumber     : '';
+    result.cardExpiry     = typeof safe.cardExpiry     === 'string' ? safe.cardExpiry     : '';
+    result.cardCvv        = typeof safe.cardCvv        === 'string' ? safe.cardCvv        : '';
+  }
+  return result;
 }
 
 const TYPE_META = {
@@ -128,6 +94,7 @@ function EntryDetail({
   const [historyIdx, setHistoryIdx] = useState(0);
   const notesHideTimerRef = useRef(null);
   const tagInputRef = useRef(null);
+
   const formatExact = (ts) => {
     const d = new Date(ts);
     const pad = (n) => String(n).padStart(2, '0');
@@ -143,13 +110,11 @@ function EntryDetail({
     const startDeleted = new Date(deletedAt.getFullYear(), deletedAt.getMonth(), deletedAt.getDate());
     const dayDiff = Math.floor((startNow - startDeleted) / dayMs);
     const [date, time] = exact.split(' ');
-
     if (dayDiff >= 0 && dayDiff <= 7) {
       if (dayDiff === 0) return { text: `Deleted today at ${time}`, exact };
       if (dayDiff === 1) return { text: `Deleted yesterday at ${time}`, exact };
       return { text: `Deleted ${dayDiff} days ago at ${time}`, exact };
     }
-
     return { text: `Deleted on ${date} at ${time}`, exact };
   };
 
@@ -212,7 +177,6 @@ function EntryDetail({
       setNotesVisible(false);
       notesHideTimerRef.current = null;
     }, 15000);
-
     return () => {
       if (notesHideTimerRef.current) {
         clearTimeout(notesHideTimerRef.current);
@@ -221,7 +185,6 @@ function EntryDetail({
     };
   }, [notesVisible]);
 
-  // Close modal on Escape
   useEffect(() => {
     if (!showHistory) return;
     const handler = (e) => { if (e.key === 'Escape' && !saving) setShowHistory(false); };
@@ -309,17 +272,12 @@ function EntryDetail({
   const updateHiddenField = (id, key, value) => {
     setDraft({
       ...draft,
-      customFields: draft.customFields.map((f) =>
-        f.id === id ? { ...f, [key]: value } : f
-      ),
+      customFields: draft.customFields.map((f) => f.id === id ? { ...f, [key]: value } : f),
     });
   };
 
   const removeHiddenField = (id) => {
-    setDraft({
-      ...draft,
-      customFields: draft.customFields.filter((f) => f.id !== id),
-    });
+    setDraft({ ...draft, customFields: draft.customFields.filter((f) => f.id !== id) });
   };
 
   const validateUrl = (index, value) => {
@@ -331,6 +289,7 @@ function EntryDetail({
       setUrlErrors((prev) => ({ ...prev, [index]: `URL must be ${URL_MAX} characters or fewer` }));
       return;
     }
+
     if (isHttpUrl(value)) {
       setUrlErrors((prev) => { const next = { ...prev }; delete next[index]; return next; });
     } else {
@@ -427,6 +386,7 @@ function EntryDetail({
     const freshUrlErrors = {};
     draft.urls.forEach((url, i) => {
       if (!url) return;
+  
       if (url.length > URL_MAX) {
         freshUrlErrors[i] = `URL must be ${URL_MAX} characters or fewer`;
       } else if (!isHttpUrl(url)) {
@@ -479,41 +439,40 @@ function EntryDetail({
     if (restored) setShowHistory(false);
   };
 
+  const isNote  = entry.type === 'note';
+  const isCard  = entry.type === 'card';
+  const isLogin = !isNote && !isCard;
+
   const hasInvalidFields =
-    Object.values(totpErrors).some(Boolean) ||
-    Object.values(urlErrors).some(Boolean) ||
     !!tagError ||
     draft.title.length > TITLE_MAX ||
-    draft.username.length > USERNAME_MAX ||
-    draft.password.length > PASSWORD_MAX ||
     draft.notes.length > NOTES_MAX ||
-    draft.urls.some((u) => u.length > URL_MAX) ||
-    draft.totpSecrets.some((s) => s.length > TOTP_SECRET_MAX) ||
-    draft.customFields.some((f) => f.label.length > CUSTOM_FIELD_LABEL_MAX || f.value.length > CUSTOM_FIELD_VALUE_MAX) ||
-    draft.tags.some((t) => t.length > TAG_MAX);
+    draft.tags.some((t) => t.length > TAG_MAX) ||
+    (isLogin && (
+      Object.values(totpErrors).some(Boolean) ||
+      Object.values(urlErrors).some(Boolean) ||
+      draft.username.length > USERNAME_MAX ||
+      draft.password.length > PASSWORD_MAX ||
+      draft.urls.some((u) => u.length > URL_MAX) ||
+      draft.totpSecrets.some((s) => s.length > TOTP_SECRET_MAX) ||
+      draft.customFields.some((f) => f.label.length > CUSTOM_FIELD_LABEL_MAX || f.value.length > CUSTOM_FIELD_VALUE_MAX)
+    )) ||
+    (isCard && (
+      (draft.cardholderName?.length || 0) > CARD_HOLDER_MAX ||
+      (draft.cardNumber?.length || 0) > CARD_NUMBER_MAX ||
+      (draft.cardExpiry?.length || 0) > CARD_EXPIRY_MAX ||
+      (draft.cardCvv?.length || 0) > CARD_CVV_MAX
+    ));
 
-  const allFieldsEmpty =
-    !draft.title.trim() &&
-    !draft.username.trim() &&
-    !draft.password.trim() &&
-    !draft.notes.trim() &&
-    !draft.urls.some((u) => u.trim()) &&
-    draft.totpSecrets.length === 0 &&
-    draft.customFields.length === 0;
+  const allFieldsEmpty = isNote
+    ? !draft.title.trim() && !draft.notes.trim()
+    : isCard
+      ? !draft.title.trim() && !draft.cardholderName?.trim() && !draft.cardNumber?.trim() && !draft.cardExpiry?.trim() && !draft.cardCvv?.trim() && !draft.notes.trim()
+      : !draft.title.trim() && !draft.username.trim() && !draft.password.trim() && !draft.notes.trim() && !draft.urls.some((u) => u.trim()) && draft.totpSecrets.length === 0 && draft.customFields.length === 0;
 
   const saveDisabled = hasInvalidFields || allFieldsEmpty;
 
   const data = isEditing ? draft : entry;
-
-  const CopyBtn = ({ text, label }) => (
-    <button
-      className="btn btn-sm btn-outline-secondary"
-      onClick={() => copyToClipboard(text, label)}
-      title="Copy"
-    >
-      <i className={`bi ${copied === label ? 'bi-check-lg text-success' : 'bi-clipboard'}`}></i>
-    </button>
-  );
 
   return (
     <>
@@ -548,300 +507,46 @@ function EntryDetail({
         </div>
       </div>
 
-      {/* Username */}
-      <div className="mb-3">
-        <label className="form-label text-muted small fw-semibold">
-          <i className="bi bi-person me-1"></i> Username
-        </label>
-        {isEditing ? (
-          <input
-            className="form-control"
-            value={draft.username}
-            onChange={(e) => updateDraft('username', e.target.value)}
-            maxLength={USERNAME_MAX}
-          />
-        ) : (
-          <div className="input-group">
-            <input className="form-control" value={data.username} readOnly />
-            <CopyBtn text={data.username} label="username" />
-          </div>
-        )}
-      </div>
+      {/* Type-specific fields */}
+      {isLogin && (
+        <LoginFields
+          draft={draft}
+          data={data}
+          isEditing={isEditing}
+          visiblePasswords={visiblePasswords}
+          onToggle={toggleVisibility}
+          copied={copied}
+          onCopy={copyToClipboard}
+          onUpdate={updateDraft}
+          onAddUrl={addUrl}
+          onUpdateUrl={updateUrl}
+          onRemoveUrl={removeUrl}
+          onValidateUrl={validateUrl}
+          urlErrors={urlErrors}
+          onAddTotp={addTotpSecret}
+          onUpdateTotp={updateTotpSecret}
+          onRemoveTotp={removeTotpSecret}
+          onValidateTotp={validateTotpSecret}
+          totpErrors={totpErrors}
+          onAddCustomField={addHiddenField}
+          onUpdateCustomField={updateHiddenField}
+          onRemoveCustomField={removeHiddenField}
+        />
+      )}
+      {isCard && (
+        <CardFields
+          draft={draft}
+          data={data}
+          isEditing={isEditing}
+          visiblePasswords={visiblePasswords}
+          onToggle={toggleVisibility}
+          copied={copied}
+          onCopy={copyToClipboard}
+          onUpdate={updateDraft}
+        />
+      )}
 
-      {/* Password */}
-      <div className="mb-3">
-        <label className="form-label text-muted small fw-semibold">
-          <i className="bi bi-lock me-1"></i> Password
-        </label>
-        {isEditing ? (
-          <>
-            <div className="input-group">
-              <input
-                type={visiblePasswords['password'] ? 'text' : 'password'}
-                className="form-control"
-                value={draft.password}
-                onChange={(e) => updateDraft('password', e.target.value)}
-                maxLength={PASSWORD_MAX}
-              />
-              <button
-                className="btn btn-outline-secondary"
-                onClick={() => toggleVisibility('password')}
-              >
-                <i className={`bi ${visiblePasswords['password'] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-              </button>
-            </div>
-            <PasswordStrengthBar password={draft.password} />
-            <PasswordGenerator
-              onGenerate={(pw) => updateDraft('password', pw)}
-              onCopy={(pw) => copyToClipboard(pw, 'password')}
-            />
-          </>
-        ) : (
-          <div className="input-group">
-            <input
-              type={visiblePasswords['password'] ? 'text' : 'password'}
-              className="form-control"
-              value={data.password}
-              readOnly
-            />
-            <button
-              className="btn btn-outline-secondary"
-              onClick={() => toggleVisibility('password')}
-            >
-              <i className={`bi ${visiblePasswords['password'] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-            </button>
-            <CopyBtn text={data.password} label="password" />
-          </div>
-        )}
-      </div>
-
-      {/* TOTP Secrets */}
-      <div className="mb-3">
-        <label className="form-label text-muted small fw-semibold">
-          <i className="bi bi-clock-history me-1"></i> TOTP Secrets
-        </label>
-        {isEditing ? (
-          <>
-            {draft.totpSecrets.map((secret, i) => (
-              <div key={i} className="mb-2">
-                <div className="input-group">
-                  <input
-                    type={visiblePasswords[`totp-${i}`] ? 'text' : 'password'}
-                    className={`form-control totp-secret-input${totpErrors[i] ? ' is-invalid' : ''}`}
-                    value={secret}
-                    onChange={(e) => updateTotpSecret(i, e.target.value)}
-                    onBlur={(e) => validateTotpSecret(i, e.target.value)}
-                    placeholder="TOTP secret"
-                    maxLength={TOTP_SECRET_MAX}
-                  />
-                  <button
-                    className="btn btn-outline-secondary"
-                    onClick={() => toggleVisibility(`totp-${i}`)}
-                  >
-                    <i className={`bi ${visiblePasswords[`totp-${i}`] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-                  </button>
-                  <button
-                    className="btn btn-outline-danger"
-                    onClick={() => removeTotpSecret(i)}
-                    title="Remove TOTP Secret"
-                  >
-                    <i className="bi bi-x-lg"></i>
-                  </button>
-                </div>
-                {totpErrors[i] && <div className="text-danger small mt-1">{totpErrors[i]}</div>}
-              </div>
-            ))}
-            <div className="d-flex align-items-center gap-3">
-              <button
-                className="btn btn-sm btn-outline-secondary"
-                onClick={addTotpSecret}
-                disabled={draft.totpSecrets.length >= MAX_TOTP_SECRETS}
-                title={draft.totpSecrets.length >= MAX_TOTP_SECRETS ? `Maximum ${MAX_TOTP_SECRETS} TOTP secrets allowed` : undefined}
-              >
-                <i className="bi bi-plus me-1"></i>Add TOTP Secret
-              </button>
-              {draft.totpSecrets.length > 0 && (
-                <span className={`small ${draft.totpSecrets.length >= MAX_TOTP_SECRETS ? 'text-danger' : 'text-muted'}`}>
-                  {draft.totpSecrets.length} / {MAX_TOTP_SECRETS}
-                </span>
-              )}
-            </div>
-          </>
-        ) : (
-          <div>
-            {data.totpSecrets.filter(Boolean).map((secret, i) => (
-              <div className="d-flex align-items-center mb-2" key={i}>
-                <div className="input-group input-group-sm" style={{ flex: '1 1 0', minWidth: 0 }}>
-                  <input
-                    type={visiblePasswords[`totp-${i}`] ? 'text' : 'password'}
-                    className="form-control totp-secret-input"
-                    value={secret}
-                    readOnly
-                  />
-                  <button
-                    className="btn btn-outline-secondary"
-                    onClick={() => toggleVisibility(`totp-${i}`)}
-                  >
-                    <i className={`bi ${visiblePasswords[`totp-${i}`] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-                  </button>
-                  <CopyBtn text={secret} label={`totp-${i}`} />
-                </div>
-                <TotpCode
-                  secret={secret}
-                  onCopy={(code) => copyToClipboard(code, `totp-code-${i}`)}
-                  copiedLabel={copied === `totp-code-${i}`}
-                />
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* URLs */}
-      <div className="mb-3">
-        <label className="form-label text-muted small fw-semibold">
-          <i className="bi bi-link-45deg me-1"></i> URLs
-        </label>
-        {isEditing ? (
-          <>
-            {draft.urls.map((url, i) => (
-              <div key={i} className="mb-2">
-                <div className="input-group">
-                  <input
-                    className={`form-control${urlErrors[i] ? ' is-invalid' : ''}`}
-                    value={url}
-                    onChange={(e) => updateUrl(i, e.target.value)}
-                    onBlur={(e) => validateUrl(i, e.target.value)}
-                    placeholder="https://..."
-                    maxLength={URL_MAX}
-                  />
-                  <button
-                    className="btn btn-outline-danger"
-                    onClick={() => removeUrl(i)}
-                    title="Remove URL"
-                  >
-                    <i className="bi bi-x-lg"></i>
-                  </button>
-                </div>
-                {urlErrors[i] && <div className="text-danger small mt-1">{urlErrors[i]}</div>}
-              </div>
-            ))}
-            <div className="d-flex align-items-center gap-3">
-              <button
-                className="btn btn-sm btn-outline-secondary"
-                onClick={addUrl}
-                disabled={draft.urls.length >= MAX_URLS}
-                title={draft.urls.length >= MAX_URLS ? `Maximum ${MAX_URLS} URLs allowed` : undefined}
-              >
-                <i className="bi bi-plus me-1"></i>Add URL
-              </button>
-              {draft.urls.length > 0 && (
-                <span className={`small ${draft.urls.length >= MAX_URLS ? 'text-danger' : 'text-muted'}`}>
-                  {draft.urls.length} / {MAX_URLS}
-                </span>
-              )}
-            </div>
-          </>
-        ) : (
-          <div>
-            {data.urls.filter(Boolean).map((url, i) => (
-              <div key={i} className="mb-1">
-                {isHttpUrl(url) ? (
-                  <a href={url} target="_blank" rel="noopener noreferrer">
-                    {url}
-                  </a>
-                ) : (
-                  <span className="text-muted">{url}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Custom Fields */}
-      <div className="mb-3">
-        <label className="form-label text-muted small fw-semibold">
-          <i className="bi bi-incognito me-1"></i> Custom Fields
-        </label>
-        {(isEditing ? draft.customFields : data.customFields).map((field) => (
-          <div key={field.id} className="card card-body p-2 mb-2 bg-white">
-            {isEditing ? (
-              <div className="d-flex gap-2 align-items-center">
-                <input
-                  className="form-control form-control-sm"
-                  value={field.label}
-                  onChange={(e) => updateHiddenField(field.id, 'label', e.target.value)}
-                  placeholder="Label"
-                  maxLength={CUSTOM_FIELD_LABEL_MAX}
-                  style={{ maxWidth: 180 }}
-                />
-                <div className="input-group input-group-sm flex-grow-1">
-                  <input
-                    type={visiblePasswords[`hf-${field.id}`] ? 'text' : 'password'}
-                    className="form-control totp-secret-input custom-field-secret-input"
-                    value={field.value}
-                    onChange={(e) => updateHiddenField(field.id, 'value', e.target.value)}
-                    maxLength={CUSTOM_FIELD_VALUE_MAX}
-                  />
-                  <button
-                    className="btn btn-outline-secondary"
-                    onClick={() => toggleVisibility(`hf-${field.id}`)}
-                  >
-                    <i className={`bi ${visiblePasswords[`hf-${field.id}`] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-                  </button>
-                </div>
-                <button
-                  className="btn btn-sm btn-outline-danger"
-                  onClick={() => removeHiddenField(field.id)}
-                >
-                  <i className="bi bi-trash"></i>
-                </button>
-              </div>
-            ) : (
-              <div className="d-flex align-items-center">
-                <span className="fw-semibold small me-2" style={{ minWidth: 120 }}>
-                  {field.label}
-                </span>
-                <div className="input-group input-group-sm flex-grow-1">
-                  <input
-                    type={visiblePasswords[`hf-${field.id}`] ? 'text' : 'password'}
-                    className="form-control totp-secret-input custom-field-secret-input"
-                    value={field.value}
-                    readOnly
-                  />
-                  <button
-                    className="btn btn-outline-secondary"
-                    onClick={() => toggleVisibility(`hf-${field.id}`)}
-                  >
-                    <i className={`bi ${visiblePasswords[`hf-${field.id}`] ? 'bi-eye-slash' : 'bi-eye'}`}></i>
-                  </button>
-                  <CopyBtn text={field.value} label={`hf-${field.id}`} />
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-        {isEditing && (
-          <div className="d-flex align-items-center gap-3">
-            <button
-              className="btn btn-sm btn-outline-secondary"
-              onClick={addHiddenField}
-              disabled={draft.customFields.length >= MAX_CUSTOM_FIELDS}
-              title={draft.customFields.length >= MAX_CUSTOM_FIELDS ? `Maximum ${MAX_CUSTOM_FIELDS} custom fields allowed` : undefined}
-            >
-              <i className="bi bi-plus me-1"></i>Add Custom Field
-            </button>
-            {draft.customFields.length > 0 && (
-              <span className={`small ${draft.customFields.length >= MAX_CUSTOM_FIELDS ? 'text-danger' : 'text-muted'}`}>
-                {draft.customFields.length} / {MAX_CUSTOM_FIELDS}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Notes */}
+      {/* Notes — all types */}
       <div className="mb-3">
         <div className="d-flex align-items-center justify-content-between mb-1">
           <label className="form-label text-muted small fw-semibold mb-0">
@@ -894,7 +599,7 @@ function EntryDetail({
         )}
       </div>
 
-      {/* Tags */}
+      {/* Tags — all types */}
       <div className="mb-4">
         <label className="form-label text-muted small fw-semibold">
           <i className="bi bi-tags me-1"></i> Tags
@@ -960,9 +665,7 @@ function EntryDetail({
         ) : (
           <div>
             {data.tags.map((t) => (
-              <span key={t} className="badge bg-primary me-1">
-                {t}
-              </span>
+              <span key={t} className="badge bg-primary me-1">{t}</span>
             ))}
           </div>
         )}
