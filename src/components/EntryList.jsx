@@ -4,7 +4,7 @@ import { ENTRY_TYPES, ENTRY_TYPE_META } from '../entryUtils.js';
 
 function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, selectedTag, trashMode = false, mobile }) {
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
-  const [typeDropdownSide, setTypeDropdownSide] = useState('right');
+  const [typeDropdownAlign, setTypeDropdownAlign] = useState('start');
   const dropdownRef = useRef(null);
   const dropdownBtnRef = useRef(null);
   const dropdownMenuRef = useRef(null);
@@ -23,27 +23,28 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
   useEffect(() => {
     if (!typeDropdownOpen) return;
 
-    const updateDropdownSide = () => {
+    const updateDropdownAlign = () => {
       const btnRect = dropdownBtnRef.current?.getBoundingClientRect();
       if (!btnRect) return;
       const menuWidth = dropdownMenuRef.current?.offsetWidth || 220;
-      const rightSpace = window.innerWidth - btnRect.right;
-      const leftSpace = btnRect.left;
+      const viewportPadding = 8;
+      const fitsStart = btnRect.left + menuWidth <= window.innerWidth - viewportPadding;
+      const fitsEnd = btnRect.right - menuWidth >= viewportPadding;
 
-      if (rightSpace >= menuWidth) {
-        setTypeDropdownSide('right');
-      } else if (leftSpace >= menuWidth) {
-        setTypeDropdownSide('left');
+      if (fitsStart) {
+        setTypeDropdownAlign('start');
+      } else if (fitsEnd) {
+        setTypeDropdownAlign('end');
       } else {
-        setTypeDropdownSide(rightSpace >= leftSpace ? 'right' : 'left');
+        setTypeDropdownAlign('end');
       }
     };
 
-    const rafId = requestAnimationFrame(updateDropdownSide);
-    window.addEventListener('resize', updateDropdownSide);
+    const rafId = requestAnimationFrame(updateDropdownAlign);
+    window.addEventListener('resize', updateDropdownAlign);
     return () => {
       cancelAnimationFrame(rafId);
-      window.removeEventListener('resize', updateDropdownSide);
+      window.removeEventListener('resize', updateDropdownAlign);
     };
   }, [typeDropdownOpen]);
 
@@ -61,9 +62,9 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
         <ul
           ref={dropdownMenuRef}
           className="dropdown-menu show mt-1"
-          style={typeDropdownSide === 'right'
-            ? { left: '100%', right: 'auto', marginLeft: '0.25rem' }
-            : { right: '100%', left: 'auto', marginRight: '0.25rem' }}
+          style={typeDropdownAlign === 'start'
+            ? { left: 0, right: 'auto', maxWidth: 'calc(100vw - 1rem)' }
+            : { right: 0, left: 'auto', maxWidth: 'calc(100vw - 1rem)' }}
         >
           {ENTRY_TYPES.map(({ type, icon, label }) => (
             <li key={type}>
