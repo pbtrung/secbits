@@ -39,7 +39,7 @@ function TagsSidebar({
   );
 
   return (
-    <SidebarPanel mobile={mobile} headerIcon="bi-funnel" headerTitle="Browse" footer={footer}>
+    <SidebarPanel mobile={mobile} headerIcon="bi-funnel" headerTitle="Browse" headerUppercase={false} footer={footer}>
       <div className="list-group list-group-flush">
         <SidebarItem
           active={!settingsMode && !trashMode && selectedTag === null}
