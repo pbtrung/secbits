@@ -21,60 +21,34 @@ Only needed when upgrading leancrypto or changing build flags. The committed `le
 
 - Emscripten SDK: `emcc` at `/usr/lib/emscripten/emcc` (override with `EMCC_BIN=...`)
 - Meson + Ninja
+- Git (to clone the leancrypto source)
 
 ### Steps
 
-**1. Clone leancrypto v1.6.0 source**
+`build-wasm.sh` is self-contained. From the `secbits/leancrypto/` directory:
 
 ```bash
-git clone --branch v1.6.0 --depth 1 https://github.com/smuellerDD/leancrypto.git /tmp/lc
-```
-
-**2. Patch the source tree**
-
-The files in `secbits/leancrypto/` must be applied to the leancrypto source before building:
-
-```bash
-LC=/tmp/lc
-SB=/path/to/secbits/leancrypto
-
-# Replace the upstream meson.build with the WASM-specific one
-cp "$SB/meson.build"     "$LC/meson.build"
-
-# Add the Emscripten cross-compilation config
-cp "$SB/wasm-cross.ini"  "$LC/wasm-cross.ini"
-
-# Place the WASM RNG source where build-wasm.sh expects it
-cp "$SB/seeded_rng_wasm.c" "$LC/drng/src/seeded_rng_wasm.c"
-
-# Copy the link script to the source root so ROOT_DIR resolves correctly
-cp "$SB/build-wasm.sh"   "$LC/build-wasm.sh"
-chmod +x "$LC/build-wasm.sh"
-```
-
-> **Why `drng/src/`?** `build-wasm.sh` passes `-I drng/src` and compiles `drng/src/seeded_rng_wasm.c` relative to `ROOT_DIR` (the directory containing the script). With the script at the leancrypto source root, all paths (`drng/src/`, `internal/api/`, `build-wasm/`) resolve correctly against the source tree.
-
-**3. Build the static library**
-
-```bash
-cd /tmp/lc
-meson setup build-wasm --cross-file wasm-cross.ini \
-  -Ddisable-asm=true -Defi=disabled -Dtests=disabled
-ninja -C build-wasm
-```
-
-This produces `build-wasm/libleancrypto.a`.
-
-**4. Link to WASM module**
-
-```bash
-cd /tmp/lc
-OUT_JS=/path/to/secbits/leancrypto/leancrypto.js \
-OUT_WASM=/path/to/secbits/leancrypto/leancrypto.wasm \
 ./build-wasm.sh
 ```
 
-`build-wasm.sh` respects `EMCC_BIN` if emcc is not at the default path.
+This performs the full build pipeline in one shot:
+
+1. Clones leancrypto v1.6.0 to `/tmp/leancrypto-wasm-build` (skipped if already present)
+2. Patches the source tree: replaces `meson.build`, adds `wasm-cross.ini`, places `seeded_rng_wasm.c` at `drng/src/`
+3. Runs `meson setup` + `ninja` to produce `build-wasm/libleancrypto.a`
+4. Runs `emcc` to link `leancrypto.js` + `leancrypto.wasm` and writes them back to `secbits/leancrypto/`
+
+Environment overrides:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `EMCC_BIN` | `/usr/lib/emscripten/emcc` | Path to emcc binary |
+| `LC_VERSION` | `v1.6.0` | leancrypto git tag to clone |
+| `LC_SRC` | `/tmp/leancrypto-wasm-build` | Clone/build directory |
+| `OUT_JS` | `$SB_DIR/leancrypto.js` | Output JS module path |
+| `OUT_WASM` | `$SB_DIR/leancrypto.wasm` | Output WASM binary path |
+
+> **Why `drng/src/`?** `seeded_rng_wasm.c` is placed at `drng/src/` in the leancrypto source tree because `emcc` compiles it via `-I drng/src` and the path `drng/src/seeded_rng_wasm.c` relative to the source root.
 
 ---
 
