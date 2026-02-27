@@ -11,6 +11,34 @@ function formatBytes(bytes) {
   return `${value % 1 === 0 ? value : value.toFixed(2)} ${units[i]}`;
 }
 
+function StatsHeading({ children }) {
+  return <div className="text-muted small fw-semibold mb-1">{children}</div>;
+}
+
+function StatsRow({ label, value, note = null }) {
+  return (
+    <tr>
+      <td className="text-muted">{label}</td>
+      <td className="fw-semibold">
+        {value}
+        {note && <span className="text-muted fw-normal ms-2 small">({note})</span>}
+      </td>
+    </tr>
+  );
+}
+
+function StatsTable({ rows, className = 'table table-sm mb-3' }) {
+  return (
+    <table className={className}>
+      <tbody>
+        {rows.map((row) => (
+          <StatsRow key={row.label} label={row.label} value={row.value} note={row.note} />
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function AboutPage() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -101,76 +129,42 @@ function AboutPage() {
         </div>
       ) : stats ? (
         <div>
-          <div className="text-muted small fw-semibold mb-1">Overview</div>
-          <table className="table table-sm mb-3">
-            <tbody>
-              <tr>
-                <td className="text-muted">Entries</td>
-                <td className="fw-semibold">{stats.count}</td>
-              </tr>
-              <tr>
-                <td className="text-muted">Trash entries</td>
-                <td className="fw-semibold">{stats.trashCount}</td>
-              </tr>
-              <tr>
-                <td className="text-muted">Total stored size</td>
-                <td className="fw-semibold">{formatBytes(stats.blobSize)}</td>
-              </tr>
-              <tr>
-                <td className="text-muted">Total entries size</td>
-                <td className="fw-semibold">{formatBytes(stats.entriesJsonSize)}</td>
-              </tr>
-              <tr>
-                <td className="text-muted">Avg entry size</td>
-                <td className="fw-semibold">{formatBytes(stats.avgBytes)}</td>
-              </tr>
-            </tbody>
-          </table>
+          <StatsHeading>Overview</StatsHeading>
+          <StatsTable
+            rows={[
+              { label: 'Entries', value: stats.count },
+              { label: 'Trash entries', value: stats.trashCount },
+              { label: 'Total stored size', value: formatBytes(stats.blobSize) },
+              { label: 'Total entries size', value: formatBytes(stats.entriesJsonSize) },
+              { label: 'Avg entry size', value: formatBytes(stats.avgBytes) },
+            ]}
+          />
 
           {stats.decryptedCount > 0 && (<>
-            <div className="text-muted small fw-semibold mb-1">Field coverage</div>
-            <table className="table table-sm mb-3">
-              <tbody>
-                {[
-                  ['Password', stats.withPassword, null],
-                  ['Username', stats.withUsername, null],
-                  ['Notes', stats.withNotes, null],
-                  ['URLs', stats.withUrls, stats.totalUrls > 0 ? `${stats.totalUrls} total` : null],
-                  ['TOTP secrets', stats.withTotp, stats.totalTotp > 0 ? `${stats.totalTotp} total` : null],
-                  ['Custom fields', stats.withCustomFields, stats.totalCustomFields > 0 ? `${stats.totalCustomFields} total` : null],
-                  ['Tags', stats.withTags, null],
-                ].map(([label, n, note]) => (
-                  <tr key={label}>
-                    <td className="text-muted">{label}</td>
-                    <td className="fw-semibold">
-                      {n} / {stats.decryptedCount}
-                      {note && <span className="text-muted fw-normal ms-2 small">({note})</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <StatsHeading>Field coverage</StatsHeading>
+            <StatsTable
+              rows={[
+                { label: 'Password', value: `${stats.withPassword} / ${stats.decryptedCount}` },
+                { label: 'Username', value: `${stats.withUsername} / ${stats.decryptedCount}` },
+                { label: 'Notes', value: `${stats.withNotes} / ${stats.decryptedCount}` },
+                { label: 'URLs', value: `${stats.withUrls} / ${stats.decryptedCount}`, note: stats.totalUrls > 0 ? `${stats.totalUrls} total` : null },
+                { label: 'TOTP secrets', value: `${stats.withTotp} / ${stats.decryptedCount}`, note: stats.totalTotp > 0 ? `${stats.totalTotp} total` : null },
+                { label: 'Custom fields', value: `${stats.withCustomFields} / ${stats.decryptedCount}`, note: stats.totalCustomFields > 0 ? `${stats.totalCustomFields} total` : null },
+                { label: 'Tags', value: `${stats.withTags} / ${stats.decryptedCount}` },
+              ]}
+            />
 
-            <div className="text-muted small fw-semibold mb-1">Version history</div>
-            <table className="table table-sm mb-3">
-              <tbody>
-                <tr>
-                  <td className="text-muted">Avg commits per entry</td>
-                  <td className="fw-semibold">{stats.avgCommits}</td>
-                </tr>
-                <tr>
-                  <td className="text-muted">Max commits on one entry</td>
-                  <td className="fw-semibold">{stats.maxCommits}</td>
-                </tr>
-                <tr>
-                  <td className="text-muted">Never edited</td>
-                  <td className="fw-semibold">{stats.neverEdited}</td>
-                </tr>
-              </tbody>
-            </table>
+            <StatsHeading>Version history</StatsHeading>
+            <StatsTable
+              rows={[
+                { label: 'Avg commits per entry', value: stats.avgCommits },
+                { label: 'Max commits on one entry', value: stats.maxCommits },
+                { label: 'Never edited', value: stats.neverEdited },
+              ]}
+            />
 
             {stats.topTags.length > 0 && (<>
-              <div className="text-muted small fw-semibold mb-1">Top tags</div>
+              <StatsHeading>Top tags</StatsHeading>
               <div className="mb-3">
                 {stats.topTags.map(({ tag, count }) => (
                   <span key={tag} className="badge bg-secondary me-1 mb-1">
@@ -182,7 +176,7 @@ function AboutPage() {
           </>)}
 
           {stats.top5.length > 0 && (<>
-            <div className="text-muted small fw-semibold mb-1">Top {stats.top5.length} largest entries</div>
+            <StatsHeading>Top {stats.top5.length} largest entries</StatsHeading>
             <table className="table table-sm">
               <thead>
                 <tr>

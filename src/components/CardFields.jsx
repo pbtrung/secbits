@@ -1,17 +1,29 @@
 import CopyBtn from './CopyBtn';
 import EyeToggleBtn from './EyeToggleBtn';
+import FieldSection from './FieldSection';
 import {
   CARD_HOLDER_MAX, CARD_NUMBER_MAX, CARD_EXPIRY_MAX, CARD_CVV_MAX,
 } from '../limits.js';
 
+function MaskedReadOnlyField({ value, visible, onToggle, copied, onCopy, label, style }) {
+  return (
+    <div className="input-group" style={style}>
+      <input
+        type={visible ? 'text' : 'password'}
+        className="form-control"
+        value={value}
+        readOnly
+      />
+      <EyeToggleBtn visible={visible} onToggle={onToggle} />
+      <CopyBtn text={value} label={label} copied={copied} onCopy={onCopy} />
+    </div>
+  );
+}
+
 function CardFields({ draft, data, isEditing, visiblePasswords, onToggle, copied, onCopy, onUpdate }) {
   return (
     <>
-      {/* Cardholder Name */}
-      <div className="mb-3">
-        <label className="form-label text-muted small fw-semibold">
-          <i className="bi bi-person me-1"></i> Cardholder Name
-        </label>
+      <FieldSection icon="bi-person" label="Cardholder Name">
         {isEditing ? (
           <input
             className="form-control"
@@ -25,13 +37,9 @@ function CardFields({ draft, data, isEditing, visiblePasswords, onToggle, copied
             <CopyBtn text={data.cardholderName || ''} label="cardholderName" copied={copied} onCopy={onCopy} />
           </div>
         )}
-      </div>
+      </FieldSection>
 
-      {/* Card Number */}
-      <div className="mb-3">
-        <label className="form-label text-muted small fw-semibold">
-          <i className="bi bi-credit-card me-1"></i> Card Number
-        </label>
+      <FieldSection icon="bi-credit-card" label="Card Number">
         {isEditing ? (
           <div className="input-group">
             <input
@@ -45,24 +53,18 @@ function CardFields({ draft, data, isEditing, visiblePasswords, onToggle, copied
             <EyeToggleBtn visible={visiblePasswords['cardNumber']} onToggle={() => onToggle('cardNumber')} />
           </div>
         ) : (
-          <div className="input-group">
-            <input
-              type={visiblePasswords['cardNumber'] ? 'text' : 'password'}
-              className="form-control"
-              value={data.cardNumber || ''}
-              readOnly
-            />
-            <EyeToggleBtn visible={visiblePasswords['cardNumber']} onToggle={() => onToggle('cardNumber')} />
-            <CopyBtn text={data.cardNumber || ''} label="cardNumber" copied={copied} onCopy={onCopy} />
-          </div>
+          <MaskedReadOnlyField
+            value={data.cardNumber || ''}
+            visible={visiblePasswords['cardNumber']}
+            onToggle={() => onToggle('cardNumber')}
+            copied={copied}
+            onCopy={onCopy}
+            label="cardNumber"
+          />
         )}
-      </div>
+      </FieldSection>
 
-      {/* Expiry */}
-      <div className="mb-3">
-        <label className="form-label text-muted small fw-semibold">
-          <i className="bi bi-calendar me-1"></i> Expiry
-        </label>
+      <FieldSection icon="bi-calendar" label="Expiry">
         {isEditing ? (
           <input
             className="form-control"
@@ -78,13 +80,9 @@ function CardFields({ draft, data, isEditing, visiblePasswords, onToggle, copied
             <CopyBtn text={data.cardExpiry || ''} label="cardExpiry" copied={copied} onCopy={onCopy} />
           </div>
         )}
-      </div>
+      </FieldSection>
 
-      {/* CVV */}
-      <div className="mb-3">
-        <label className="form-label text-muted small fw-semibold">
-          <i className="bi bi-shield-lock me-1"></i> CVV
-        </label>
+      <FieldSection icon="bi-shield-lock" label="CVV">
         {isEditing ? (
           <div className="input-group" style={{ maxWidth: 180 }}>
             <input
@@ -97,18 +95,17 @@ function CardFields({ draft, data, isEditing, visiblePasswords, onToggle, copied
             <EyeToggleBtn visible={visiblePasswords['cardCvv']} onToggle={() => onToggle('cardCvv')} />
           </div>
         ) : (
-          <div className="input-group" style={{ maxWidth: 180 }}>
-            <input
-              type={visiblePasswords['cardCvv'] ? 'text' : 'password'}
-              className="form-control"
-              value={data.cardCvv || ''}
-              readOnly
-            />
-            <EyeToggleBtn visible={visiblePasswords['cardCvv']} onToggle={() => onToggle('cardCvv')} />
-            <CopyBtn text={data.cardCvv || ''} label="cardCvv" copied={copied} onCopy={onCopy} />
-          </div>
+          <MaskedReadOnlyField
+            value={data.cardCvv || ''}
+            visible={visiblePasswords['cardCvv']}
+            onToggle={() => onToggle('cardCvv')}
+            copied={copied}
+            onCopy={onCopy}
+            label="cardCvv"
+            style={{ maxWidth: 180 }}
+          />
         )}
-      </div>
+      </FieldSection>
     </>
   );
 }

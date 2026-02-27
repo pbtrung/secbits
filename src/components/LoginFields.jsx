@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { PasswordGenerator, PasswordStrengthBar } from './PasswordGenerator';
 import CopyBtn from './CopyBtn';
 import EyeToggleBtn from './EyeToggleBtn';
+import FieldSection from './FieldSection';
 import { generateTOTP } from '../totp.js';
 import { isHttpUrl } from '../validation.js';
 import {
@@ -58,6 +59,42 @@ function TotpCode({ secret, onCopy, copiedLabel }) {
   );
 }
 
+function AddWithCounter({ count, max, onAdd, label }) {
+  return (
+    <div className="d-flex align-items-center gap-3">
+      <button
+        className="btn btn-sm btn-outline-secondary"
+        onClick={onAdd}
+        disabled={count >= max}
+        title={count >= max ? `Maximum ${max} ${label.toLowerCase()} allowed` : undefined}
+      >
+        <i className="bi bi-plus me-1"></i>Add {label}
+      </button>
+      {count > 0 && (
+        <span className={`small ${count >= max ? 'text-danger' : 'text-muted'}`}>
+          {count} / {max}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function MaskedValueField({ value, visible, onToggle, readOnly = false, onChange, maxLength, invalid = false, className = 'form-control' }) {
+  return (
+    <div className="input-group">
+      <input
+        type={visible ? 'text' : 'password'}
+        className={`${className}${invalid ? ' is-invalid' : ''}`}
+        value={value}
+        onChange={onChange}
+        maxLength={maxLength}
+        readOnly={readOnly}
+      />
+      <EyeToggleBtn visible={visible} onToggle={onToggle} />
+    </div>
+  );
+}
+
 function LoginFields({
   draft, data, isEditing,
   visiblePasswords, onToggle, copied, onCopy, onUpdate,
@@ -67,11 +104,7 @@ function LoginFields({
 }) {
   return (
     <>
-      {/* Username */}
-      <div className="mb-3">
-        <label className="form-label text-muted small fw-semibold">
-          <i className="bi bi-person me-1"></i> Username
-        </label>
+      <FieldSection icon="bi-person" label="Username">
         {isEditing ? (
           <input
             className="form-control"
@@ -85,25 +118,19 @@ function LoginFields({
             <CopyBtn text={data.username} label="username" copied={copied} onCopy={onCopy} />
           </div>
         )}
-      </div>
+      </FieldSection>
 
-      {/* Password */}
-      <div className="mb-3">
-        <label className="form-label text-muted small fw-semibold">
-          <i className="bi bi-lock me-1"></i> Password
-        </label>
+      <FieldSection icon="bi-lock" label="Password">
         {isEditing ? (
           <>
-            <div className="input-group">
-              <input
-                type={visiblePasswords['password'] ? 'text' : 'password'}
-                className="form-control"
-                value={draft.password}
-                onChange={(e) => onUpdate('password', e.target.value)}
-                maxLength={PASSWORD_MAX}
-              />
-              <EyeToggleBtn visible={visiblePasswords['password']} onToggle={() => onToggle('password')} />
-            </div>
+            <MaskedValueField
+              value={draft.password}
+              visible={visiblePasswords.password}
+              onToggle={() => onToggle('password')}
+              onChange={(e) => onUpdate('password', e.target.value)}
+              maxLength={PASSWORD_MAX}
+              className="form-control"
+            />
             <PasswordStrengthBar password={draft.password} />
             <PasswordGenerator
               onGenerate={(pw) => onUpdate('password', pw)}
@@ -113,22 +140,18 @@ function LoginFields({
         ) : (
           <div className="input-group">
             <input
-              type={visiblePasswords['password'] ? 'text' : 'password'}
+              type={visiblePasswords.password ? 'text' : 'password'}
               className="form-control"
               value={data.password}
               readOnly
             />
-            <EyeToggleBtn visible={visiblePasswords['password']} onToggle={() => onToggle('password')} />
+            <EyeToggleBtn visible={visiblePasswords.password} onToggle={() => onToggle('password')} />
             <CopyBtn text={data.password} label="password" copied={copied} onCopy={onCopy} />
           </div>
         )}
-      </div>
+      </FieldSection>
 
-      {/* TOTP Secrets */}
-      <div className="mb-3">
-        <label className="form-label text-muted small fw-semibold">
-          <i className="bi bi-clock-history me-1"></i> TOTP Secrets
-        </label>
+      <FieldSection icon="bi-clock-history" label="TOTP Secrets">
         {isEditing ? (
           <>
             {draft.totpSecrets.map((secret, i) => (
@@ -151,21 +174,12 @@ function LoginFields({
                 {totpErrors[i] && <div className="text-danger small mt-1">{totpErrors[i]}</div>}
               </div>
             ))}
-            <div className="d-flex align-items-center gap-3">
-              <button
-                className="btn btn-sm btn-outline-secondary"
-                onClick={onAddTotp}
-                disabled={draft.totpSecrets.length >= MAX_TOTP_SECRETS}
-                title={draft.totpSecrets.length >= MAX_TOTP_SECRETS ? `Maximum ${MAX_TOTP_SECRETS} TOTP secrets allowed` : undefined}
-              >
-                <i className="bi bi-plus me-1"></i>Add TOTP Secret
-              </button>
-              {draft.totpSecrets.length > 0 && (
-                <span className={`small ${draft.totpSecrets.length >= MAX_TOTP_SECRETS ? 'text-danger' : 'text-muted'}`}>
-                  {draft.totpSecrets.length} / {MAX_TOTP_SECRETS}
-                </span>
-              )}
-            </div>
+            <AddWithCounter
+              count={draft.totpSecrets.length}
+              max={MAX_TOTP_SECRETS}
+              onAdd={onAddTotp}
+              label="TOTP Secret"
+            />
           </>
         ) : (
           <div>
@@ -190,13 +204,9 @@ function LoginFields({
             ))}
           </div>
         )}
-      </div>
+      </FieldSection>
 
-      {/* URLs */}
-      <div className="mb-3">
-        <label className="form-label text-muted small fw-semibold">
-          <i className="bi bi-link-45deg me-1"></i> URLs
-        </label>
+      <FieldSection icon="bi-link-45deg" label="URLs">
         {isEditing ? (
           <>
             {draft.urls.map((url, i) => (
@@ -217,21 +227,12 @@ function LoginFields({
                 {urlErrors[i] && <div className="text-danger small mt-1">{urlErrors[i]}</div>}
               </div>
             ))}
-            <div className="d-flex align-items-center gap-3">
-              <button
-                className="btn btn-sm btn-outline-secondary"
-                onClick={onAddUrl}
-                disabled={draft.urls.length >= MAX_URLS}
-                title={draft.urls.length >= MAX_URLS ? `Maximum ${MAX_URLS} URLs allowed` : undefined}
-              >
-                <i className="bi bi-plus me-1"></i>Add URL
-              </button>
-              {draft.urls.length > 0 && (
-                <span className={`small ${draft.urls.length >= MAX_URLS ? 'text-danger' : 'text-muted'}`}>
-                  {draft.urls.length} / {MAX_URLS}
-                </span>
-              )}
-            </div>
+            <AddWithCounter
+              count={draft.urls.length}
+              max={MAX_URLS}
+              onAdd={onAddUrl}
+              label="URL"
+            />
           </>
         ) : (
           <div>
@@ -246,13 +247,9 @@ function LoginFields({
             ))}
           </div>
         )}
-      </div>
+      </FieldSection>
 
-      {/* Custom Fields */}
-      <div className="mb-3">
-        <label className="form-label text-muted small fw-semibold">
-          <i className="bi bi-incognito me-1"></i> Custom Fields
-        </label>
+      <FieldSection icon="bi-incognito" label="Custom Fields">
         {(isEditing ? draft.customFields : data.customFields).map((field) => (
           <div key={field.id} className="card card-body p-2 mb-2 bg-white">
             {isEditing ? (
@@ -297,23 +294,14 @@ function LoginFields({
           </div>
         ))}
         {isEditing && (
-          <div className="d-flex align-items-center gap-3">
-            <button
-              className="btn btn-sm btn-outline-secondary"
-              onClick={onAddCustomField}
-              disabled={draft.customFields.length >= MAX_CUSTOM_FIELDS}
-              title={draft.customFields.length >= MAX_CUSTOM_FIELDS ? `Maximum ${MAX_CUSTOM_FIELDS} custom fields allowed` : undefined}
-            >
-              <i className="bi bi-plus me-1"></i>Add Custom Field
-            </button>
-            {draft.customFields.length > 0 && (
-              <span className={`small ${draft.customFields.length >= MAX_CUSTOM_FIELDS ? 'text-danger' : 'text-muted'}`}>
-                {draft.customFields.length} / {MAX_CUSTOM_FIELDS}
-              </span>
-            )}
-          </div>
+          <AddWithCounter
+            count={draft.customFields.length}
+            max={MAX_CUSTOM_FIELDS}
+            onAdd={onAddCustomField}
+            label="Custom Field"
+          />
         )}
-      </div>
+      </FieldSection>
     </>
   );
 }

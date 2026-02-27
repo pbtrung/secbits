@@ -1,4 +1,5 @@
 import { NOTES_MAX } from '../limits.js';
+import { SectionLabel } from './FieldSection';
 
 // Shared notes section used by all entry types.
 // `visible` and `onToggleVisible` are controlled by the parent (which owns the
@@ -7,9 +8,7 @@ function NotesField({ isEditing, value, onChange, visible, onToggleVisible }) {
   return (
     <div className="mb-3">
       <div className="d-flex align-items-center justify-content-between mb-1">
-        <label className="form-label text-muted small fw-semibold mb-0">
-          <i className="bi bi-sticky me-1"></i> Notes
-        </label>
+        <SectionLabel icon="bi-sticky" className="form-label text-muted small fw-semibold mb-0">Notes</SectionLabel>
         {!isEditing && (
           <button
             className="btn btn-sm btn-outline-secondary"

@@ -136,6 +136,75 @@ function buildDiffSections(fromSnap, toSnap, changedFields) {
   });
 }
 
+function DiffLine({ line }) {
+  if (line.type === 'large') {
+    return (
+      <div className="px-2 py-1 text-muted fst-italic" style={{ userSelect: 'none' }}>
+        Notes too large to diff inline.
+      </div>
+    );
+  }
+  if (line.type === 'hunk') {
+    return (
+      <div className="px-2 text-primary bg-primary bg-opacity-10" style={{ userSelect: 'none' }}>
+        @@ {line.skip} line{line.skip !== 1 ? 's' : ''} unchanged @@
+      </div>
+    );
+  }
+  if (line.type === 'eq') {
+    return (
+      <div className="px-2 text-muted" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+        &nbsp;{line.v}
+      </div>
+    );
+  }
+  if (line.type === 'del') {
+    return (
+      <div className="px-2 bg-danger bg-opacity-10" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+        <span className="text-danger fw-bold me-1">-</span>{line.v}
+      </div>
+    );
+  }
+  if (line.type === 'add') {
+    return (
+      <div className="px-2 bg-success bg-opacity-10" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+        <span className="text-success fw-bold me-1">+</span>{line.v}
+      </div>
+    );
+  }
+  return null;
+}
+
+function CommitListItem({ commit, idx, selectedIdx, onSelect }) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`w-100 text-start border-0 border-bottom px-3 py-2${idx === selectedIdx ? ' bg-primary-subtle' : ' bg-transparent'}`}
+      style={{ cursor: 'pointer' }}
+    >
+      <div className="d-flex align-items-center gap-1 mb-1">
+        <code style={{ fontSize: '0.75em', letterSpacing: '0.02em' }} title={commit.hash}>{commit.hash ? `${commit.hash.slice(0, 12)}…` : ''}</code>
+        {idx === 0 && (
+          <span className="badge bg-success ms-1" style={{ fontSize: '0.6em' }}>HEAD</span>
+        )}
+      </div>
+      {commit.changed && commit.changed.length > 0 ? (
+        <div className="d-flex flex-wrap gap-1 mb-1">
+          {commit.changed.map((f) => (
+            <span key={f} className="badge bg-secondary" style={{ fontSize: '0.6em' }}>{f}</span>
+          ))}
+        </div>
+      ) : (
+        <div className="text-muted mb-1" style={{ fontSize: '0.72em' }}>initial version</div>
+      )}
+      <div className="text-muted" style={{ fontSize: '0.7em' }}>
+        {formatExact(commit.timestamp)}
+      </div>
+    </button>
+  );
+}
+
 function CommitDiff({ commits, idx }) {
   const commit = commits[idx];
   const parentCommit = commit?.parent
@@ -168,44 +237,7 @@ function CommitDiff({ commits, idx }) {
             {field}
           </div>
           <div className="border rounded overflow-hidden" style={{ fontFamily: 'monospace', fontSize: '0.78rem', lineHeight: 1.55 }}>
-            {lines.map((line, i) => {
-              if (line.type === 'large') {
-                return (
-                  <div key={i} className="px-2 py-1 text-muted fst-italic" style={{ userSelect: 'none' }}>
-                    Notes too large to diff inline.
-                  </div>
-                );
-              }
-              if (line.type === 'hunk') {
-                return (
-                  <div key={i} className="px-2 text-primary bg-primary bg-opacity-10" style={{ userSelect: 'none' }}>
-                    @@ {line.skip} line{line.skip !== 1 ? 's' : ''} unchanged @@
-                  </div>
-                );
-              }
-              if (line.type === 'eq') {
-                return (
-                  <div key={i} className="px-2 text-muted" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                    &nbsp;{line.v}
-                  </div>
-                );
-              }
-              if (line.type === 'del') {
-                return (
-                  <div key={i} className="px-2 bg-danger bg-opacity-10" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                    <span className="text-danger fw-bold me-1">-</span>{line.v}
-                  </div>
-                );
-              }
-              if (line.type === 'add') {
-                return (
-                  <div key={i} className="px-2 bg-success bg-opacity-10" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                    <span className="text-success fw-bold me-1">+</span>{line.v}
-                  </div>
-                );
-              }
-              return null;
-            })}
+            {lines.map((line, i) => <DiffLine key={i} line={line} />)}
           </div>
         </div>
       ))}
@@ -268,35 +300,16 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
                 style={{ width: isMobile ? '100%' : 260, flexShrink: 0, overflowY: 'auto', height: '100%' }}
               >
                 {commits.map((c, i) => (
-                  <button
+                  <CommitListItem
                     key={c.hash}
-                    type="button"
-                    onClick={() => {
+                    commit={c}
+                    idx={i}
+                    selectedIdx={idx}
+                    onSelect={() => {
                       onIdxChange(i);
                       if (isMobile) setMobileStep('diff');
                     }}
-                    className={`w-100 text-start border-0 border-bottom px-3 py-2${i === idx ? ' bg-primary-subtle' : ' bg-transparent'}`}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <div className="d-flex align-items-center gap-1 mb-1">
-                      <code style={{ fontSize: '0.75em', letterSpacing: '0.02em' }} title={c.hash}>{c.hash ? `${c.hash.slice(0, 12)}…` : ''}</code>
-                      {i === 0 && (
-                        <span className="badge bg-success ms-1" style={{ fontSize: '0.6em' }}>HEAD</span>
-                      )}
-                    </div>
-                    {c.changed && c.changed.length > 0 ? (
-                      <div className="d-flex flex-wrap gap-1 mb-1">
-                        {c.changed.map((f) => (
-                          <span key={f} className="badge bg-secondary" style={{ fontSize: '0.6em' }}>{f}</span>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-muted mb-1" style={{ fontSize: '0.72em' }}>initial version</div>
-                    )}
-                    <div className="text-muted" style={{ fontSize: '0.7em' }}>
-                      {formatExact(c.timestamp)}
-                    </div>
-                  </button>
+                  />
                 ))}
               </div>
             )}

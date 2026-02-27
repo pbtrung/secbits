@@ -60,6 +60,47 @@ function normalizeEntryForDraft(entry) {
   return result;
 }
 
+function replaceAt(list, index, value) {
+  const next = [...list];
+  next[index] = value;
+  return next;
+}
+
+function removeAt(list, index) {
+  return list.filter((_, i) => i !== index);
+}
+
+function shiftIndexedErrors(errors, removedIndex) {
+  const next = {};
+  Object.entries(errors).forEach(([k, v]) => {
+    const i = Number(k);
+    if (i < removedIndex) next[i] = v;
+    else if (i > removedIndex) next[i - 1] = v;
+  });
+  return next;
+}
+
+function getUrlError(value) {
+  if (!value) return null;
+  if (value.length > URL_MAX) return `URL must be ${URL_MAX} characters or fewer`;
+  return isHttpUrl(value) ? null : 'Invalid URL — must start with https:// or http://';
+}
+
+function getTotpError(value) {
+  if (value.length > TOTP_SECRET_MAX) return `TOTP secret must be ${TOTP_SECRET_MAX} characters or fewer`;
+  const cleaned = value.replace(/[\s=_-]+/g, '').toUpperCase();
+  if (cleaned.length > 0 && !/^[A-Z2-7]+$/.test(cleaned)) return 'Invalid base32 — only A–Z and 2–7';
+  return null;
+}
+
+function collectIndexedErrors(values, validator) {
+  return values.reduce((acc, value, index) => {
+    const error = validator(value);
+    if (error) acc[index] = error;
+    return acc;
+  }, {});
+}
+
 // ─── EntryDetail ──────────────────────────────────────────────────────────────
 
 function EntryDetail({
@@ -179,57 +220,29 @@ function EntryDetail({
   };
 
   const updateUrl = (index, value) => {
-    const urls = [...draft.urls];
-    urls[index] = value;
-    setDraft({ ...draft, urls });
+    setDraft({ ...draft, urls: replaceAt(draft.urls, index, value) });
   };
 
   const addUrl = () => setDraft({ ...draft, urls: [...draft.urls, ''] });
 
   const removeUrl = (index) => {
-    const urls = draft.urls.filter((_, i) => i !== index);
-    setDraft({ ...draft, urls });
-    setUrlErrors((prev) => {
-      const next = {};
-      Object.entries(prev).forEach(([k, v]) => {
-        const ki = Number(k);
-        if (ki < index) next[ki] = v;
-        else if (ki > index) next[ki - 1] = v;
-      });
-      return next;
-    });
+    setDraft({ ...draft, urls: removeAt(draft.urls, index) });
+    setUrlErrors((prev) => shiftIndexedErrors(prev, index));
   };
 
   const addTotpSecret = () => setDraft({ ...draft, totpSecrets: [...draft.totpSecrets, ''] });
 
   const updateTotpSecret = (index, value) => {
-    const totpSecrets = [...draft.totpSecrets];
-    totpSecrets[index] = value;
-    setDraft({ ...draft, totpSecrets });
+    setDraft({ ...draft, totpSecrets: replaceAt(draft.totpSecrets, index, value) });
   };
 
   const removeTotpSecret = (index) => {
-    const totpSecrets = draft.totpSecrets.filter((_, i) => i !== index);
-    setDraft({ ...draft, totpSecrets });
-    setTotpErrors((prev) => {
-      const next = {};
-      Object.entries(prev).forEach(([k, v]) => {
-        const ki = Number(k);
-        if (ki < index) next[ki] = v;
-        else if (ki > index) next[ki - 1] = v;
-      });
-      return next;
-    });
+    setDraft({ ...draft, totpSecrets: removeAt(draft.totpSecrets, index) });
+    setTotpErrors((prev) => shiftIndexedErrors(prev, index));
   };
 
   const validateTotpSecret = (index, value) => {
-    if (value.length > TOTP_SECRET_MAX) {
-      setTotpErrors((prev) => ({ ...prev, [index]: `TOTP secret must be ${TOTP_SECRET_MAX} characters or fewer` }));
-      return;
-    }
-    const cleaned = value.replace(/[\s=_-]+/g, '').toUpperCase();
-    const valid = cleaned.length === 0 || /^[A-Z2-7]+$/.test(cleaned);
-    setTotpErrors((prev) => ({ ...prev, [index]: valid ? null : 'Invalid base32 — only A–Z and 2–7' }));
+    setTotpErrors((prev) => ({ ...prev, [index]: getTotpError(value) }));
   };
 
   const addHiddenField = () => {
@@ -252,43 +265,17 @@ function EntryDetail({
   };
 
   const validateUrl = (index, value) => {
-    if (!value) {
+    const error = getUrlError(value);
+    if (!error) {
       setUrlErrors((prev) => { const next = { ...prev }; delete next[index]; return next; });
       return;
     }
-    if (value.length > URL_MAX) {
-      setUrlErrors((prev) => ({ ...prev, [index]: `URL must be ${URL_MAX} characters or fewer` }));
-      return;
-    }
-    if (isHttpUrl(value)) {
-      setUrlErrors((prev) => { const next = { ...prev }; delete next[index]; return next; });
-    } else {
-      setUrlErrors((prev) => ({ ...prev, [index]: 'Invalid URL — must start with https:// or http://' }));
-    }
+    setUrlErrors((prev) => ({ ...prev, [index]: error }));
   };
 
   const handleSave = () => {
-    const freshUrlErrors = {};
-    draft.urls.forEach((url, i) => {
-      if (!url) return;
-      if (url.length > URL_MAX) {
-        freshUrlErrors[i] = `URL must be ${URL_MAX} characters or fewer`;
-      } else if (!isHttpUrl(url)) {
-        freshUrlErrors[i] = 'Invalid URL — must start with https:// or http://';
-      }
-    });
-
-    const freshTotpErrors = {};
-    draft.totpSecrets.forEach((secret, i) => {
-      if (secret.length > TOTP_SECRET_MAX) {
-        freshTotpErrors[i] = `TOTP secret must be ${TOTP_SECRET_MAX} characters or fewer`;
-        return;
-      }
-      const cleaned = secret.replace(/[\s=_-]+/g, '').toUpperCase();
-      if (cleaned.length > 0 && !/^[A-Z2-7]+$/.test(cleaned)) {
-        freshTotpErrors[i] = 'Invalid base32 — only A–Z and 2–7';
-      }
-    });
+    const freshUrlErrors = collectIndexedErrors(draft.urls, getUrlError);
+    const freshTotpErrors = collectIndexedErrors(draft.totpSecrets, getTotpError);
 
     setUrlErrors(freshUrlErrors);
     setTotpErrors(freshTotpErrors);

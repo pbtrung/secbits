@@ -1,4 +1,4 @@
-import PanelHeader from './PanelHeader';
+import SidebarPanel, { SidebarItem } from './SidebarPanel';
 
 function SettingsList({ selectedPage, onSelectPage, mobile }) {
   const items = [
@@ -8,25 +8,19 @@ function SettingsList({ selectedPage, onSelectPage, mobile }) {
   ];
 
   return (
-    <div className={`d-flex flex-column bg-white ${mobile ? 'h-100' : 'h-100 border-end'}`}>
-      <PanelHeader icon="bi-gear" title="Settings" />
-      <div className="overflow-auto flex-grow-1">
-        <div className="list-group list-group-flush">
-          {items.map((item) => (
-            <button
-              key={item.id}
-              className={`list-group-item list-group-item-action d-flex justify-content-between align-items-center ${
-                selectedPage === item.id ? 'active' : ''
-              }`}
-              onClick={() => onSelectPage(item.id)}
-            >
-              {item.label}
-              <i className={`bi ${item.icon}`}></i>
-            </button>
-          ))}
-        </div>
+    <SidebarPanel mobile={mobile} headerIcon="bi-gear" headerTitle="Settings">
+      <div className="list-group list-group-flush">
+        {items.map((item) => (
+          <SidebarItem
+            key={item.id}
+            active={selectedPage === item.id}
+            onClick={() => onSelectPage(item.id)}
+            left={item.label}
+            right={<i className={`bi ${item.icon}`}></i>}
+          />
+        ))}
       </div>
-    </div>
+    </SidebarPanel>
   );
 }
 

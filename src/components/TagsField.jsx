@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { TAG_MAX, MAX_TAGS } from '../limits.js';
+import { SectionLabel } from './FieldSection';
 
 // Shared tags section used by all entry types.
 //
@@ -125,9 +126,7 @@ function TagsField({ tags, onTagsChange, isEditing, allTags, onCurrentInputChang
 
   return (
     <div className="mb-4">
-      <label className="form-label text-muted small fw-semibold">
-        <i className="bi bi-tags me-1"></i> Tags
-      </label>
+      <SectionLabel icon="bi-tags">Tags</SectionLabel>
 
       {isEditing ? (
         <>

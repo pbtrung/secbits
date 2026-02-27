@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import PanelHeader from './PanelHeader';
+import SidebarPanel from './SidebarPanel';
 import { formatDeletedLabel, ENTRY_TYPES, ENTRY_TYPE_META } from '../entryUtils.js';
 
 function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, selectedTag, trashMode = false, mobile }) {
@@ -44,60 +44,56 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
   );
 
   return (
-    <div
-      className={`d-flex flex-column bg-white ${mobile ? 'h-100' : 'h-100 border-end'}`}
+    <SidebarPanel
+      mobile={mobile}
+      headerIcon={trashMode ? 'bi-trash' : 'bi-key'}
+      headerTitle={trashMode ? 'Deleted Entries' : (selectedTag ? `#${selectedTag}` : 'All Entries')}
+      headerTrailing={newEntryButton}
     >
-      <PanelHeader
-        icon={trashMode ? 'bi-trash' : 'bi-key'}
-        title={trashMode ? 'Deleted Entries' : (selectedTag ? `#${selectedTag}` : 'All Entries')}
-        trailing={newEntryButton}
-      />
-      <div className="overflow-auto flex-grow-1">
-        {entries.length === 0 ? (
-          <div className="text-muted text-center p-4 small">{trashMode ? 'Trash is empty' : 'No entries found'}</div>
-        ) : (
-          <div className="list-group list-group-flush">
-            {entries.map((entry) => (
-              <button
-                key={entry.id}
-                className={`list-group-item list-group-item-action px-3 d-flex flex-column justify-content-center ${
-                  selectedEntryId === entry.id ? 'active' : ''
-                }`}
-                style={{ minHeight: '5rem' }}
-                onClick={() => onSelectEntry(entry.id)}
-              >
-                <div className="fw-semibold text-truncate">
-                  {ENTRY_TYPE_META[entry.type] && (
-                    <i className={`bi ${ENTRY_TYPE_META[entry.type].icon} me-1 fw-normal opacity-75`}></i>
-                  )}
-                  {entry.title || <span className="fst-italic text-muted">Untitled</span>}
-                </div>
-                <small className={`text-truncate d-block ${selectedEntryId === entry.id ? 'text-light' : 'text-muted'}`}>
-                  {trashMode ? (
-                    (() => {
-                      const label = formatDeletedLabel(entry.deletedAt);
-                      return <span title={label.exact}>{label.text}</span>;
-                    })()
-                  ) : entry.username}
-                </small>
-                <div>
-                  {entry.tags.map((t) => (
-                    <span
-                      key={t}
-                      className={`badge me-1 ${
-                        selectedEntryId === entry.id ? 'bg-light text-primary' : 'bg-secondary-subtle text-secondary'
-                      }`}
-                    >
-                      {t}
-                    </span>
-                  ))}
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+      {entries.length === 0 ? (
+        <div className="text-muted text-center p-4 small">{trashMode ? 'Trash is empty' : 'No entries found'}</div>
+      ) : (
+        <div className="list-group list-group-flush">
+          {entries.map((entry) => (
+            <button
+              key={entry.id}
+              className={`list-group-item list-group-item-action px-3 d-flex flex-column justify-content-center ${
+                selectedEntryId === entry.id ? 'active' : ''
+              }`}
+              style={{ minHeight: '5rem' }}
+              onClick={() => onSelectEntry(entry.id)}
+            >
+              <div className="fw-semibold text-truncate">
+                {ENTRY_TYPE_META[entry.type] && (
+                  <i className={`bi ${ENTRY_TYPE_META[entry.type].icon} me-1 fw-normal opacity-75`}></i>
+                )}
+                {entry.title || <span className="fst-italic text-muted">Untitled</span>}
+              </div>
+              <small className={`text-truncate d-block ${selectedEntryId === entry.id ? 'text-light' : 'text-muted'}`}>
+                {trashMode ? (
+                  (() => {
+                    const label = formatDeletedLabel(entry.deletedAt);
+                    return <span title={label.exact}>{label.text}</span>;
+                  })()
+                ) : entry.username}
+              </small>
+              <div>
+                {entry.tags.map((t) => (
+                  <span
+                    key={t}
+                    className={`badge me-1 ${
+                      selectedEntryId === entry.id ? 'bg-light text-primary' : 'bg-secondary-subtle text-secondary'
+                    }`}
+                  >
+                    {t}
+                  </span>
+                ))}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </SidebarPanel>
   );
 }
 
