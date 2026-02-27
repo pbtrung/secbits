@@ -1,9 +1,17 @@
 import PanelHeader from './PanelHeader';
 
-function SidebarPanel({ mobile, headerIcon, headerTitle, headerTrailing = null, children, footer = null }) {
+function SidebarPanel({
+  mobile,
+  headerIcon,
+  headerTitle,
+  headerTrailing = null,
+  headerUppercase = true,
+  children,
+  footer = null,
+}) {
   return (
     <div className={`d-flex flex-column bg-white ${mobile ? 'h-100' : 'h-100 border-end'}`}>
-      <PanelHeader icon={headerIcon} title={headerTitle} trailing={headerTrailing} />
+      <PanelHeader icon={headerIcon} title={headerTitle} trailing={headerTrailing} uppercase={headerUppercase} />
       <div className="overflow-auto flex-grow-1">{children}</div>
       {footer}
     </div>

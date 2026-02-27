@@ -15,8 +15,9 @@ function SettingsList({ selectedPage, onSelectPage, mobile }) {
             key={item.id}
             active={selectedPage === item.id}
             onClick={() => onSelectPage(item.id)}
-            left={item.label}
-            right={<i className={`bi ${item.icon}`}></i>}
+            style={{ height: '2.5rem' }}
+            left={<span><i className={`bi ${item.icon} me-2`}></i>{item.label}</span>}
+            right={null}
           />
         ))}
       </div>
