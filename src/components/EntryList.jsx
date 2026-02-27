@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import PanelHeader from './PanelHeader';
-import { formatDeletedLabel, ENTRY_TYPES } from '../entryUtils.js';
+import { formatDeletedLabel, ENTRY_TYPES, ENTRY_TYPE_META } from '../entryUtils.js';
 
 function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, selectedTag, trashMode = false, mobile }) {
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
@@ -66,6 +66,9 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
                 onClick={() => onSelectEntry(entry.id)}
               >
                 <div className="fw-semibold text-truncate">
+                  {ENTRY_TYPE_META[entry.type] && (
+                    <i className={`bi ${ENTRY_TYPE_META[entry.type].icon} me-1 fw-normal opacity-75`}></i>
+                  )}
                   {entry.title || <span className="fst-italic text-muted">Untitled</span>}
                 </div>
                 <small className={`text-truncate d-block ${selectedEntryId === entry.id ? 'text-light' : 'text-muted'}`}>

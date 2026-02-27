@@ -1,7 +1,7 @@
 // Reusable list-panel header. Pass `trailing` for content on the right side.
 function PanelHeader({ icon, title, trailing }) {
   return (
-    <div className="p-3 border-bottom d-flex justify-content-between align-items-center">
+    <div className="px-3 border-bottom d-flex justify-content-between align-items-center" style={{ height: '3.5rem' }}>
       <h6 className="text-uppercase text-muted mb-0 small fw-bold">
         {icon && <i className={`bi ${icon} me-1`}></i>}
         {title}

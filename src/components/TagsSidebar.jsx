@@ -19,7 +19,7 @@ function TagsSidebar({
     <div
       className={`d-flex flex-column bg-white ${mobile ? 'h-100' : 'h-100 border-end'}`}
     >
-      <PanelHeader icon="bi-tags" title="Tags" />
+      <PanelHeader icon="bi-tags" title="Browse" />
       <div className="overflow-auto flex-grow-1">
         <div className="list-group list-group-flush">
           <button
