@@ -6,21 +6,18 @@
 
 ```sql
 CREATE TABLE vault_info (
-  id    INTEGER PRIMARY KEY CHECK (id = 1),
-  value TEXT NOT NULL   -- JSON object string
+  key    TEXT PRIMARY KEY,
+  value  TEXT NOT NULL
 );
 ```
 
-Single-row table enforced by `CHECK (id = 1)`. `value` is a JSON object string.
-Populated on `init_vault`.
+Single-row-per-key config store. Populated on `init_vault`.
 
-```json
-{
-  "username":       "alice",
-  "created_at":     "2026-02-28T14:30:00Z",
-  "schema_version": 1
-}
-```
+| key | value |
+|-----|-------|
+| `username` | display name |
+| `created_at` | ISO 8601 |
+| `schema_version` | integer string |
 
 ### key_store
 
