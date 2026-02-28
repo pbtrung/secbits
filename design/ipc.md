@@ -12,7 +12,7 @@ Errors are returned as structured JSON objects from `AppError` variants.
 
 ### `unlock_vault()`
 
-Unlock the vault using the config file. Reads `root_master_key_b64`, `db_path`,
+Unlock the vault using the config file. Reads `root_master_key`, `db_path`,
 and `username` from the config TOML. Decrypts the user master key and stores it
 in `AppState`.
 

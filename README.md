@@ -57,7 +57,7 @@ TOML file at `~/.config/secbits/config.toml` (or `SECBITS_CONFIG` env var).
 
 ```toml
 # Required
-root_master_key_b64 = "<base64-encoded key, minimum 256 bytes raw>"
+root_master_key = "<base64-encoded key, minimum 256 bytes raw>"
 db_path             = "~/.local/share/secbits/vault.db"
 username            = "alice"
 

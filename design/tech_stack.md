@@ -173,7 +173,7 @@ Mobile: stacked single-column view with back navigation.
 TOML at `~/.config/secbits/config.toml` (or `SECBITS_CONFIG` env var).
 
 ```toml
-root_master_key_b64 = "<base64-encoded ≥256-byte key>"
+root_master_key = "<base64-encoded ≥256-byte key>"
 db_path             = "~/.local/share/secbits/vault.db"
 username            = "alice"
 

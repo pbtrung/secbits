@@ -123,7 +123,7 @@ The trash is included in vault exports.
 
 ## Vault Unlock / Session
 
-- On launch, app reads config file for `root_master_key_b64`, `db_path`, `username`.
+- On launch, app reads config file for `root_master_key`, `db_path`, `username`.
 - Unlock: config is loaded, user master key decrypted, session established.
 - Lock: session keys zeroed in Rust (`AppState`), React state cleared.
 - No persistent login state — unlock required on each app launch.
