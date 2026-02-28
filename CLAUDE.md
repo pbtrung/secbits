@@ -126,20 +126,6 @@ backup_pull(target)               → void
 | `design/ipc.md` | Tauri IPC command surface: params, return types, errors |
 | `design/tech_stack.md` | Dependencies, versions, project layout |
 
-## Config
-
-TOML file at `~/.config/secbits/config.toml` (or `SECBITS_CONFIG` env var).
-
-Required fields:
-- `root_master_key_b64` — base64-encoded root master key (≥256 bytes raw)
-- `db_path` — path to SQLite database file
-- `username` — vault username
-
-Optional:
-- `backup_on_save` — auto-push after write commands (bool)
-- `log_level` — tracing level (`error|warn|info|debug|trace`)
-- `[targets.<name>]` — S3-compatible backup targets
-
 ## Build & Test
 
 ```bash

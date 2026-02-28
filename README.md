@@ -51,9 +51,35 @@ cargo test           # run Rust unit/integration tests
 npm test             # run Vitest frontend tests
 ```
 
-Config file: `~/.config/secbits/config.toml`
+## Config
 
-Required fields: `root_master_key_b64`, `db_path`, `username`
+TOML file at `~/.config/secbits/config.toml` (or `SECBITS_CONFIG` env var).
+
+```toml
+# Required
+root_master_key_b64 = "<base64-encoded key, minimum 256 bytes raw>"
+db_path             = "~/.local/share/secbits/vault.db"
+username            = "alice"
+
+# Optional
+backup_on_save      = false
+log_level           = "warn"   # error | warn | info | debug | trace
+
+# One or more S3-compatible backup targets (optional)
+[targets.r2]
+endpoint   = "https://<account>.r2.cloudflarestorage.com"
+bucket     = "secbits-backup"
+access_key = "<key>"
+secret_key = "<secret>"
+region     = "auto"
+
+[targets.aws]
+endpoint   = "https://s3.amazonaws.com"
+bucket     = "my-secbits-backup"
+access_key = "<key>"
+secret_key = "<secret>"
+region     = "us-east-1"
+```
 
 ## Design Docs
 
