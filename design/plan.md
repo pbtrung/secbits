@@ -1,6 +1,6 @@
 # Implementation Plan
 
-Six milestones, each with a working and testable deliverable. Later milestones build on
+Seven milestones, each with a working and testable deliverable. Later milestones build on
 earlier ones; no milestone leaves the codebase in a broken state.
 
 ---
@@ -160,10 +160,10 @@ end-to-end.
 
 ---
 
-## M6: Backups, Sharing, and Release
+## M6: Backups and Release
 
-**Goal:** Optional S3 backups and entry sharing are complete. The release build is
-packaged and all integration tests pass.
+**Goal:** Optional S3 backups are complete. The release build is packaged and all
+integration tests pass.
 
 **Deliverables**
 
@@ -172,15 +172,6 @@ packaged and all integration tests pass.
   upload with ISO 8601 timestamp in object key.
   `backup_pull`: download latest object; decrypt; atomically replace local DB file.
   `backup_on_save` trigger: after each write command, call `backup_push` for all targets.
-- Entry sharing:
-  - Key generation: `generate_identity_keypair` produces ML-KEM-1024 + X448 keypair;
-    stores SK encrypted under UMK, PK raw, in `key_store`.
-  - `share_create(entry_id, recipient_pk_b64)`: encapsulate shared secret with recipient
-    public key; encrypt `head_snapshot` JSON under shared secret; write `.sbsh` file.
-  - `share_receive(file_path)`: open `.sbsh` file; decapsulate shared secret using own SK;
-    decrypt snapshot; insert as new entry in vault.
-  - Commands: `init_sharing`, `share_create`, `share_receive`, `get_identity_pk`.
-  - Frontend: share-create button in `EntryDetail`; share-receive in Settings panel.
 - `backend/tests/`: full integration test suite covering the scenarios in `design/testing.md`:
   full vault lifecycle, root key rotation, history overflow, corrupt blob handling,
   cross-type isolation, export completeness, backup round-trip (with mock S3), TOTP
@@ -197,5 +188,29 @@ packaged and all integration tests pass.
 - `cargo tauri build` succeeds and produces a runnable release binary.
 - Backup push/pull round-trip works against a real S3-compatible endpoint (Cloudflare R2
   in manual smoke test) or mock S3 in CI.
+
+---
+
+## M7: Entry Sharing
+
+**Goal:** Entry sharing between vault instances is implemented and tested.
+
+**Deliverables**
+
+- `backend/src/app.rs` sharing commands:
+  - `generate_identity_keypair` produces ML-KEM-1024 + X448 keypair; stores SK encrypted
+    under UMK, PK raw, in `key_store`.
+  - `share_create(entry_id, recipient_pk_b64)`: encapsulate shared secret with recipient
+    public key; encrypt `head_snapshot` JSON under shared secret; write `.sbsh` file.
+  - `share_receive(file_path)`: open `.sbsh` file; decapsulate shared secret using own SK;
+    decrypt snapshot; insert as new entry in vault.
+  - Commands: `init_sharing`, `share_create`, `share_receive`, `get_identity_pk`.
+- Frontend: share-create button in `EntryDetail`; share-receive in Settings panel.
+- Rust unit tests: keypair generation and storage, share round-trip between two vault
+  instances, wrong recipient key rejection, malformed `.sbsh` file rejection.
+
+**Acceptance**
+
+- `cargo test` passes all sharing tests.
 - `.sbsh` file created by one vault instance is importable by another vault instance
   with the correct recipient keypair.
