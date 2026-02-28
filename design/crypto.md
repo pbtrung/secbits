@@ -16,6 +16,7 @@ ciphers on a quantum computer, so 512-bit parameters retain 256-bit security.
 ## Constants
 
 ```
+HEADER_LEN            = 4    bytes   ("SB10")
 SALT_LEN              = 64   bytes
 USER_MASTER_KEY_LEN   = 64   bytes
 DOC_KEY_LEN           = 64   bytes
@@ -23,7 +24,8 @@ ENC_KEY_LEN           = 64   bytes   (512-bit AEAD key)
 ENC_IV_LEN            = 64   bytes   (512-bit IV)
 TAG_LEN               = 64   bytes   (512-bit auth tag)
 HKDF_OUT_LEN          = 128  bytes   (= ENC_KEY_LEN + ENC_IV_LEN)
-MASTER_BLOB_LEN       = 192  bytes   (= SALT_LEN + UMK_LEN + TAG_LEN)
+MASTER_BLOB_LEN       = 196  bytes   (= HEADER_LEN + SALT_LEN + UMK_LEN + TAG_LEN)
+AAD_LEN               = 68   bytes   (= HEADER_LEN + SALT_LEN)
 ```
 
 ## Key Hierarchy
@@ -51,40 +53,76 @@ root_master_key  (≥256 B raw, base64 in config)
 Each level uses a freshly generated random salt. The same plaintext encrypted twice
 always produces different ciphertext; IV reuse is structurally impossible.
 
-## Blob Format
+## Blob Format (version 1.0)
+
+Every blob begins with a 4-byte header that encodes the magic identifier and
+format version. The current format is **version 1.0**, identified by the ASCII
+string `SB10` (`0x53 0x42 0x31 0x30`): `SB` for SecBits, `10` for version 1.0.
 
 `encryptBytesToBlob(key, plaintext)` produces:
 
 ```
-salt (64) || ciphertext (var) || tag (64)
+SB10 (4) || salt (64) || ciphertext (var) || tag (64)
 ```
 
 `decryptBytesFromBlob(key, blob)` parses:
 
 ```
-salt  = blob[0..64]
-ciphertext = blob[64..len-64]
-tag   = blob[len-64..len]
+header     = blob[0..4]        -- must equal "SB10"; reject otherwise
+salt       = blob[4..68]
+ciphertext = blob[68..len-64]
+tag        = blob[len-64..len]
 ```
 
-Steps:
-1. Generate 64 random salt bytes.
-2. `HKDF-SHA3-512(ikm=key, salt=salt)` → first 64 bytes = `encKey`, last 64 = `encIv`.
-3. `Ascon-Keccak-512-AEAD-encrypt(encKey, encIv, plaintext)` → `ciphertext || tag`.
-4. Return `salt || ciphertext || tag`.
+Minimum valid blob length: `4 + 64 + 0 + 64 = 132 bytes`.
 
-On decryption, authentication failure → `AppError::DecryptionFailedAuthentication`.
+### Additional Authenticated Data (AAD)
+
+The AEAD tag covers the header and salt in addition to the ciphertext:
+
+```
+AAD = header (4) || salt (64)  =  68 bytes
+```
+
+Any modification to the magic, version, or salt bytes causes tag verification
+to fail before any plaintext is returned. This makes the full blob tamper-evident
+and fast-fails on blobs that are not SecBits vault objects.
+
+### Steps
+
+Encrypt:
+1. Generate 64 random salt bytes.
+2. Compute `AAD = "SB10" || salt`.
+3. `HKDF-SHA3-512(ikm=key, salt=salt)` → first 64 bytes = `encKey`, last 64 = `encIv`.
+4. `Ascon-Keccak-512-AEAD-encrypt(encKey, encIv, plaintext, AAD)` → `ciphertext || tag`.
+5. Return `"SB10" || salt || ciphertext || tag`.
+
+Decrypt:
+1. Check `blob[0..4] == "SB10"`; return `AppError::InvalidBlobFormat` if not.
+2. Extract `salt`, `ciphertext`, `tag`.
+3. Recompute `AAD = "SB10" || salt`.
+4. Re-derive `encKey + encIv` via HKDF.
+5. `Ascon-Keccak-512-AEAD-decrypt(encKey, encIv, ciphertext, tag, AAD)`.
+6. Authentication failure → `AppError::DecryptionFailedAuthentication`.
+
 A wrong root key causes failure at the user master key blob decrypt step →
 `AppError::WrongRootMasterKey`.
 
+### Version scheme
+
+The 4-byte header encodes both identity and version in one fixed-width field.
+Future format changes increment the version suffix: `SB11`, `SB20`, etc.
+Decoders check the full 4 bytes; an unknown header is rejected immediately.
+
 ## User Master Key Blob
 
-192-byte blob stored in `key_store WHERE type='umk'`:
+196-byte blob stored in `key_store WHERE type='umk'`:
 
 ```
-salt[0..64]      random HKDF salt
-enc_umk[64..128] AEAD-encrypted 64-byte user master key
-tag[128..192]    authentication tag
+header[0..4]     "SB10"
+salt[4..68]      random HKDF salt
+enc_umk[68..132] AEAD-encrypted 64-byte user master key
+tag[132..196]    authentication tag
 ```
 
 This blob is decrypted once per session unlock. The decrypted user master key lives
@@ -96,13 +134,13 @@ Each entry row has two blobs:
 
 **`entries.entry_key`**: encrypted doc key:
 ```
-salt(64) || encrypted_doc_key(64) || tag(64)  =  192 bytes
+"SB10"(4) || salt(64) || encrypted_doc_key(64) || tag(64)  =  196 bytes
 ```
 Encrypted under the user master key.
 
 **`entries.value`**: encrypted history:
 ```
-salt(64) || brotli_ciphertext(var) || tag(64)
+"SB10"(4) || salt(64) || brotli_ciphertext(var) || tag(64)
 ```
 Encrypted under the entry's doc key. The plaintext is Brotli-compressed history JSON.
 
