@@ -124,7 +124,7 @@ backup_pull(target)               → void
 | `design/ipc.md` | Tauri IPC command surface: params, return types, errors |
 | `design/tech_stack.md` | Dependencies, versions, project layout |
 | `design/testing.md` | Test plan: what to test, edge cases, integration scenarios |
-| `plan.md` | Six-milestone implementation plan |
+| `design/plan.md` | Six-milestone implementation plan |
 
 ## Build & Test
 
