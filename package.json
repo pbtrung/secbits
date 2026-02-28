@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "WEBKIT_DISABLE_DMABUF_RENDERER=1 tauri"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
