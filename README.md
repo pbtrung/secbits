@@ -9,7 +9,7 @@ you configure an optional S3-compatible encrypted backup.
 ## Features
 
 - **Three entry types** — Login, Secure Note, Credit Card
-- **Version history** — up to 10 commits per entry with field-level diffs and restore
+- **Version history** — up to 20 commits per entry with field-level diffs and restore
 - **TOTP** — live RFC 6238 codes with 30-second countdown
 - **Password generator** — configurable length, character classes
 - **Tags + full-text search** — filter by tag or search across titles and usernames
@@ -55,24 +55,19 @@ Config file: `~/.config/secbits/config.toml`
 
 Required fields: `root_master_key_b64`, `db_path`, `username`
 
-## Source Branches
-
-This repository contains three branches:
+## Branches
 
 | Branch | Contents |
 |--------|---------|
-| `tauri` | This branch — Tauri desktop app (current target) |
-| `main` | React + Vite + Firebase web app (UI source) |
-| `rust` | Offline-first Rust CLI (backend logic source) |
-
-The Tauri app combines the UI from `main` with the Rust backend from `rust`,
-replacing the Firebase/Cloudflare layer with Tauri IPC commands.
+| `main` | Tauri desktop app (this branch) |
+| `web` | React + Vite web app |
+| `rust` | Rust CLI |
 
 ## Design Docs
 
 - `design/architecture.md` — system architecture and decisions
 - `design/crypto.md` — cipher spec, key hierarchy, blob format
-- `design/data-model.md` — entry schema, history object, commit/delta rules
+- `design/data_model.md` — entry schema, history object, commit/delta rules
 - `design/features.md` — full feature surface
 - `design/ipc.md` — Tauri IPC command surface
-- `design/tech-stack.md` — dependencies and project structure
+- `design/tech_stack.md` — dependencies and project structure

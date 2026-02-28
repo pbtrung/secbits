@@ -6,13 +6,6 @@ Offline-first desktop password manager. Tauri 2 shell wraps a React/Vite fronten
 and a Rust backend. All data is stored in a local SQLite database. No server or
 cloud dependency is required; S3-compatible encrypted backups are optional.
 
-## Source Branches
-
-UI components come from branch `main` (React, Bootstrap, TOTP, validation, password
-generator). Rust logic comes from branch `rust` (crypto, model, db, config modules).
-This `tauri` branch combines both under a Tauri shell, replacing the Firebase +
-Cloudflare Worker layer with Tauri IPC commands.
-
 ## Tech Stack
 
 ```
@@ -39,13 +32,13 @@ secbits/
 ├── src/                        React frontend
 │   ├── main.jsx
 │   ├── App.jsx                 root state, session flow, IPC calls
-│   ├── api.js                  Tauri invoke() wrappers (replaces fetch-based api.js)
+│   ├── api.js                  Tauri invoke() wrappers
 │   ├── crypto.js               client-side crypto (leancrypto WASM, for key rotation UI)
 │   ├── totp.js                 RFC 6238 TOTP
 │   ├── validation.js           field validation
 │   ├── entryUtils.js           entry type metadata
 │   ├── limits.js               field length limits
-│   └── components/             UI components (from main branch)
+│   └── components/             UI components
 │       ├── AppSetup.jsx        unlock / first-run setup
 │       ├── TagsSidebar.jsx
 │       ├── EntryList.jsx
@@ -61,7 +54,7 @@ secbits/
 │       ├── main.rs             Tauri app entry point
 │       ├── commands.rs         #[tauri::command] handlers
 │       ├── state.rs            AppState (session, db handle)
-│       ├── app.rs              business logic (adapted from rust branch)
+│       ├── app.rs              business logic
 │       ├── crypto.rs           HKDF + AEAD + blob encode/decode
 │       ├── model.rs            EntrySnapshot, HistoryObject, delta logic
 │       ├── db.rs               SQLite CRUD
@@ -71,21 +64,6 @@ secbits/
 │       └── error.rs            AppError enum
 └── src-tauri/leancrypto/       leancrypto C headers + link config
 ```
-
-## Key Differences from Source Branches
-
-**vs `main` branch (web app):**
-- No Firebase Authentication — vault is unlocked with the root master key from config
-- No Cloudflare Worker — no HTTP round-trip; all I/O is local via Tauri IPC
-- No R2 storage — data stored in local SQLite
-- No single vault blob — per-entry encrypted rows (same model as `rust` branch)
-- leancrypto WASM not used in frontend for primary crypto — Rust backend handles all encryption
-
-**vs `rust` branch (CLI):**
-- No clap CLI — Tauri `#[tauri::command]` handlers replace CLI subcommands
-- Interactive prompts replaced by React UI
-- Session state managed in React (same as web app)
-- History cap raised from 10 to 20 commits to match web app UX
 
 ## Module Map (Rust backend)
 
@@ -105,9 +83,9 @@ secbits/
 ## Key Invariants
 
 - **Blob layout**: `salt(64) || ciphertext || tag(64)`. Details: `design/crypto.md`.
-- **History object**: `head` + `head_snapshot` + `commits[]`. Details: `design/data-model.md`.
+- **History object**: `head` + `head_snapshot` + `commits[]`. Details: `design/data_model.md`.
 - **Key hierarchy**: root_master_key → user_master_key → per-entry doc_key. Details: `design/crypto.md`.
-- **Max history**: 20 commits per entry (matches web app UX; web app uses same cap).
+- **Max history**: 20 commits per entry.
 - **Oldest commit**: always carries a full-snapshot delta (reconstruction baseline).
 - **Dedup**: if content hash of new snapshot equals current head, no commit is appended.
 - **Session**: decrypted keys live only in `AppState` (Rust heap) and React state (JS heap). Nothing written to disk beyond the encrypted SQLite DB.
@@ -143,10 +121,10 @@ backup_pull(target)               → void
 |------|---------|
 | `design/architecture.md` | Architecture decisions and rationale |
 | `design/crypto.md` | Cipher spec, key hierarchy, blob format, constants |
-| `design/data-model.md` | Entry schema, history object, commit/delta rules |
+| `design/data_model.md` | Entry schema, history object, commit/delta rules |
 | `design/features.md` | Full feature surface |
 | `design/ipc.md` | Tauri IPC command surface: params, return types, errors |
-| `design/tech-stack.md` | Dependencies, versions, project layout |
+| `design/tech_stack.md` | Dependencies, versions, project layout |
 
 ## Config
 

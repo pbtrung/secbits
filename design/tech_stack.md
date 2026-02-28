@@ -1,4 +1,4 @@
-# Tech Stack — SecBits Tauri
+# Tech Stack — SecBits
 
 ## Overview
 
@@ -26,7 +26,7 @@
 | `@tauri-apps/api` | Tauri invoke(), file dialog, OS integration |
 | `bootstrap` | CSS framework |
 | `bootstrap-icons` | Icon set |
-| `@noble/hashes` | HMAC-SHA1 for TOTP (fallback if leancrypto WASM not loaded) |
+| `@noble/hashes` | HMAC-SHA1 for TOTP |
 | `brotli-wasm` | Brotli decompression in frontend (for export display) |
 
 Dev dependencies:
@@ -38,9 +38,8 @@ Dev dependencies:
 | `vitest` | Frontend test runner |
 | `@vitest/coverage-v8` | Coverage reports |
 
-leancrypto WASM is not a primary frontend dependency in the Tauri app — all
-encryption is done in the Rust backend. It may be included for the key rotation
-helper UI.
+leancrypto WASM is not a primary frontend dependency — all encryption is done in
+the Rust backend. It may be included for the key rotation helper UI.
 
 ---
 
@@ -51,7 +50,7 @@ helper UI.
 | Crate | Purpose |
 |-------|---------|
 | `tauri` | Desktop shell, IPC command registration |
-| `tauri-plugin-shell` | (if needed for system interactions) |
+| `tauri-plugin-shell` | System interactions |
 | `rusqlite` (bundled feature) | SQLite with bundled sqlite3 |
 | `leancrypto-sys` | FFI: Ascon-Keccak-512 AEAD + HKDF-SHA3-512 + ML-KEM-1024+X448 |
 | `brotli` | Brotli compress/decompress |
@@ -86,10 +85,10 @@ secbits/
 ├── design/                     Design documentation
 │   ├── architecture.md
 │   ├── crypto.md
-│   ├── data-model.md
+│   ├── data_model.md
 │   ├── features.md
 │   ├── ipc.md
-│   └── tech-stack.md           (this file)
+│   └── tech_stack.md           (this file)
 │
 ├── package.json                Frontend dependencies
 ├── package-lock.json
@@ -149,7 +148,7 @@ secbits/
 
 ## UI Layout
 
-Three-column desktop layout (adapted from `main` branch):
+Three-column desktop layout:
 
 ```
 ┌────────────────┬──────────────────────┬──────────────────────────┐
@@ -209,18 +208,3 @@ cargo tauri build       # Produces platform binary in src-tauri/target/release/b
 cd src-tauri && cargo test   # Rust unit + integration tests
 npm test                     # Vitest frontend tests
 ```
-
----
-
-## Source Branches
-
-| Branch | Role |
-|--------|------|
-| `tauri` | This branch — Tauri desktop app |
-| `main` | React + Vite + Firebase web app — UI source |
-| `rust` | Offline-first Rust CLI — backend logic source |
-
-Frontend components were adapted from `main`. Rust modules (`crypto.rs`,
-`model.rs`, `db.rs`, `config.rs`, `backup.rs`, `compression.rs`, `error.rs`)
-were adapted from `rust`. The Tauri-specific files (`main.rs`, `commands.rs`,
-`state.rs`) and the IPC-adapted `app.rs` are new in this branch.
