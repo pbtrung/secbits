@@ -2,109 +2,174 @@
 
 ## SQLite Schema
 
-### users
+### vault_info
 
 ```sql
-CREATE TABLE users (
-  user_id          INTEGER PRIMARY KEY,
-  username         TEXT UNIQUE NOT NULL,
-  user_master_key  BLOB NOT NULL   -- encryptBytesToBlob(root_master_key, umk)
+CREATE TABLE vault_info (
+  key    TEXT PRIMARY KEY,
+  value  TEXT NOT NULL
 );
 ```
 
-One row per vault user. `user_master_key` is a 192-byte encrypted blob (see
-`design/crypto.md`).
+Single-row-per-key config store. Populated on `init_vault`.
+
+| key | value |
+|-----|-------|
+| `username` | display name |
+| `created_at` | ISO 8601 |
+| `schema_version` | integer string |
+
+### key_store
+
+```sql
+CREATE TABLE key_store (
+  key_id     INTEGER PRIMARY KEY,
+  type       TEXT NOT NULL,
+  label      TEXT,
+  value      BLOB NOT NULL,
+  created_at TEXT NOT NULL,
+  rotated_at TEXT
+);
+```
+
+All key material lives here. `type` is a discriminant string backed by a Rust
+enum (`KeyType`); business logic never does ad-hoc string comparisons.
+
+| type | label | value | count |
+|------|-------|-------|-------|
+| `umk` | NULL | `encrypt(root_master_key, user_master_key)` | 1 |
+| `identity_sk` | NULL | `encrypt(umk, ml_kem_x448_secret_key)` | 0 or 1 |
+| `identity_pk` | NULL | raw ML-KEM-1024+X448 public key bytes | 0 or 1 |
+| `contact_pk` | their username | raw public key bytes | 0..N |
+| `emergency` | contact name | `encrypt(contact_pk, umk_copy)` | 0..N |
+
+`rotated_at` is NULL until the key is replaced; kept for audit purposes.
+
+#### Key lookup for entry encryption/decryption
+
+```
+init:
+  row = SELECT value FROM key_store WHERE type = 'umk'
+  umk = decrypt(root_master_key, row.value)        -- held in AppState
+
+per-entry read:
+  row = SELECT entry_key, value FROM entries WHERE entry_id = ?
+  doc_key = decrypt(umk, row.entry_key)
+  history = decompress(decrypt(doc_key, row.value))
+
+per-entry write:
+  doc_key = random_bytes(64)                       -- fresh per entry
+  entry_key = encrypt(umk, doc_key)
+  value = encrypt(doc_key, compress(json(history)))
+```
+
+No `key_id` is needed in `entries`. There is always exactly one active UMK row
+(`WHERE type='umk'`). Root key rotation re-wraps the UMK blob but does not
+change the UMK bytes themselves, so `entry_key` blobs are unaffected.
 
 ### entries
 
 ```sql
 CREATE TABLE entries (
-  entry_id    INTEGER PRIMARY KEY,
-  user_id     INTEGER NOT NULL REFERENCES users(user_id),
-  path_hint   TEXT NOT NULL UNIQUE,  -- e.g. "mail/google/main"
-  type        TEXT NOT NULL,         -- "login" | "note" | "card"
-  deleted_at  TEXT,                  -- ISO 8601 if in trash, NULL otherwise
-  entry_key   BLOB NOT NULL,         -- encryptBytesToBlob(umk, doc_key)
-  value       BLOB NOT NULL          -- encryptBytesToBlob(doc_key, brotli(JSON(history)))
+  entry_id  INTEGER PRIMARY KEY,
+  entry_key BLOB NOT NULL,   -- encrypt(umk, doc_key)
+  value     BLOB NOT NULL    -- encrypt(doc_key, brotli(json(history)))
 );
 ```
 
-`path_hint` is the display/address key. `entry_key` is 192 bytes
-(encrypted 64-byte doc key). `value` is variable-length (encrypted, compressed
-history JSON).
+No plaintext metadata columns. All entry data (type, title, path, tags, fields)
+lives inside the encrypted `value`. On unlock the full list is decrypted into
+memory; this is the standard approach for personal vaults.
 
-## Entry Types
+### trash
 
-Three types, set at creation, immutable afterward:
-
-| Type | Fields |
-|------|--------|
-| `"login"` | title, username, password, notes, urls, totpSecrets, customFields, tags |
-| `"note"` | title, notes, tags |
-| `"card"` | title, cardholderName, cardNumber, expiry, cvv, notes, tags |
-
-## EntrySnapshot
-
-The current (or historical) state of one entry:
-
-```json
-{
-  "title":         "string (required)",
-  "username":      "string",
-  "password":      "string",
-  "cardholderName":"string",
-  "cardNumber":    "string",
-  "expiry":        "string (MM/YY)",
-  "cvv":           "string",
-  "notes":         "string",
-  "urls":          ["string"],
-  "totpSecrets":   ["string"],
-  "customFields":  [{ "id": 1, "label": "string", "value": "string" }],
-  "tags":          ["string"],
-  "timestamp":     "ISO 8601"
-}
+```sql
+CREATE TABLE trash (
+  entry_id   INTEGER PRIMARY KEY REFERENCES entries(entry_id),
+  deleted_at TEXT NOT NULL   -- ISO 8601
+);
 ```
 
-Fields not relevant to the entry type are absent or empty. Change detection
-operates on: `title`, `username`, `password`, `cardholderName`, `cardNumber`,
-`expiry`, `cvv`, `notes`, `urls`, `totpSecrets`, `customFields`, `tags`.
+Soft delete: entry row stays in `entries`; a row is inserted here.
+- **Restore**: delete the `trash` row.
+- **Purge**: delete the `trash` row then the `entries` row.
 
-## History Object
+Active entries: `SELECT * FROM entries WHERE entry_id NOT IN (SELECT entry_id FROM trash)`.
+Trashed entries: `SELECT e.* FROM entries e JOIN trash t ON e.entry_id = t.entry_id`.
 
-Stored (encrypted + compressed) in `entries.value`:
+## Encrypted Value: History Object
+
+The JSON stored inside `entries.value` (after decrypt + decompress):
 
 ```json
 {
-  "head":          "a1b2c3d4e5f6",
-  "head_snapshot": { "...": "..." },
+  "type": "login",
+  "head": "a1b2c3d4e5f6",
+  "head_snapshot": {
+    "title":        "Gmail",
+    "username":     "alice@gmail.com",
+    "password":     "...",
+    "notes":        "",
+    "urls":         ["https://mail.google.com"],
+    "totpSecrets":  [],
+    "customFields": [],
+    "tags":         ["email"],
+    "timestamp":    "2026-02-28T14:30:00Z"
+  },
   "commits": [
     {
       "hash":      "a1b2c3d4e5f6",
-      "parent":    "f7e8d9c0b1a2",
-      "timestamp": "2026-02-28T14:30:00Z",
-      "changed":   ["password"],
-      "delta":     null
-    },
-    {
-      "hash":      "f7e8d9c0b1a2",
       "parent":    null,
-      "timestamp": "2026-02-28T12:00:00Z",
-      "changed":   ["title", "password"],
-      "delta": {
-        "set":   { "title": "old title", "password": "old pass" },
-        "unset": []
-      }
+      "timestamp": "2026-02-28T14:30:00Z",
+      "changed":   ["title", "username", "password"],
+      "delta":     null
     }
   ]
 }
 ```
 
-### Commit Rules
+`type` is at the history object level because it is immutable (set at creation,
+never changed). It is not duplicated inside snapshots or deltas.
+
+## Entry Types
+
+Three types, fixed at creation:
+
+| type | fields in snapshot |
+|------|--------------------|
+| `"login"` | title, username, password, notes, urls, totpSecrets, customFields, tags |
+| `"note"` | title, notes, tags |
+| `"card"` | title, cardholderName, cardNumber, expiry, cvv, notes, tags |
+
+## EntrySnapshot Fields
+
+```json
+{
+  "title":          "string (required)",
+  "username":       "string",
+  "password":       "string",
+  "cardholderName": "string",
+  "cardNumber":     "string",
+  "expiry":         "string (MM/YY)",
+  "cvv":            "string",
+  "notes":          "string",
+  "urls":           ["string"],
+  "totpSecrets":    ["string"],
+  "customFields":   [{ "id": 1, "label": "string", "value": "string" }],
+  "tags":           ["string"],
+  "timestamp":      "ISO 8601"
+}
+```
+
+Fields absent from a snapshot are treated as empty. Change detection operates on
+all fields except `timestamp`.
+
+## Commit Rules
 
 1. `commits[0]` is HEAD. `delta` is always `null` for HEAD; current state is
    read directly from `head_snapshot`.
 2. Commits at index 1+ carry `delta.set` (field values at that commit) and
-   `delta.unset` (fields that were absent/empty).
+   `delta.unset` (fields that were absent/empty at that commit).
 3. The oldest commit (`parent: null`) always carries a full-snapshot delta:
    all fields set to their values at that commit. This is the reconstruction
    baseline.
@@ -113,8 +178,7 @@ Stored (encrypted + compressed) in `entries.value`:
 
 ### Commit Hash
 
-`SHA-256(content_json_without_timestamp)`, first 12 hex characters. Computed
-by `content_hash()` in `model.rs`.
+`SHA-256(content_json_without_timestamp)`, first 12 hex characters.
 
 ### Dedup
 
@@ -131,29 +195,17 @@ commit is appended.
 | `customFields` | matched by `id`, not array index |
 | All others | direct string equality |
 
-## Trash (Soft Delete)
-
-Deleting an entry sets `deleted_at` to the current ISO 8601 timestamp. The row
-stays in the database. The history object is preserved intact.
-
-Trash operations:
-- **Restore**: clear `deleted_at`.
-- **Purge** (permanent delete): `DELETE` the row.
-
-Trash entries are excluded from the main entry list and search but are returned
-by a separate `list_trash` command/query.
-
 ## Restore Flow
 
 `restore_to_commit(history, hash)`:
 1. If `hash == history.head`, return early; already at target.
 2. Reconstruct the target snapshot by applying deltas backward from `head_snapshot`.
 3. Call `append_snapshot(history, reconstructed)` with a fresh timestamp.
-4. Dedup check: if reconstructed content hash == current head, no commit is appended.
+4. Dedup check: if reconstructed content hash equals current head, no commit appended.
 
 ## Export Format
 
-`export_vault()` returns a JSON object:
+`export_vault()` returns plaintext JSON (a warning is shown before calling):
 
 ```json
 {
@@ -161,7 +213,7 @@ by a separate `list_trash` command/query.
   "username": "alice",
   "data": [
     {
-      "id":           "path_hint string",
+      "id":           1,
       "type":         "login",
       "title":        "Gmail",
       "username":     "alice@gmail.com",
@@ -178,15 +230,13 @@ by a separate `list_trash` command/query.
   ],
   "trash": [
     {
-      "id":        "...",
+      "id":        2,
       "type":      "login",
       "title":     "Old entry",
-      "deletedAt": "2026-02-28T10:00:00Z",
-      "...":       "..."
+      "deletedAt": "2026-02-28T10:00:00Z"
     }
   ]
 }
 ```
 
-`id` is the `path_hint`. `_commits` is the linearized commit list without deltas.
-The export is plaintext JSON; not encrypted. A warning is shown before export.
+`id` is `entry_id`. `_commits` is the linearized commit list without delta values.

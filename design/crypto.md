@@ -32,8 +32,8 @@ MASTER_BLOB_LEN       = 192  bytes   (= SALT_LEN + UMK_LEN + TAG_LEN)
 root_master_key  (≥256 B raw, base64 in config)
 │
 ├── HKDF-SHA3-512(root_master_key, random_salt) → encKey + encIv
-│   └── AEAD-encrypt(user_master_key) → user_master_key_blob
-│       stored in: users.user_master_key (192 B)
+│   └── AEAD-encrypt(user_master_key) → umk_blob
+│       stored in: key_store WHERE type='umk' (192 B)
 │
 └── user_master_key  (64 B, decrypted in memory per session)
     │
@@ -79,7 +79,7 @@ A wrong root key causes failure at the user master key blob decrypt step →
 
 ## User Master Key Blob
 
-192-byte blob stored in `users.user_master_key`:
+192-byte blob stored in `key_store WHERE type='umk'`:
 
 ```
 salt[0..64]      random HKDF salt
