@@ -83,9 +83,13 @@ region     = "us-east-1"
 
 ## Design Docs
 
-- `design/architecture.md`: system architecture and decisions
-- `design/crypto.md`: cipher spec, key hierarchy, blob format
-- `design/data_model.md`: entry schema, history object, commit/delta rules
-- `design/features.md`: full feature surface
-- `design/ipc.md`: Tauri IPC command surface
-- `design/tech_stack.md`: dependencies and project structure
+| File | Contents |
+|------|----------|
+| `design/architecture.md` | Architecture decisions and rationale |
+| `design/crypto.md` | Cipher spec, key hierarchy, blob format, constants |
+| `design/data_model.md` | SQLite schema, history object, commit and delta rules |
+| `design/features.md` | Full feature surface |
+| `design/ipc.md` | Tauri IPC command surface: params, return types, errors |
+| `design/tech_stack.md` | Dependencies, versions, project layout |
+| `design/testing.md` | Test plan: what to test, edge cases, integration scenarios |
+| `plan.md` | Six-milestone implementation plan |
