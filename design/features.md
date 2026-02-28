@@ -74,7 +74,7 @@ Configurable random password generation:
 ## Version History
 
 - Per-entry, capped at 20 commits.
-- Each commit identified by a 12-hex-character SHA-256 content hash.
+- Each commit identified by a 32-hex-character SHA-256 content hash.
 - `changed` array lists fields that differ from the prior commit.
 - Field-level diff viewer in the UI: shows old/new values side-by-side.
 - Restore to any commit: creates a new commit with the restored snapshot.
@@ -125,7 +125,7 @@ Backup blob: AEAD-encrypted copy of the raw SQLite file. Storage provider sees
 only opaque ciphertext. S3 object keys include ISO 8601 timestamps for
 lexicographic ordering.
 
-## Entry Sharing (Planned, M10)
+## Entry Sharing
 
 Share individual entry snapshots with other SecBits users via `.sbsh` files:
 - Uses ML-KEM-1024 + X448 hybrid KEM (post-quantum safe, forward secrecy).

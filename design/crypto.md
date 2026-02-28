@@ -6,7 +6,7 @@
 |-----------|-----------|----------------|
 | AEAD | Ascon-Keccak-512 | leancrypto-sys FFI |
 | Key derivation | HKDF-SHA3-512 | leancrypto-sys FFI |
-| Commit hash | SHA-256 (first 12 hex chars) | sha2 crate |
+| Commit hash | SHA-256 (first 32 hex chars) | sha2 crate |
 | TOTP | HMAC-SHA1 | hmac + sha1 crates |
 
 All AEAD parameters are 512 bits (64 bytes). This provides 256-bit post-quantum
@@ -131,7 +131,7 @@ per share. Only `head_snapshot` is shared; commit history is never sent.
 
 ## Commit Hash
 
-`SHA-256(content_json_without_timestamp)`, first 12 hex characters.
+`SHA-256(content_json_without_timestamp)`, first 32 hex characters.
 
 Used as a stable identifier for `history` display and `restore_to_commit`. Not used
 for authentication or integrity (AEAD handles that). 48 bits of collision resistance

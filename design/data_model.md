@@ -178,7 +178,7 @@ all fields except `timestamp`.
 
 ### Commit Hash
 
-`SHA-256(content_json_without_timestamp)`, first 12 hex characters.
+`SHA-256(content_json_without_timestamp)`, first 32 hex characters.
 
 ### Dedup
 
