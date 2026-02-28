@@ -103,7 +103,7 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
           {entries.map((entry) => (
             <button
               key={entry.id}
-              className={`list-group-item list-group-item-action px-3 d-flex flex-column justify-content-center ${
+              className={`list-group-item list-group-item-action px-3 py-2 d-flex flex-column ${
                 selectedEntryId === entry.id ? 'active' : ''
               }`}
               style={{ minHeight: '5rem' }}
