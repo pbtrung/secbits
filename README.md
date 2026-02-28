@@ -55,14 +55,6 @@ Config file: `~/.config/secbits/config.toml`
 
 Required fields: `root_master_key_b64`, `db_path`, `username`
 
-## Branches
-
-| Branch | Contents |
-|--------|---------|
-| `main` | Tauri desktop app (this branch) |
-| `web` | React + Vite web app |
-| `rust` | Rust CLI |
-
 ## Design Docs
 
 - `design/architecture.md` — system architecture and decisions
