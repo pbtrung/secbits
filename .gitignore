@@ -1,0 +1,30 @@
+# Node / Vite
+node_modules/
+dist/
+.vite/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Rust / Cargo
+target/
+**/*.rs.bk
+
+# Backend build artifacts
+backend/target/
+
+# Tauri generated artifacts
+backend/gen/
+
+# Environment and local config
+.env
+.env.*
+!.env.example
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
