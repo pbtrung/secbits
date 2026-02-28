@@ -169,6 +169,18 @@ impl AppError {
     }
 }
 
+impl From<std::io::Error> for AppError {
+    fn from(value: std::io::Error) -> Self {
+        Self::Io(value.to_string())
+    }
+}
+
+impl From<rusqlite::Error> for AppError {
+    fn from(value: rusqlite::Error) -> Self {
+        Self::Database(value.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::AppError;
