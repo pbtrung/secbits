@@ -1,4 +1,4 @@
-# Cryptography — SecBits
+# Cryptography
 
 ## Algorithms
 
@@ -13,8 +13,6 @@ All AEAD parameters are 512 bits (64 bytes). This provides 256-bit post-quantum
 security margin: Grover's algorithm halves the effective key length of symmetric
 ciphers on a quantum computer, so 512-bit parameters retain 256-bit security.
 
----
-
 ## Constants
 
 ```
@@ -27,8 +25,6 @@ TAG_LEN               = 64   bytes   (512-bit auth tag)
 HKDF_OUT_LEN          = 128  bytes   (= ENC_KEY_LEN + ENC_IV_LEN)
 MASTER_BLOB_LEN       = 192  bytes   (= SALT_LEN + UMK_LEN + TAG_LEN)
 ```
-
----
 
 ## Key Hierarchy
 
@@ -53,9 +49,7 @@ root_master_key  (≥256 B raw, base64 in config)
 ```
 
 Each level uses a freshly generated random salt. The same plaintext encrypted twice
-always produces different ciphertext — IV reuse is structurally impossible.
-
----
+always produces different ciphertext; IV reuse is structurally impossible.
 
 ## Blob Format
 
@@ -83,49 +77,41 @@ On decryption, authentication failure → `AppError::DecryptionFailedAuthenticat
 A wrong root key causes failure at the user master key blob decrypt step →
 `AppError::WrongRootMasterKey`.
 
----
-
 ## User Master Key Blob
 
 192-byte blob stored in `users.user_master_key`:
 
 ```
-salt[0..64]     random HKDF salt
+salt[0..64]      random HKDF salt
 enc_umk[64..128] AEAD-encrypted 64-byte user master key
-tag[128..192]   authentication tag
+tag[128..192]    authentication tag
 ```
 
 This blob is decrypted once per session unlock. The decrypted user master key lives
 in `AppState` for the duration of the session and is zeroed on lock.
 
----
-
 ## Per-Entry Key Wrapping
 
 Each entry row has two blobs:
 
-**`entries.entry_key`** — encrypted doc key:
+**`entries.entry_key`**: encrypted doc key:
 ```
 salt(64) || encrypted_doc_key(64) || tag(64)  =  192 bytes
 ```
 Encrypted under the user master key.
 
-**`entries.value`** — encrypted history:
+**`entries.value`**: encrypted history:
 ```
 salt(64) || brotli_ciphertext(var) || tag(64)
 ```
 Encrypted under the entry's doc key. The plaintext is Brotli-compressed history JSON.
 
----
-
 ## Brotli Compression
 
 History JSON is compressed with Brotli before encryption. Compression:
 - Happens before encryption (encrypted data is random-looking; compressors find no structure).
-- Achieves 50–70% reduction on typical JSON with repetitive field names.
+- Achieves 50 to 70% reduction on typical JSON with repetitive field names.
 - Hidden inside the AEAD envelope; compressed size is not observable.
-
----
 
 ## Sharing: ML-KEM-1024 + X448 Hybrid KEM
 
@@ -143,8 +129,6 @@ Both ML-KEM-1024 and X448 must be broken simultaneously to compromise a share.
 Each `encapsulate()` call generates a fresh ephemeral X448 scalar → forward secrecy
 per share. Only `head_snapshot` is shared; commit history is never sent.
 
----
-
 ## Commit Hash
 
 `SHA-256(content_json_without_timestamp)`, first 12 hex characters.
@@ -153,18 +137,14 @@ Used as a stable identifier for `history` display and `restore_to_commit`. Not u
 for authentication or integrity (AEAD handles that). 48 bits of collision resistance
 is more than sufficient for a personal vault.
 
----
-
 ## leancrypto FFI Notes
 
 - `lc_init(0)` called once via `std::sync::Once`.
 - AEAD context: `lc_ak_alloc_taglen(lc_sha3_512, 64, ...)`, freed with `lc_aead_zero_free`
-  (zeroizes memory before freeing — no key material left on heap).
+  (zeroizes memory before freeing; no key material left on heap).
 - Algorithm type verified after alloc: `lc_aead_ctx_algorithm_type(ctx)` must equal
   `lc_aead_algorithm_type(lc_ascon_keccak_aead)`.
 - HKDF: `lc_hkdf(lc_sha3_512, ...)`.
-
----
 
 ## Security Properties
 

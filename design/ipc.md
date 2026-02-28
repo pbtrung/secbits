@@ -1,12 +1,10 @@
-# Tauri IPC Commands — SecBits
+# Tauri IPC Commands
 
 All commands are invoked from the frontend with `invoke(commandName, args)`.
 Commands are registered in `src-tauri/src/commands.rs` and wired into the Tauri
 builder in `src-tauri/src/main.rs`.
 
 Errors are returned as structured JSON objects from `AppError` variants.
-
----
 
 ## Session
 
@@ -22,8 +20,6 @@ invoke("unlock_vault"): Promise<void>
 
 Errors: `ConfigNotFound`, `DatabaseNotFound`, `WrongRootMasterKey`, `UserNotFound`.
 
----
-
 ### `lock_vault()`
 
 Zero session keys in `AppState`. React state should be cleared by the caller.
@@ -32,8 +28,6 @@ Zero session keys in `AppState`. React state should be cleared by the caller.
 invoke("lock_vault"): Promise<void>
 ```
 
----
-
 ### `is_initialized()`
 
 Return whether the database has been initialized for the configured username.
@@ -41,8 +35,6 @@ Return whether the database has been initialized for the configured username.
 ```ts
 invoke("is_initialized"): Promise<boolean>
 ```
-
----
 
 ### `init_vault(username: string)`
 
@@ -55,14 +47,12 @@ invoke("init_vault", { username: string }): Promise<void>
 
 Errors: `DatabaseAlreadyInitialized`, `ConfigNotFound`.
 
----
-
 ## Entries (Active)
 
 ### `list_entries(filter?: string)`
 
 Return all active (non-deleted) entries matching an optional path prefix or tag
-filter. Returns metadata only — no decrypted field values.
+filter. Returns metadata only; no decrypted field values.
 
 ```ts
 invoke("list_entries", { filter?: string }): Promise<EntryMeta[]>
@@ -76,8 +66,6 @@ interface EntryMeta {
   updatedAt: string    // ISO 8601, timestamp of HEAD commit
 }
 ```
-
----
 
 ### `get_entry(id: string)`
 
@@ -95,8 +83,6 @@ interface EntryDetail {
 
 Errors: `EntryNotFound`, `DecryptionFailedAuthentication`.
 
----
-
 ### `create_entry(path: string, type: EntryType, snapshot: EntrySnapshot)`
 
 Insert a new entry. `path` is the path_hint (e.g. `"mail/google/main"`).
@@ -110,8 +96,6 @@ invoke("create_entry", {
 ```
 
 Errors: `EntryAlreadyExists`, `InvalidPathHint`.
-
----
 
 ### `update_entry(id: string, snapshot: EntrySnapshot)`
 
@@ -127,8 +111,6 @@ invoke("update_entry", {
 
 Errors: `EntryNotFound`.
 
----
-
 ### `delete_entry(id: string)`
 
 Soft-delete an entry (move to trash). Sets `deleted_at` to now.
@@ -138,8 +120,6 @@ invoke("delete_entry", { id: string }): Promise<void>
 ```
 
 Errors: `EntryNotFound`.
-
----
 
 ## Trash
 
@@ -155,8 +135,6 @@ interface TrashedEntryMeta extends EntryMeta {
 }
 ```
 
----
-
 ### `get_trash_entry(id: string)`
 
 Decrypt and return the full snapshot of a trashed entry.
@@ -164,8 +142,6 @@ Decrypt and return the full snapshot of a trashed entry.
 ```ts
 invoke("get_trash_entry", { id: string }): Promise<EntryDetail>
 ```
-
----
 
 ### `restore_entry(id: string)`
 
@@ -177,8 +153,6 @@ invoke("restore_entry", { id: string }): Promise<EntryMeta>
 
 Errors: `EntryNotFound`.
 
----
-
 ### `purge_entry(id: string)`
 
 Permanently delete a trashed entry. No recovery path.
@@ -188,8 +162,6 @@ invoke("purge_entry", { id: string }): Promise<void>
 ```
 
 Errors: `EntryNotFound`.
-
----
 
 ## History
 
@@ -208,8 +180,6 @@ interface CommitMeta {
 }
 ```
 
----
-
 ### `get_commit_snapshot(id: string, hash: string)`
 
 Reconstruct and return the full snapshot at a specific commit (for diff display).
@@ -222,8 +192,6 @@ invoke("get_commit_snapshot", {
 ```
 
 Errors: `EntryNotFound`, `CommitNotFound`.
-
----
 
 ### `restore_to_commit(id: string, hash: string)`
 
@@ -238,8 +206,6 @@ invoke("restore_to_commit", {
 ```
 
 Errors: `EntryNotFound`, `CommitNotFound`.
-
----
 
 ## TOTP
 
@@ -259,8 +225,6 @@ interface TotpResult {
 
 Errors: `EntryNotFound`, `NoTotpSecret`.
 
----
-
 ## Export
 
 ### `export_vault()`
@@ -271,8 +235,6 @@ export format. Shows a warning in the UI before calling.
 ```ts
 invoke("export_vault"): Promise<string>  // JSON string
 ```
-
----
 
 ## Settings
 
@@ -286,8 +248,6 @@ invoke("rotate_master_key", { newKeyB64: string }): Promise<void>
 ```
 
 Errors: `InvalidRootMasterKey`.
-
----
 
 ### `get_vault_stats()`
 
@@ -308,8 +268,6 @@ interface VaultStats {
 }
 ```
 
----
-
 ## Backups
 
 ### `backup_push(target?: string)`
@@ -324,8 +282,6 @@ invoke("backup_push", { target?: string }): Promise<void>
 
 Errors: `BackupTargetNotConfigured`, `BackupUploadFailed`.
 
----
-
 ### `backup_pull(target: string)`
 
 Download the latest encrypted backup from an S3 target and atomically replace
@@ -336,8 +292,6 @@ invoke("backup_pull", { target: string }): Promise<void>
 ```
 
 Errors: `BackupTargetNotConfigured`, `BackupDownloadFailed`, `DecryptionFailedAuthentication`.
-
----
 
 ## Shared Types
 
@@ -360,8 +314,6 @@ interface EntrySnapshot {
   timestamp: string   // ISO 8601; set by backend on create/update
 }
 ```
-
----
 
 ## Error Types
 

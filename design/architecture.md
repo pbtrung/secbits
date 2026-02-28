@@ -1,8 +1,6 @@
-# Architecture — SecBits
+# Architecture
 
 Architecture decisions and their rationale.
-
----
 
 ## Tauri 2 Desktop Shell
 
@@ -11,13 +9,11 @@ frontend and a Rust backend.
 
 **Why:** Tauri gives native desktop integration (file system access, OS keychain,
 system tray) while keeping the frontend in the web stack. The Rust backend runs in
-the same process as the Tauri shell, so IPC is a function call — no network
+the same process as the Tauri shell, so IPC is a function call; no network
 round-trip, no serialization overhead beyond JSON.
 
 Compared to Electron: Tauri uses the OS webview and a Rust (not Node) backend,
 producing much smaller binaries and a much smaller attack surface.
-
----
 
 ## Offline-First: All Data in Local SQLite
 
@@ -27,8 +23,6 @@ sync daemon, no network dependency for normal operation.
 **Why:** A local SQLite file works on an air-gapped machine and is trivially backed
 up by copying one file. There is no service whose outage, network partition, or
 shutdown can make data inaccessible.
-
----
 
 ## Tauri IPC Command Bridge
 
@@ -42,8 +36,6 @@ GUI model cleanly: no argument parsing, no stdout formatting, no HTTP round-trip
 `src-tauri/src/commands.rs` registers handlers; `app.rs` contains the business
 logic they delegate to.
 
----
-
 ## Two-Level Key Wrapping
 
 **Decision:** Root master key → user master key → per-entry doc key.
@@ -53,8 +45,6 @@ logic they delegate to.
 2. Per-entry doc keys limit blast radius: a leaked doc key compromises one entry only.
 
 See `design/crypto.md` for the full key hierarchy.
-
----
 
 ## React Frontend
 
@@ -68,8 +58,6 @@ modals) keep each panel independently testable.
 `api.js` is the only module that calls `invoke()`; all components receive data
 as props or through state, making them agnostic to the IPC layer.
 
----
-
 ## Session State Split Between Rust and React
 
 **Decision:** Unlocked session keys live in Rust (`AppState`); display state
@@ -82,8 +70,6 @@ React owns presentation.
 
 On lock, Rust zeroes keys in `AppState` (via `zeroize`). React state clears on
 re-render.
-
----
 
 ## Rust Backend Handles All Encryption
 
@@ -100,8 +86,6 @@ The leancrypto WASM bundle may be included for a key rotation helper UI
 (validating a new root key format before sending it to Rust) but is not on
 the critical encryption path.
 
----
-
 ## Structured Error Propagation via Tauri IPC
 
 **Decision:** `AppError` variants are serialized to JSON by Tauri and received
@@ -112,18 +96,14 @@ by the frontend as structured objects, not raw strings.
 serializes `Err(AppError::WrongRootMasterKey)` as `{ "type": "WrongRootMasterKey" }`
 which the frontend can pattern-match.
 
----
-
 ## History Cap: 20 Commits
 
 **Decision:** Maximum 20 commits per entry.
 
 **Why:** The history diff modal makes version history discoverable and useful,
 so a higher cap is warranted. 20 commits is a reasonable bound for typical usage.
-Storage cost is negligible — deltas are small and the full history is
+Storage cost is negligible; deltas are small and the full history is
 Brotli-compressed before storage.
-
----
 
 ## Backups: S3-Compatible Encrypted Push/Pull
 

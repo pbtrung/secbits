@@ -1,4 +1,4 @@
-# Features — SecBits
+# Features
 
 ## Vault
 
@@ -11,8 +11,6 @@
 | Trash | Soft delete with restore. Permanent delete from trash. Full history preserved. |
 | Export | Download decrypted vault as JSON (includes trash). |
 | Encrypted backups | Optional S3-compatible push/pull (Cloudflare R2, AWS S3, GCS, MinIO). |
-
----
 
 ## Entry Types
 
@@ -55,8 +53,6 @@ Payment card details.
 | Notes | Free text |
 | Tags | Multiple tags |
 
----
-
 ## TOTP
 
 Live RFC 6238 TOTP codes displayed inline:
@@ -65,8 +61,6 @@ Live RFC 6238 TOTP codes displayed inline:
 - Multiple secrets per entry.
 - Auto-refresh on step boundary.
 - Copy-to-clipboard button.
-
----
 
 ## Password Generator
 
@@ -77,8 +71,6 @@ Configurable random password generation:
 - `"` and `\` excluded (require escaping in JSON).
 - Uses cryptographically secure random source.
 
----
-
 ## Version History
 
 - Per-entry, capped at 20 commits.
@@ -87,8 +79,6 @@ Configurable random password generation:
 - Field-level diff viewer in the UI: shows old/new values side-by-side.
 - Restore to any commit: creates a new commit with the restored snapshot.
 - Dedup: saving with no semantic change does not create a commit.
-
----
 
 ## Trash
 
@@ -100,15 +90,11 @@ Deleting an entry moves it to trash (soft delete). Trashed entries:
 
 The trash is included in vault exports.
 
----
-
 ## Search and Filter
 
 - Full-text search across entry titles, usernames, and URLs.
 - Tag sidebar for filtering by tag. Tag counts shown.
 - Combined filter: tag + search string.
-
----
 
 ## Settings
 
@@ -119,36 +105,30 @@ The trash is included in vault exports.
 | Backups | Push to / pull from configured S3 targets |
 | About | Vault stats: entry count, type breakdown, history metrics, top tags |
 
----
-
 ## Vault Unlock / Session
 
 - On launch, app reads config file for `root_master_key`, `db_path`, `username`.
 - Unlock: config is loaded, user master key decrypted, session established.
 - Lock: session keys zeroed in Rust (`AppState`), React state cleared.
-- No persistent login state — unlock required on each app launch.
-
----
+- No persistent login state; unlock required on each app launch.
 
 ## Backups
 
 Optional S3-compatible encrypted backups.
 
-- `backup push [--target <name>]` — encrypt and upload local SQLite file to S3.
-- `backup push --all` — push to all configured targets.
-- `backup pull --target <name>` — download, decrypt, and atomically replace local DB.
-- `backup_on_save = true` in config — auto-push after each write operation.
+- `backup push [--target <name>]`: encrypt and upload local SQLite file to S3.
+- `backup push --all`: push to all configured targets.
+- `backup pull --target <name>`: download, decrypt, and atomically replace local DB.
+- `backup_on_save = true` in config: auto-push after each write operation.
 
 Backup blob: AEAD-encrypted copy of the raw SQLite file. Storage provider sees
 only opaque ciphertext. S3 object keys include ISO 8601 timestamps for
 lexicographic ordering.
 
----
-
-## Entry Sharing (Planned — M10)
+## Entry Sharing (Planned, M10)
 
 Share individual entry snapshots with other SecBits users via `.sbsh` files:
 - Uses ML-KEM-1024 + X448 hybrid KEM (post-quantum safe, forward secrecy).
 - Only the current `head_snapshot` is shared; commit history is not included.
-- `.sbsh` files are self-contained — no server required; any channel works.
+- `.sbsh` files are self-contained; no server required; any channel works.
 - Recipient imports with `share-receive`; entry is added to their vault.

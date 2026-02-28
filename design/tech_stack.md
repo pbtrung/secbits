@@ -1,4 +1,4 @@
-# Tech Stack — SecBits
+# Tech Stack
 
 ## Overview
 
@@ -15,8 +15,6 @@
 | Compression | brotli | 8.0 |
 | Styling | Bootstrap 5 | 5.3 |
 | Icons | Bootstrap Icons | 1.13+ |
-
----
 
 ## Frontend Dependencies (package.json)
 
@@ -38,10 +36,8 @@ Dev dependencies:
 | `vitest` | Frontend test runner |
 | `@vitest/coverage-v8` | Coverage reports |
 
-leancrypto WASM is not a primary frontend dependency — all encryption is done in
+leancrypto WASM is not a primary frontend dependency; all encryption is done in
 the Rust backend. It may be included for the key rotation helper UI.
-
----
 
 ## Rust Dependencies (Cargo.toml)
 
@@ -73,8 +69,6 @@ the Rust backend. It may be included for the key rotation helper UI.
 |-------|---------|
 | `tempfile` | Temporary SQLite files in tests |
 | `tokio` (test feature) | Async test support if needed |
-
----
 
 ## Project Structure
 
@@ -144,8 +138,6 @@ secbits/
         └── error.rs            AppError enum (thiserror + serde)
 ```
 
----
-
 ## UI Layout
 
 Three-column desktop layout:
@@ -162,11 +154,9 @@ Three-column desktop layout:
 └────────────────┴──────────────────────┴──────────────────────────┘
 ```
 
-Columns 1–2 and 2–3 boundaries are draggable via `ResizeHandle`.
+Column boundaries are draggable via `ResizeHandle`.
 
 Mobile: stacked single-column view with back navigation.
-
----
 
 ## Config File
 
@@ -174,12 +164,12 @@ TOML at `~/.config/secbits/config.toml` (or `SECBITS_CONFIG` env var).
 
 ```toml
 root_master_key = "<base64-encoded ≥256-byte key>"
-db_path             = "~/.local/share/secbits/vault.db"
-username            = "alice"
+db_path         = "~/.local/share/secbits/vault.db"
+username        = "alice"
 
 # Optional
-backup_on_save      = false
-log_level           = "warn"
+backup_on_save  = false
+log_level       = "warn"
 
 [targets.r2]
 endpoint   = "https://<account>.r2.cloudflarestorage.com"
@@ -188,8 +178,6 @@ access_key = "<key>"
 secret_key = "<secret>"
 region     = "auto"
 ```
-
----
 
 ## Dev Workflow
 

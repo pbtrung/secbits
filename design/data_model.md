@@ -1,4 +1,4 @@
-# Data Model — SecBits
+# Data Model
 
 ## SQLite Schema
 
@@ -29,11 +29,9 @@ CREATE TABLE entries (
 );
 ```
 
-`path_hint` is the display/address key (pass-style). `entry_key` is 192 bytes
+`path_hint` is the display/address key. `entry_key` is 192 bytes
 (encrypted 64-byte doc key). `value` is variable-length (encrypted, compressed
 history JSON).
-
----
 
 ## Entry Types
 
@@ -44,8 +42,6 @@ Three types, set at creation, immutable afterward:
 | `"login"` | title, username, password, notes, urls, totpSecrets, customFields, tags |
 | `"note"` | title, notes, tags |
 | `"card"` | title, cardholderName, cardNumber, expiry, cvv, notes, tags |
-
----
 
 ## EntrySnapshot
 
@@ -72,8 +68,6 @@ The current (or historical) state of one entry:
 Fields not relevant to the entry type are absent or empty. Change detection
 operates on: `title`, `username`, `password`, `cardholderName`, `cardNumber`,
 `expiry`, `cvv`, `notes`, `urls`, `totpSecrets`, `customFields`, `tags`.
-
----
 
 ## History Object
 
@@ -111,7 +105,7 @@ Stored (encrypted + compressed) in `entries.value`:
    read directly from `head_snapshot`.
 2. Commits at index 1+ carry `delta.set` (field values at that commit) and
    `delta.unset` (fields that were absent/empty).
-3. The oldest commit (`parent: null`) always carries a full-snapshot delta —
+3. The oldest commit (`parent: null`) always carries a full-snapshot delta:
    all fields set to their values at that commit. This is the reconstruction
    baseline.
 4. Max commits = 20. On overflow: drop oldest (FIFO), reconstruct full snapshot
@@ -124,7 +118,7 @@ by `content_hash()` in `model.rs`.
 
 ### Dedup
 
-If `content_hash(new_snapshot) == history.head`, the save is a no-op — no
+If `content_hash(new_snapshot) == history.head`, the save is a no-op; no
 commit is appended.
 
 ### Semantic Diff (normalize_for_compare)
@@ -136,8 +130,6 @@ commit is appended.
 | `totpSecrets` | set comparison |
 | `customFields` | matched by `id`, not array index |
 | All others | direct string equality |
-
----
 
 ## Trash (Soft Delete)
 
@@ -151,22 +143,17 @@ Trash operations:
 Trash entries are excluded from the main entry list and search but are returned
 by a separate `list_trash` command/query.
 
----
-
 ## Restore Flow
 
 `restore_to_commit(history, hash)`:
-1. If `hash == history.head`, return early — already at target.
+1. If `hash == history.head`, return early; already at target.
 2. Reconstruct the target snapshot by applying deltas backward from `head_snapshot`.
 3. Call `append_snapshot(history, reconstructed)` with a fresh timestamp.
 4. Dedup check: if reconstructed content hash == current head, no commit is appended.
 
----
-
 ## Export Format
 
-`export_vault()` returns a JSON object matching the web app export format for
-interoperability:
+`export_vault()` returns a JSON object:
 
 ```json
 {
@@ -202,4 +189,4 @@ interoperability:
 ```
 
 `id` is the `path_hint`. `_commits` is the linearized commit list without deltas.
-The export is plaintext JSON — not encrypted. A warning is shown before export.
+The export is plaintext JSON; not encrypted. A warning is shown before export.
