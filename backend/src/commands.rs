@@ -1,5 +1,6 @@
 use crate::Result;
 use crate::app;
+use crate::model::EntrySnapshot;
 use crate::state::AppState;
 
 #[tauri::command]
@@ -20,4 +21,69 @@ pub fn unlock_vault(state: tauri::State<'_, AppState>) -> Result<()> {
 #[tauri::command]
 pub fn lock_vault(state: tauri::State<'_, AppState>) -> Result<()> {
     app::lock_vault(&state)
+}
+
+#[tauri::command]
+pub fn create_entry(
+    state: tauri::State<'_, AppState>,
+    entry_type: String,
+    snapshot: EntrySnapshot,
+) -> Result<app::EntryMeta> {
+    app::create_entry(&state, entry_type, snapshot)
+}
+
+#[tauri::command]
+pub fn get_entry(state: tauri::State<'_, AppState>, id: i64) -> Result<app::EntryDetail> {
+    app::get_entry(&state, id)
+}
+
+#[tauri::command]
+pub fn update_entry(
+    state: tauri::State<'_, AppState>,
+    id: i64,
+    snapshot: EntrySnapshot,
+) -> Result<app::EntryMeta> {
+    app::update_entry(&state, id, snapshot)
+}
+
+#[tauri::command]
+pub fn delete_entry(state: tauri::State<'_, AppState>, id: i64) -> Result<()> {
+    app::delete_entry(&state, id)
+}
+
+#[tauri::command]
+pub fn list_entries(
+    state: tauri::State<'_, AppState>,
+    filter: Option<String>,
+) -> Result<Vec<app::EntryMeta>> {
+    app::list_entries(&state, filter)
+}
+
+#[tauri::command]
+pub fn list_trash(state: tauri::State<'_, AppState>) -> Result<Vec<app::TrashedEntryMeta>> {
+    app::list_trash(&state)
+}
+
+#[tauri::command]
+pub fn get_trash_entry(state: tauri::State<'_, AppState>, id: i64) -> Result<app::EntryDetail> {
+    app::get_trash_entry(&state, id)
+}
+
+#[tauri::command]
+pub fn restore_entry(state: tauri::State<'_, AppState>, id: i64) -> Result<app::EntryMeta> {
+    app::restore_entry(&state, id)
+}
+
+#[tauri::command]
+pub fn purge_entry(state: tauri::State<'_, AppState>, id: i64) -> Result<()> {
+    app::purge_entry(&state, id)
+}
+
+#[tauri::command]
+pub fn restore_to_commit(
+    state: tauri::State<'_, AppState>,
+    id: i64,
+    hash: String,
+) -> Result<app::EntryMeta> {
+    app::restore_to_commit(&state, id, hash)
 }

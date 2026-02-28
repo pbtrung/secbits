@@ -16,6 +16,10 @@ impl SessionState {
         self.user_master_key = Some(key);
     }
 
+    pub fn user_master_key(&self) -> Option<Vec<u8>> {
+        self.user_master_key.clone()
+    }
+
     pub fn is_unlocked(&self) -> bool {
         self.user_master_key.is_some()
     }

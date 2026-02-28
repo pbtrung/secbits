@@ -1,8 +1,8 @@
 # Tauri IPC Commands
 
 All commands are invoked from the frontend with `invoke(commandName, args)`.
-Commands are registered in `src-tauri/src/commands.rs` and wired into the Tauri
-builder in `src-tauri/src/main.rs`.
+Commands are registered in `backend/src/commands.rs` and wired into the Tauri
+builder in `backend/src/main.rs`.
 
 Errors are returned as structured JSON objects from `AppError` variants.
 
@@ -51,14 +51,19 @@ Errors: `DatabaseAlreadyInitialized`, `ConfigNotFound`.
 
 ### `list_entries(filter?: string)`
 
-Return all active (non-deleted) entries matching an optional path prefix or tag
-filter. Returns metadata only; no decrypted field values.
+Return all active (non-deleted) entries matching an optional tag filter or
+case-insensitive substring search over title, username, and URLs. Returns
+metadata only; no decrypted field values.
+
+Filter syntax:
+- `tag:<value>` — case-insensitive tag match
+- anything else — substring search over title, username, URLs
 
 ```ts
 invoke("list_entries", { filter?: string }): Promise<EntryMeta[]>
 
 interface EntryMeta {
-  id: string           // path_hint
+  id: number           // entry_id (SQLite integer primary key)
   type: EntryType      // "login" | "note" | "card"
   title: string
   username?: string    // login only
@@ -67,15 +72,15 @@ interface EntryMeta {
 }
 ```
 
-### `get_entry(id: string)`
+### `get_entry(id: number)`
 
 Decrypt and return the full current snapshot for one entry.
 
 ```ts
-invoke("get_entry", { id: string }): Promise<EntryDetail>
+invoke("get_entry", { id: number }): Promise<EntryDetail>
 
 interface EntryDetail {
-  id: string
+  id: number
   type: EntryType
   snapshot: EntrySnapshot
 }
@@ -83,40 +88,37 @@ interface EntryDetail {
 
 Errors: `EntryNotFound`, `DecryptionFailedAuthentication`.
 
-### `create_entry(path: string, type: EntryType, snapshot: EntrySnapshot)`
+### `create_entry(entryType: EntryType, snapshot: EntrySnapshot)`
 
-Insert a new entry. `path` is the path_hint (e.g. `"mail/google/main"`).
+Insert a new entry. Returns the entry metadata including the assigned `id`.
 
 ```ts
 invoke("create_entry", {
-  path: string,
-  type: EntryType,
+  entryType: EntryType,
   snapshot: EntrySnapshot,
 }): Promise<EntryMeta>
 ```
 
-Errors: `EntryAlreadyExists`, `InvalidPathHint`.
-
-### `update_entry(id: string, snapshot: EntrySnapshot)`
+### `update_entry(id: number, snapshot: EntrySnapshot)`
 
 Update an existing entry. If the new snapshot content hash equals the current
 HEAD, returns the current entry unchanged (dedup).
 
 ```ts
 invoke("update_entry", {
-  id: string,
+  id: number,
   snapshot: EntrySnapshot,
 }): Promise<EntryMeta>
 ```
 
 Errors: `EntryNotFound`.
 
-### `delete_entry(id: string)`
+### `delete_entry(id: number)`
 
 Soft-delete an entry (move to trash). Sets `deleted_at` to now.
 
 ```ts
-invoke("delete_entry", { id: string }): Promise<void>
+invoke("delete_entry", { id: number }): Promise<void>
 ```
 
 Errors: `EntryNotFound`.
@@ -135,42 +137,42 @@ interface TrashedEntryMeta extends EntryMeta {
 }
 ```
 
-### `get_trash_entry(id: string)`
+### `get_trash_entry(id: number)`
 
 Decrypt and return the full snapshot of a trashed entry.
 
 ```ts
-invoke("get_trash_entry", { id: string }): Promise<EntryDetail>
+invoke("get_trash_entry", { id: number }): Promise<EntryDetail>
 ```
 
-### `restore_entry(id: string)`
+### `restore_entry(id: number)`
 
 Move a trashed entry back to active. Clears `deleted_at`.
 
 ```ts
-invoke("restore_entry", { id: string }): Promise<EntryMeta>
+invoke("restore_entry", { id: number }): Promise<EntryMeta>
 ```
 
 Errors: `EntryNotFound`.
 
-### `purge_entry(id: string)`
+### `purge_entry(id: number)`
 
 Permanently delete a trashed entry. No recovery path.
 
 ```ts
-invoke("purge_entry", { id: string }): Promise<void>
+invoke("purge_entry", { id: number }): Promise<void>
 ```
 
 Errors: `EntryNotFound`.
 
 ## History
 
-### `get_history(id: string)`
+### `get_history(id: number)`
 
 Return the commit list for an entry (without decrypting delta values).
 
 ```ts
-invoke("get_history", { id: string }): Promise<CommitMeta[]>
+invoke("get_history", { id: number }): Promise<CommitMeta[]>
 
 interface CommitMeta {
   hash: string
@@ -180,27 +182,27 @@ interface CommitMeta {
 }
 ```
 
-### `get_commit_snapshot(id: string, hash: string)`
+### `get_commit_snapshot(id: number, hash: string)`
 
 Reconstruct and return the full snapshot at a specific commit (for diff display).
 
 ```ts
 invoke("get_commit_snapshot", {
-  id: string,
+  id: number,
   hash: string,
 }): Promise<EntrySnapshot>
 ```
 
 Errors: `EntryNotFound`, `CommitNotFound`.
 
-### `restore_to_commit(id: string, hash: string)`
+### `restore_to_commit(id: number, hash: string)`
 
 Restore an entry to a prior commit. Creates a new HEAD commit with the
 reconstructed snapshot. Returns the updated entry meta.
 
 ```ts
 invoke("restore_to_commit", {
-  id: string,
+  id: number,
   hash: string,
 }): Promise<EntryMeta>
 ```
@@ -209,13 +211,13 @@ Errors: `EntryNotFound`, `CommitNotFound`.
 
 ## TOTP
 
-### `get_totp(id: string)`
+### `get_totp(id: number)`
 
 Compute the current RFC 6238 TOTP code for an entry. Returns all codes if the
 entry has multiple TOTP secrets.
 
 ```ts
-invoke("get_totp", { id: string }): Promise<TotpResult[]>
+invoke("get_totp", { id: number }): Promise<TotpResult[]>
 
 interface TotpResult {
   code: string         // 6-digit string, zero-padded
@@ -326,15 +328,15 @@ interface EntrySnapshot {
 | `DatabaseAlreadyInitialized` | `init_vault` called on existing DB |
 | `UserNotFound` | Username in config not in DB |
 | `WrongRootMasterKey` | Root key decryption failure |
+| `InvalidRootMasterKey` | New key is too short or not valid base64 |
+| `KeyDerivationFailed` | OS RNG failure during key generation |
 | `DecryptionFailedAuthentication` | AEAD tag mismatch |
+| `SessionLocked` | Command requires unlock; vault is locked |
 | `EntryNotFound` | ID does not exist in DB |
-| `EntryAlreadyExists` | `path_hint` collision on insert |
-| `InvalidPathHint` | Path contains invalid characters |
 | `CommitNotFound` | Hash not in entry history |
 | `NoTotpSecret` | Entry has no TOTP secrets |
-| `InvalidRootMasterKey` | New key is too short or not valid base64 |
 | `BackupTargetNotConfigured` | Named target absent from config |
 | `BackupUploadFailed` | S3 upload error |
 | `BackupDownloadFailed` | S3 download error |
-| `ShareKeysNotInitialized` | Sharing keypair not generated yet |
-| `Internal` | Unexpected error; includes message |
+| `ShareKeysNotInitialized` | Sharing keypair not generated yet (M7) |
+| `Other` | Unexpected internal error; includes message |
