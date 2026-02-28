@@ -2,26 +2,26 @@
 
 Offline-first, end-to-end encrypted desktop password manager.
 
-Built with Tauri 2 — Rust backend, React + Vite frontend, local SQLite storage.
+Built with Tauri 2 (Rust backend, React + Vite frontend, local SQLite storage).
 No server required. No cloud dependency. Your data never leaves your machine unless
 you configure an optional S3-compatible encrypted backup.
 
 ## Features
 
-- **Three entry types** — Login, Secure Note, Credit Card
-- **Version history** — up to 20 commits per entry with field-level diffs and restore
-- **TOTP** — live RFC 6238 codes with 30-second countdown
-- **Password generator** — configurable length, character classes
-- **Tags + full-text search** — filter by tag or search across titles and usernames
-- **Trash** — soft delete with restore; permanent delete from trash
-- **Export** — download full decrypted vault as JSON
-- **Encrypted backups** — optional S3-compatible push/pull (Cloudflare R2, AWS S3, etc.)
+- **Three entry types**: Login, Secure Note, Credit Card
+- **Version history**: up to 20 commits per entry with field-level diffs and restore
+- **TOTP**: live RFC 6238 codes with 30-second countdown
+- **Password generator**: configurable length, character classes
+- **Tags and full-text search**: filter by tag or search across titles and usernames
+- **Trash**: soft delete with restore; permanent delete from trash
+- **Export**: download full decrypted vault as JSON
+- **Encrypted backups**: optional S3-compatible push/pull (Cloudflare R2, AWS S3, etc.)
 
 ## Security
 
-- **Cipher**: Ascon-Keccak-512 AEAD with 512-bit key, IV, and tag — post-quantum safe
+- **Cipher**: Ascon-Keccak-512 AEAD with 512-bit key, IV, and tag (post-quantum safe)
 - **Key derivation**: HKDF-SHA3-512 with a fresh 64-byte random salt per encryption
-- **Two-level key wrapping**: root master key → user master key → per-entry doc key
+- **Two-level key wrapping**: root master key, user master key, per-entry doc key
 - **Compression**: Brotli before encryption; compressed size is hidden inside the AEAD envelope
 - **In-memory session**: decrypted data lives only in the Rust process and JS heap;
   nothing written to disk beyond the encrypted SQLite database
@@ -57,9 +57,9 @@ Required fields: `root_master_key_b64`, `db_path`, `username`
 
 ## Design Docs
 
-- `design/architecture.md` — system architecture and decisions
-- `design/crypto.md` — cipher spec, key hierarchy, blob format
-- `design/data_model.md` — entry schema, history object, commit/delta rules
-- `design/features.md` — full feature surface
-- `design/ipc.md` — Tauri IPC command surface
-- `design/tech_stack.md` — dependencies and project structure
+- `design/architecture.md`: system architecture and decisions
+- `design/crypto.md`: cipher spec, key hierarchy, blob format
+- `design/data_model.md`: entry schema, history object, commit/delta rules
+- `design/features.md`: full feature surface
+- `design/ipc.md`: Tauri IPC command surface
+- `design/tech_stack.md`: dependencies and project structure
