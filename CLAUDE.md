@@ -26,19 +26,18 @@ secbits/
 ├── CLAUDE.md
 ├── README.md
 ├── design/                     design docs (see below)
-├── package.json                frontend dependencies
+├── package.json
 ├── vite.config.js
 ├── index.html
-├── src/                        React frontend
+├── frontend/                   React frontend
 │   ├── main.jsx
 │   ├── App.jsx                 root state, session flow, IPC calls
 │   ├── api.js                  Tauri invoke() wrappers
-│   ├── crypto.js               client-side crypto (leancrypto WASM, for key rotation UI)
 │   ├── totp.js                 RFC 6238 TOTP
-│   ├── validation.js           field validation
+│   ├── validation.js
 │   ├── entryUtils.js           entry type metadata
-│   ├── limits.js               field length limits
-│   └── components/             UI components
+│   ├── limits.js
+│   └── components/
 │       ├── AppSetup.jsx        unlock / first-run setup
 │       ├── TagsSidebar.jsx
 │       ├── EntryList.jsx
@@ -47,22 +46,21 @@ secbits/
 │       ├── SettingsList.jsx
 │       ├── SettingsPanel.jsx
 │       └── ...
-├── src-tauri/                  Rust backend
-│   ├── Cargo.toml
-│   ├── tauri.conf.json
-│   └── src/
-│       ├── main.rs             Tauri app entry point
-│       ├── commands.rs         #[tauri::command] handlers
-│       ├── state.rs            AppState (session, db handle)
-│       ├── app.rs              business logic
-│       ├── crypto.rs           HKDF + AEAD + blob encode/decode
-│       ├── model.rs            EntrySnapshot, HistoryObject, delta logic
-│       ├── db.rs               SQLite CRUD
-│       ├── config.rs           TOML config load
-│       ├── backup.rs           S3-compatible backup push/pull
-│       ├── compression.rs      Brotli wrappers
-│       └── error.rs            AppError enum
-└── src-tauri/leancrypto/       leancrypto C headers + link config
+└── backend/                    Rust backend
+    ├── Cargo.toml
+    ├── tauri.conf.json
+    └── src/
+        ├── main.rs             Tauri app entry point
+        ├── commands.rs         #[tauri::command] handlers
+        ├── state.rs            AppState (session, db handle)
+        ├── app.rs              business logic
+        ├── crypto.rs           HKDF + AEAD + blob encode/decode
+        ├── model.rs            EntrySnapshot, HistoryObject, delta logic
+        ├── db.rs               SQLite CRUD
+        ├── config.rs           TOML config load
+        ├── backup.rs           S3 backup push/pull
+        ├── compression.rs      Brotli wrappers
+        └── error.rs            AppError enum
 ```
 
 ## Module Map (Rust backend)
@@ -82,7 +80,7 @@ secbits/
 
 ## Key Invariants
 
-- **Blob layout**: `salt(64) || ciphertext || tag(64)`. Details: `design/crypto.md`.
+- **Blob layout**: `magic(2) || version(2) || salt(64) || ciphertext || tag(64)`. Details: `design/crypto.md`.
 - **History object**: `head` + `head_snapshot` + `commits[]`. Details: `design/data_model.md`.
 - **Key hierarchy**: root_master_key → user_master_key → per-entry doc_key. Details: `design/crypto.md`.
 - **Max history**: 20 commits per entry.
@@ -132,6 +130,6 @@ backup_pull(target)               → void
 npm install                  # install frontend deps
 cargo tauri dev              # dev mode (Vite HMR + Tauri)
 cargo tauri build            # release binary
-cd src-tauri && cargo test   # Rust tests
+cd backend && cargo test     # Rust tests
 npm test                     # Vitest frontend tests
 ```
