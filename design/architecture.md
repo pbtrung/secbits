@@ -71,20 +71,21 @@ React owns presentation.
 On lock, Rust zeroes keys in `AppState` (via `zeroize`). React state clears on
 re-render.
 
-## Rust Backend Handles All Encryption
+## Rust Backend Handles All Crypto
 
-**Decision:** All encryption and decryption is performed by the Rust backend.
-The frontend does not do primary vault crypto.
+**Decision:** All encryption, decryption, and cryptographic random number
+generation is performed by the Rust backend. The frontend performs no crypto.
 
 **Why:** The Rust backend writes directly to SQLite and has direct access to
-leancrypto via FFI. Performing crypto in Rust keeps the security-critical path
-in one place, avoids loading a WASM bundle for operations already available
-natively, and makes the crypto layer independently testable without a browser
-environment.
+leancrypto via FFI and to the OS CSPRNG (`OsRng`). Keeping the entire crypto
+path in Rust means the security-critical surface is one module (`crypto.rs`),
+independently testable without a browser environment, and auditable without
+reasoning about JavaScript runtime behaviour.
 
-The leancrypto WASM bundle may be included for a key rotation helper UI
-(validating a new root key format before sending it to Rust) but is not on
-the critical encryption path.
+This extends to random byte generation: the Security settings page calls
+`generate_root_master_key()` IPC to obtain a 256-byte key from `OsRng`;
+the bytes are returned base64-encoded for display. The browser never generates
+or validates key material.
 
 ## Structured Error Propagation via Tauri IPC
 

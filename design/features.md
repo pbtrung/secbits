@@ -101,9 +101,9 @@ The trash is included in vault exports.
 | Page | Feature |
 |------|---------|
 | Export | Download decrypted vault as JSON |
-| Security | Rotate root master key |
+| Security | Generate root master key (256 bytes from backend OsRng, displayed as base64); rotate (re-encrypt UMK blob only; entries unaffected) |
 | Backups | Push to / pull from configured S3 targets |
-| About | Vault stats: entry count, type breakdown, history metrics, top tags |
+| About | Vault stats: entry count, type breakdown, field coverage per field, version history metrics (avg/max commits, never-edited count), top tags |
 
 ## Vault Unlock / Session
 

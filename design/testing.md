@@ -287,6 +287,10 @@ npm test
 
 **settings**
 
+- `generate_root_master_key` returns a non-empty base64 string.
+- Decoded bytes of the returned string are exactly 256 bytes.
+- Two consecutive calls return different values (OsRng is not deterministic).
+- `generate_root_master_key` does not require an active session (callable before `unlock_vault`).
 - `rotate_master_key` with a valid new key re-encrypts the UMK blob.
 - After rotation, `unlock_vault` with the old key returns `WrongRootMasterKey`.
 - After rotation, `unlock_vault` with the new key succeeds and all entries are intact.
@@ -294,6 +298,11 @@ npm test
 - `get_vault_stats` entry counts match actual rows in DB.
 - `get_vault_stats` type breakdown (loginCount, noteCount, cardCount) sums to entryCount.
 - `get_vault_stats` totalCommits equals sum of commit counts across all active entries.
+- `get_vault_stats` withPassword counts only entries where the password field is non-empty.
+- `get_vault_stats` withUrls and totalUrls are consistent: totalUrls equals the sum of url counts across entries where withUrls was incremented.
+- `get_vault_stats` maxCommits equals the highest commit depth among all active entries.
+- `get_vault_stats` neverEdited counts entries with exactly one commit.
+- `get_vault_stats` field coverage counts are all zero on an empty vault.
 
 ---
 

@@ -1,6 +1,6 @@
 # Implementation Plan
 
-Seven milestones, each with a working and testable deliverable. Later milestones build on
+Eight milestones, each with a working and testable deliverable. Later milestones build on
 earlier ones; no milestone leaves the codebase in a broken state.
 
 ---
@@ -106,7 +106,7 @@ and lock it. No entry operations yet.
   - `export_vault`: decrypt all active + trash entries; serialize to canonical JSON format.
   - `rotate_master_key`: validate new key length; re-encrypt UMK blob; persist.
   - `get_vault_stats`: count entries by type (requires decrypting each entry's history to
-    read type), commit totals, top tags.
+    read type), commit totals, top tags; field coverage counters deferred to M6.
 - `backend/src/commands.rs`: history, TOTP, export, and settings commands registered.
 - Rust unit tests: RFC 6238 test vectors for TOTP, export format completeness and
   correctness, key rotation (old key rejected, new key accepted, entries intact),
@@ -162,7 +162,54 @@ end-to-end.
 
 ---
 
-## M6: Backups and Release
+## M6: Settings Completion and Platform Fixes
+
+**Goal:** Settings pages are fully implemented with backend-sourced key generation.
+Platform-specific startup fixes ensure correct window management and renderer
+stability on Linux.
+
+**Deliverables**
+
+- `backend/src/app.rs`:
+  - `generate_root_master_key`: fill 256 bytes from `OsRng`, return base64-encoded.
+    No session required. Called by the frontend to populate the Security page key field.
+  - `get_vault_stats` extended: field coverage counters (`withPassword`, `withUsername`,
+    `withNotes`, `withUrls`/`totalUrls`, `withTotp`/`totalTotp`,
+    `withCustomFields`/`totalCustomFields`, `withTags`); version history counters
+    (`maxCommits`, `neverEdited`). All new fields camelCase-renamed for the frontend.
+- `backend/src/commands.rs`: `generate_root_master_key` registered (no `AppState` required).
+- `backend/src/main.rs`:
+  - `generate_root_master_key` added to `generate_handler!`.
+  - On Linux: `GDK_BACKEND=x11` forces GTK to use the X11 backend (restores KDE
+    server-side window decorations via XWayland). `WEBKIT_DISABLE_DMABUF_RENDERER=1`
+    prevents WebKitGTK DMA-BUF renderer crashes on Wayland compositors.
+- `backend/tauri.conf.json`: all bundle targets disabled; `cargo tauri build` produces
+  only the raw binary (no `.app`, `.deb`, `.rpm`, etc.). Bundle identifier set to
+  `com.secbits.desktop`.
+- `frontend/api.js`: `generateRootMasterKey()` wrapper for `generate_root_master_key`.
+- `frontend/components/SettingsPanel.jsx`:
+  - `AboutPage`: sectioned layout using `StatsHeading`/`StatsRow`/`StatsTable` helper
+    components; sections: Overview, Entry types, Field coverage, Version history,
+    Top tags. Field coverage and extended history rows render only when the backend
+    returns those fields (guards against partial `VaultStats` shapes during rollout).
+  - `SecurityPage`: on mount and on Regenerate, calls `generate_root_master_key()` IPC;
+    key shown in a read-only monospace textarea; Copy button with transient feedback;
+    separate `generating`/`rotating` loading states; `busy` flag gates all controls;
+    error alert surfaced when key generation fails (e.g. backend not yet available).
+
+**Acceptance**
+
+- `cargo test` passes all 39 tests (no regressions).
+- Security page shows a backend-generated 256-byte base64 key on load; Regenerate
+  fetches a fresh key; Copy copies it to clipboard.
+- About page shows Overview and Entry types for any vault; Field coverage and Version
+  history sections appear only when entries exist and the backend returns those fields.
+- `cargo tauri build` produces a raw binary with no bundle artifacts.
+- App launches without crash on KDE Plasma + Wayland (XWayland path) and on GNOME Wayland.
+
+---
+
+## M7: Backups and Release
 
 **Goal:** Optional S3 backups are complete. The release build is packaged and all
 integration tests pass.
@@ -192,7 +239,7 @@ integration tests pass.
 
 ---
 
-## M7: Entry Sharing
+## M8: Entry Sharing
 
 **Goal:** Entry sharing between vault instances is implemented and tested.
 
