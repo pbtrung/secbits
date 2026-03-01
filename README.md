@@ -41,41 +41,25 @@ See `design/crypto.md` for the full cipher spec.
 | Compression | Brotli |
 | Styling | Bootstrap 5 |
 
-## Development
+## Build & Test
 
-One-time setup (project root):
-
-```bash
-npm install              # install frontend dependencies
-```
-
-Start the dev server with hot reload (project root):
+All commands can be run from the project root using npm/npx:
 
 ```bash
-npx tauri dev
+npm install       # install frontend dependencies (one-time setup)
+npx tauri dev     # dev server with hot reload (Vite + Tauri)
+npx tauri build   # release binary → backend/target/release/secbits
+npm test          # Vitest frontend tests
 ```
 
-Run frontend tests (project root):
+Alternatively, run Rust commands directly from the `backend/` folder:
 
 ```bash
-npm test
+cd backend
+cargo tauri dev     # dev server with hot reload
+cargo tauri build   # release binary
+cargo test          # Rust unit and integration tests
 ```
-
-Run Rust unit and integration tests (`backend/` folder):
-
-```bash
-cargo test
-```
-
-## Release Build
-
-Build the release binary (`backend/` folder):
-
-```bash
-cargo tauri build
-```
-
-The binary is written to `backend/target/release/secbits`.
 
 ## Config
 
