@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use base64::{Engine as _, engine::general_purpose};
 use chrono::Utc;
@@ -9,6 +10,7 @@ use zeroize::Zeroize;
 
 use crate::Result;
 use crate::compression::{compress, decompress};
+use crate::config::{AppConfig, default_config_path, load_config};
 use crate::crypto::{DOC_KEY_LEN, USER_MASTER_KEY_LEN, decrypt_bytes_from_blob, encrypt_bytes_to_blob};
 use crate::db;
 use crate::error::AppError;
@@ -113,11 +115,64 @@ pub struct TagCount {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SetupInfo {
+    #[serde(rename = "defaultConfigPath")]
+    pub default_config_path: String,
+    #[serde(rename = "defaultConfigExists")]
+    pub default_config_exists: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct ExportPayload {
     version: u32,
     username: String,
     data: Vec<ExportEntry>,
     trash: Vec<ExportTrashEntry>,
+}
+
+pub fn get_setup_info() -> Result<SetupInfo> {
+    let path = default_config_path()?;
+    Ok(SetupInfo {
+        default_config_path: path.display().to_string(),
+        default_config_exists: path.is_file(),
+    })
+}
+
+pub fn select_config_path(state: &AppState, path: String) -> Result<()> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::ConfigNotFound);
+    }
+
+    let next_config = load_config(Some(PathBuf::from(trimmed)))?;
+    let next_conn = db::open_connection(&next_config.db_path)?;
+    db::create_schema(&next_conn)?;
+
+    {
+        let mut conn = state
+            .conn
+            .lock()
+            .map_err(|_| AppError::Other("database mutex poisoned".to_string()))?;
+        *conn = next_conn;
+    }
+
+    {
+        let mut session = state
+            .session
+            .lock()
+            .map_err(|_| AppError::Other("session mutex poisoned".to_string()))?;
+        session.clear();
+    }
+
+    {
+        let mut config = state
+            .config
+            .lock()
+            .map_err(|_| AppError::Other("config mutex poisoned".to_string()))?;
+        *config = next_config;
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -140,6 +195,7 @@ struct ExportTrashEntry {
 }
 
 pub fn init_vault(state: &AppState, username: String) -> Result<()> {
+    let config = current_config(state)?;
     let conn = state
         .conn
         .lock()
@@ -161,7 +217,7 @@ pub fn init_vault(state: &AppState, username: String) -> Result<()> {
         .try_fill_bytes(&mut user_master_key)
         .map_err(|_| AppError::KeyDerivationFailed)?;
 
-    let umk_blob = encrypt_bytes_to_blob(&state.config.root_master_key, &user_master_key)?;
+    let umk_blob = encrypt_bytes_to_blob(&config.root_master_key, &user_master_key)?;
     db::set_umk_blob(&conn, &umk_blob, &now)?;
     user_master_key.zeroize();
 
@@ -182,6 +238,7 @@ pub fn is_initialized(state: &AppState) -> Result<bool> {
 }
 
 pub fn unlock_vault(state: &AppState) -> Result<()> {
+    let config = current_config(state)?;
     let conn = state
         .conn
         .lock()
@@ -189,13 +246,13 @@ pub fn unlock_vault(state: &AppState) -> Result<()> {
     db::create_schema(&conn)?;
 
     let username = db::get_vault_info(&conn, "username")?.ok_or(AppError::UserNotFound)?;
-    if username != state.config.username {
+    if username != config.username {
         return Err(AppError::UserNotFound);
     }
 
     let umk_blob = db::get_umk_blob(&conn)?.ok_or(AppError::UserNotFound)?;
 
-    let user_master_key = match decrypt_bytes_from_blob(&state.config.root_master_key, &umk_blob) {
+    let user_master_key = match decrypt_bytes_from_blob(&config.root_master_key, &umk_blob) {
         Ok(key) => key,
         Err(AppError::DecryptionFailedAuthentication) => return Err(AppError::WrongRootMasterKey),
         Err(err) => return Err(err),
@@ -421,7 +478,8 @@ pub fn get_history(state: &AppState, id: i64) -> Result<Vec<CommitMeta>> {
         .lock()
         .map_err(|_| AppError::Other("database mutex poisoned".to_string()))?;
 
-    let row = db::get_active_entry(&conn, id)?.ok_or(AppError::EntryNotFound)?;
+    // History should be available for both active and trashed entries.
+    let row = db::get_entry(&conn, id)?.ok_or(AppError::EntryNotFound)?;
     let history = decrypt_history(&umk, &row.entry_key, &row.value)?;
 
     Ok(history.commits.into_iter().map(commit_to_meta).collect())
@@ -434,7 +492,8 @@ pub fn get_commit_snapshot(state: &AppState, id: i64, hash: String) -> Result<En
         .lock()
         .map_err(|_| AppError::Other("database mutex poisoned".to_string()))?;
 
-    let row = db::get_active_entry(&conn, id)?.ok_or(AppError::EntryNotFound)?;
+    // Commit snapshots should be available for both active and trashed entries.
+    let row = db::get_entry(&conn, id)?.ok_or(AppError::EntryNotFound)?;
     let history = decrypt_history(&umk, &row.entry_key, &row.value)?;
     reconstruct_snapshot(&history, &hash)
 }
@@ -452,6 +511,7 @@ pub fn get_totp(state: &AppState, id: i64) -> Result<Vec<TotpResult>> {
 }
 
 pub fn export_vault(state: &AppState) -> Result<String> {
+    let config = current_config(state)?;
     let umk = require_unlocked_umk(state)?;
     let conn = state
         .conn
@@ -487,7 +547,7 @@ pub fn export_vault(state: &AppState) -> Result<String> {
 
     let payload = ExportPayload {
         version: 1,
-        username: state.config.username.clone(),
+        username: config.username,
         data,
         trash,
     };
@@ -497,6 +557,13 @@ pub fn export_vault(state: &AppState) -> Result<String> {
 }
 
 pub fn rotate_master_key(state: &AppState, new_key_b64: String) -> Result<()> {
+    let current_root_key = {
+        let config = state
+            .config
+            .lock()
+            .map_err(|_| AppError::Other("config mutex poisoned".to_string()))?;
+        config.root_master_key.clone()
+    };
     let new_root_key =
         crate::config::decode_root_master_key(new_key_b64.trim()).map_err(|_| AppError::InvalidRootMasterKey)?;
 
@@ -506,7 +573,7 @@ pub fn rotate_master_key(state: &AppState, new_key_b64: String) -> Result<()> {
         .map_err(|_| AppError::Other("database mutex poisoned".to_string()))?;
 
     let umk_blob = db::get_umk_blob(&conn)?.ok_or(AppError::UserNotFound)?;
-    let mut umk = match decrypt_bytes_from_blob(&state.config.root_master_key, &umk_blob) {
+    let mut umk = match decrypt_bytes_from_blob(&current_root_key, &umk_blob) {
         Ok(v) => v,
         Err(AppError::DecryptionFailedAuthentication) => return Err(AppError::WrongRootMasterKey),
         Err(err) => return Err(err),
@@ -515,6 +582,13 @@ pub fn rotate_master_key(state: &AppState, new_key_b64: String) -> Result<()> {
     umk.zeroize();
 
     db::set_umk_blob(&conn, &rotated_blob, &now_iso())?;
+    drop(conn);
+
+    let mut config = state
+        .config
+        .lock()
+        .map_err(|_| AppError::Other("config mutex poisoned".to_string()))?;
+    config.root_master_key = new_root_key;
     Ok(())
 }
 
@@ -630,6 +704,14 @@ fn require_unlocked_umk(state: &AppState) -> Result<Vec<u8>> {
         .lock()
         .map_err(|_| AppError::Other("session mutex poisoned".to_string()))?;
     session.user_master_key().ok_or(AppError::SessionLocked)
+}
+
+fn current_config(state: &AppState) -> Result<AppConfig> {
+    let config = state
+        .config
+        .lock()
+        .map_err(|_| AppError::Other("config mutex poisoned".to_string()))?;
+    Ok(config.clone())
 }
 
 fn encrypt_history(doc_key: &[u8], history: &HistoryObject) -> Result<Vec<u8>> {
@@ -963,11 +1045,12 @@ mod tests {
         }
 
         let wrong_root = vec![9_u8; 256];
+        let state_config = state.config.lock().expect("config").clone();
         let wrong_state = AppState::new(
-            open_connection(&state.config.db_path).expect("open shared db"),
+            open_connection(&state_config.db_path).expect("open shared db"),
             AppConfig {
                 root_master_key: wrong_root,
-                db_path: state.config.db_path.clone(),
+                db_path: state_config.db_path.clone(),
                 username: "alice".to_string(),
                 backup_on_save: false,
                 log_level: "warn".to_string(),
@@ -1084,6 +1167,13 @@ mod tests {
 
         let older = get_commit_snapshot(&state, created.id, history[1].hash.clone()).expect("snapshot");
         assert_eq!(older.password, "one");
+
+        delete_entry(&state, created.id).expect("trash entry");
+        let trash_history = get_history(&state, created.id).expect("trash history");
+        assert_eq!(trash_history.len(), 2);
+        let trash_older =
+            get_commit_snapshot(&state, created.id, trash_history[1].hash.clone()).expect("trash snapshot");
+        assert_eq!(trash_older.password, "one");
     }
 
     #[test]
@@ -1186,11 +1276,12 @@ mod tests {
         rotate_master_key(&state, new_root_b64).expect("rotate");
         lock_vault(&state).expect("lock");
 
+        let state_config = state.config.lock().expect("config").clone();
         let old_state = AppState::new(
-            open_connection(&state.config.db_path).expect("open db old"),
+            open_connection(&state_config.db_path).expect("open db old"),
             AppConfig {
                 root_master_key: old_root,
-                db_path: state.config.db_path.clone(),
+                db_path: state_config.db_path.clone(),
                 username: "alice".to_string(),
                 backup_on_save: false,
                 log_level: "warn".to_string(),
@@ -1201,10 +1292,10 @@ mod tests {
         assert!(matches!(old_err, AppError::WrongRootMasterKey));
 
         let new_state = AppState::new(
-            open_connection(&state.config.db_path).expect("open db new"),
+            open_connection(&state_config.db_path).expect("open db new"),
             AppConfig {
                 root_master_key: new_root,
-                db_path: state.config.db_path.clone(),
+                db_path: state_config.db_path.clone(),
                 username: "alice".to_string(),
                 backup_on_save: false,
                 log_level: "warn".to_string(),

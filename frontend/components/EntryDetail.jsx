@@ -454,28 +454,16 @@ function EntryDetail({
 
         <div className="d-flex gap-2 align-items-center border-top pt-3 flex-wrap">
           {isTrashView ? (
-            <>
-              <SpinnerBtn
-                className="btn btn-success"
-                onClick={() => onRestoreEntry?.(entry.id)}
-                disabled={saving || deleting}
-                busy={saving}
-                busyLabel="Restoring..."
-                icon="bi-arrow-counterclockwise"
-              >
-                Restore
-              </SpinnerBtn>
-              <SpinnerBtn
-                className="btn btn-danger ms-auto"
-                onClick={handleDelete}
-                disabled={saving || deleting}
-                busy={deleting}
-                busyLabel="Deleting..."
-                icon="bi-trash"
-              >
-                Delete
-              </SpinnerBtn>
-            </>
+            <SpinnerBtn
+              className="btn btn-success"
+              onClick={() => onRestoreEntry?.(entry.id)}
+              disabled={saving || deleting}
+              busy={saving}
+              busyLabel="Restoring..."
+              icon="bi-arrow-counterclockwise"
+            >
+              Restore
+            </SpinnerBtn>
           ) : isEditing ? (
             <>
               <SpinnerBtn
@@ -510,6 +498,19 @@ function EntryDetail({
               <i className="bi bi-git me-1"></i>
               {commits.length} version{commits.length !== 1 ? 's' : ''}
             </button>
+          )}
+
+          {isTrashView && (
+            <SpinnerBtn
+              className="btn btn-danger ms-auto"
+              onClick={handleDelete}
+              disabled={saving || deleting}
+              busy={deleting}
+              busyLabel="Deleting..."
+              icon="bi-trash"
+            >
+              Delete
+            </SpinnerBtn>
           )}
 
           {!entry._isNew && !isTrashView && (

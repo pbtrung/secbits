@@ -96,6 +96,14 @@ export async function initVault(username) {
   return call('init_vault', { username });
 }
 
+export async function getSetupInfo() {
+  return call('get_setup_info');
+}
+
+export async function selectConfigPath(path) {
+  return call('select_config_path', { path });
+}
+
 export async function isVaultInitialized() {
   return call('is_initialized');
 }
@@ -259,4 +267,3 @@ export async function restoreDeletedUserEntry(entryId) {
 export async function permanentlyDeleteUserEntry(entryId) {
   return purgeEntry(entryId);
 }
-

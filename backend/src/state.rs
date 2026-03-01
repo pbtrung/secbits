@@ -40,7 +40,7 @@ impl Drop for SessionState {
 pub struct AppState {
     pub conn: Mutex<Connection>,
     pub session: Mutex<SessionState>,
-    pub config: AppConfig,
+    pub config: Mutex<AppConfig>,
 }
 
 impl AppState {
@@ -48,7 +48,7 @@ impl AppState {
         Self {
             conn: Mutex::new(conn),
             session: Mutex::new(SessionState::default()),
-            config,
+            config: Mutex::new(config),
         }
     }
 }

@@ -4,6 +4,16 @@ use crate::model::EntrySnapshot;
 use crate::state::AppState;
 
 #[tauri::command]
+pub fn get_setup_info() -> Result<app::SetupInfo> {
+    app::get_setup_info()
+}
+
+#[tauri::command]
+pub fn select_config_path(state: tauri::State<'_, AppState>, path: String) -> Result<()> {
+    app::select_config_path(&state, path)
+}
+
+#[tauri::command]
 pub fn init_vault(state: tauri::State<'_, AppState>, username: String) -> Result<()> {
     app::init_vault(&state, username)
 }

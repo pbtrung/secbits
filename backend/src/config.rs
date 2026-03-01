@@ -69,6 +69,10 @@ pub fn load_config(explicit_path: Option<PathBuf>) -> Result<AppConfig> {
     })
 }
 
+pub fn default_config_path() -> Result<PathBuf> {
+    expand_tilde(DEFAULT_CONFIG_PATH)
+}
+
 pub fn decode_root_master_key(raw: &str) -> Result<Vec<u8>> {
     let decoded = general_purpose::STANDARD
         .decode(raw.trim())

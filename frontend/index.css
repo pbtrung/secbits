@@ -74,6 +74,16 @@ input[type="password"].form-control.custom-field-secret-input {
   text-decoration: none;
 }
 
+/* Keep stats value column aligned across About tables */
+.settings-stats-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.settings-stats-table td:first-child {
+  width: 62%;
+}
+
 @media (max-width: 767.98px) {
   .history-modal .modal-content {
     border-radius: 0;

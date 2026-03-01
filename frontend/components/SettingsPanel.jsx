@@ -18,7 +18,7 @@ function StatsRow({ label, value, note = null }) {
   );
 }
 
-function StatsTable({ rows, className = 'table table-sm mb-3' }) {
+function StatsTable({ rows, className = 'table table-sm mb-3 settings-stats-table' }) {
   return (
     <table className={className}>
       <tbody>
