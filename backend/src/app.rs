@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use base64::{Engine as _, engine::general_purpose};
 use chrono::Utc;
 use rand::TryRngCore;
 use rand::rngs::OsRng;
@@ -79,6 +80,30 @@ pub struct VaultStats {
     pub total_commits: usize,
     #[serde(rename = "avgCommitsPerEntry")]
     pub avg_commits_per_entry: f64,
+    #[serde(rename = "withPassword")]
+    pub with_password: usize,
+    #[serde(rename = "withUsername")]
+    pub with_username: usize,
+    #[serde(rename = "withNotes")]
+    pub with_notes: usize,
+    #[serde(rename = "withUrls")]
+    pub with_urls: usize,
+    #[serde(rename = "totalUrls")]
+    pub total_urls: usize,
+    #[serde(rename = "withTotp")]
+    pub with_totp: usize,
+    #[serde(rename = "totalTotp")]
+    pub total_totp: usize,
+    #[serde(rename = "withCustomFields")]
+    pub with_custom_fields: usize,
+    #[serde(rename = "totalCustomFields")]
+    pub total_custom_fields: usize,
+    #[serde(rename = "withTags")]
+    pub with_tags: usize,
+    #[serde(rename = "maxCommits")]
+    pub max_commits: usize,
+    #[serde(rename = "neverEdited")]
+    pub never_edited: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -493,6 +518,14 @@ pub fn rotate_master_key(state: &AppState, new_key_b64: String) -> Result<()> {
     Ok(())
 }
 
+pub fn generate_root_master_key() -> Result<String> {
+    let mut bytes = vec![0u8; 256];
+    OsRng
+        .try_fill_bytes(&mut bytes)
+        .map_err(|err| AppError::Other(format!("failed to generate random bytes: {err}")))?;
+    Ok(general_purpose::STANDARD.encode(&bytes))
+}
+
 pub fn get_vault_stats(state: &AppState) -> Result<VaultStats> {
     let umk = require_unlocked_umk(state)?;
     let conn = state
@@ -507,6 +540,18 @@ pub fn get_vault_stats(state: &AppState) -> Result<VaultStats> {
     let mut note_count = 0_usize;
     let mut card_count = 0_usize;
     let mut total_commits = 0_usize;
+    let mut with_password = 0_usize;
+    let mut with_username = 0_usize;
+    let mut with_notes = 0_usize;
+    let mut with_urls = 0_usize;
+    let mut total_urls = 0_usize;
+    let mut with_totp = 0_usize;
+    let mut total_totp = 0_usize;
+    let mut with_custom_fields = 0_usize;
+    let mut total_custom_fields = 0_usize;
+    let mut with_tags = 0_usize;
+    let mut max_commits = 0_usize;
+    let mut never_edited = 0_usize;
     let mut tag_counts: BTreeMap<String, usize> = BTreeMap::new();
 
     for row in &active_rows {
@@ -517,8 +562,23 @@ pub fn get_vault_stats(state: &AppState) -> Result<VaultStats> {
             "card" => card_count += 1,
             _ => {}
         }
-        total_commits += history.commits.len();
-        for tag in history.head_snapshot.tags {
+        let commit_count = history.commits.len();
+        total_commits += commit_count;
+        if commit_count > max_commits {
+            max_commits = commit_count;
+        }
+        if commit_count <= 1 {
+            never_edited += 1;
+        }
+        let snap = &history.head_snapshot;
+        if !snap.password.is_empty() { with_password += 1; }
+        if !snap.username.is_empty() { with_username += 1; }
+        if !snap.notes.is_empty() { with_notes += 1; }
+        if !snap.urls.is_empty() { with_urls += 1; total_urls += snap.urls.len(); }
+        if !snap.totp_secrets.is_empty() { with_totp += 1; total_totp += snap.totp_secrets.len(); }
+        if !snap.custom_fields.is_empty() { with_custom_fields += 1; total_custom_fields += snap.custom_fields.len(); }
+        if snap.tags.iter().any(|t| !t.trim().is_empty()) { with_tags += 1; }
+        for tag in &snap.tags {
             if tag.trim().is_empty() {
                 continue;
             }
@@ -549,6 +609,18 @@ pub fn get_vault_stats(state: &AppState) -> Result<VaultStats> {
         top_tags,
         total_commits,
         avg_commits_per_entry,
+        with_password,
+        with_username,
+        with_notes,
+        with_urls,
+        total_urls,
+        with_totp,
+        total_totp,
+        with_custom_fields,
+        total_custom_fields,
+        with_tags,
+        max_commits,
+        never_edited,
     })
 }
 

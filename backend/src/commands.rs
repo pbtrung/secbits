@@ -113,6 +113,11 @@ pub fn export_vault(state: tauri::State<'_, AppState>) -> Result<String> {
 }
 
 #[tauri::command]
+pub fn generate_root_master_key() -> Result<String> {
+    app::generate_root_master_key()
+}
+
+#[tauri::command]
 pub fn rotate_master_key(state: tauri::State<'_, AppState>, new_key_b64: String) -> Result<()> {
     app::rotate_master_key(&state, new_key_b64)
 }

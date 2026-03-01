@@ -44,6 +44,7 @@ fn main() {
             commands::get_commit_snapshot,
             commands::get_totp,
             commands::export_vault,
+            commands::generate_root_master_key,
             commands::rotate_master_key,
             commands::get_vault_stats
         ])
