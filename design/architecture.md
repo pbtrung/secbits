@@ -105,6 +105,22 @@ so a higher cap is warranted. 20 commits is a reasonable bound for typical usage
 Storage cost is negligible; deltas are small and the full history is
 Brotli-compressed before storage.
 
+## Linux Window Management: GDK X11 Backend
+
+**Decision:** On Linux, `main.rs` sets `GDK_BACKEND=x11` before Tauri
+initializes, forcing GTK to use the X11 backend (via XWayland on Wayland
+sessions).
+
+**Why:** Tauri's GTK layer uses libdecor for client-side decorations (CSD) on
+Wayland. Under KDE Plasma + Wayland this prevents the window manager from
+applying its own server-side decorations, causing missing title bars, broken
+close and minimize buttons, and non-functional resize borders.
+
+Forcing X11 hands decoration responsibility to KDE's X11 window manager, which
+handles close, minimize, maximize, and drag-to-resize natively. The tradeoff
+(XWayland rather than native Wayland) is acceptable: window management works
+correctly and there are no visual artifacts or protocol errors.
+
 ## Backups: S3-Compatible Encrypted Push/Pull
 
 **Decision:** Optional encrypted backups to any S3-compatible endpoint (Cloudflare

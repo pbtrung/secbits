@@ -83,25 +83,27 @@ region     = "us-east-1"
 
 ## Troubleshooting
 
+### Wayland: window decorations missing or controls unresponsive (KDE Plasma)
+
+On KDE Plasma with Wayland, GTK's client-side decoration library (libdecor)
+can prevent window controls (close, resize, drag) from working correctly.
+
+SecBits sets `GDK_BACKEND=x11` automatically at startup on Linux, which
+routes through XWayland and lets KDE's window manager handle all decorations
+natively. No manual configuration is needed.
+
 ### Wayland: window crashes immediately on startup
 
 On some Linux systems running Wayland, the Tauri window exits right after
-opening due to a WebKitGTK protocol error. Try these fixes in order:
-
-**Option 1** — disable the DMA-BUF renderer (most common fix, WebKitGTK 2.40+):
+opening due to a WebKitGTK protocol error. Disable the DMA-BUF renderer
+(most common fix, WebKitGTK 2.40+):
 
 ```bash
 WEBKIT_DISABLE_DMABUF_RENDERER=1 npx tauri dev
 ```
 
-**Option 2** — force XWayland as a fallback:
-
-```bash
-GDK_BACKEND=x11 npx tauri dev
-```
-
-To make the working option permanent, export the variable in your shell
-profile (`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish`, etc.) or in a
+To make it permanent, export the variable in your shell profile
+(`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish`, etc.) or in a
 `.env` file at the project root that you source before running.
 
 ## Design Docs

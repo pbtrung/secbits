@@ -6,6 +6,14 @@ use secbits::db::{create_schema, open_connection};
 use secbits::state::AppState;
 
 fn main() {
+    // Force X11 backend on Linux so KDE (and other WMs) provide native
+    // server-side window decorations instead of GTK/libdecor CSD, which
+    // breaks resize handles and window controls under KDE Plasma + Wayland.
+    #[cfg(target_os = "linux")]
+    unsafe {
+        std::env::set_var("GDK_BACKEND", "x11");
+    }
+
     let config = load_config(None).expect("failed to load config");
     let conn = open_connection(&config.db_path).expect("failed to open sqlite database");
     create_schema(&conn).expect("failed to create schema");
