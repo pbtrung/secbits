@@ -31,6 +31,7 @@ fn main() {
             let config = AppConfig {
                 root_master_key: vec![0_u8; 256],
                 db_path: fallback_db,
+                export_path: None,
                 username: String::new(),
                 backup_on_save: false,
                 log_level: "warn".to_string(),
@@ -47,6 +48,9 @@ fn main() {
             commands::get_setup_info,
             commands::select_config_path,
             commands::browse_config_path,
+            commands::browse_export_path,
+            commands::get_export_path_info,
+            commands::set_export_path,
             commands::init_vault,
             commands::is_initialized,
             commands::unlock_vault,
@@ -65,6 +69,7 @@ fn main() {
             commands::get_commit_snapshot,
             commands::get_totp,
             commands::export_vault,
+            commands::export_vault_to_path,
             commands::generate_root_master_key,
             commands::rotate_master_key,
             commands::get_vault_stats

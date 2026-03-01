@@ -24,6 +24,30 @@ pub fn browse_config_path() -> Option<String> {
 }
 
 #[tauri::command]
+pub fn browse_export_path() -> Option<String> {
+    FileDialog::new()
+        .add_filter("JSON", &["json"])
+        .set_title("Select export file")
+        .pick_file()
+        .map(|p| p.display().to_string())
+}
+
+#[tauri::command]
+pub fn get_export_path_info(state: tauri::State<'_, AppState>) -> Result<app::ExportPathInfo> {
+    app::get_export_path_info(&state)
+}
+
+#[tauri::command]
+pub fn set_export_path(state: tauri::State<'_, AppState>, path: String) -> Result<()> {
+    app::set_export_path(&state, path)
+}
+
+#[tauri::command]
+pub fn export_vault_to_path(state: tauri::State<'_, AppState>, path: String) -> Result<String> {
+    app::export_vault_to_path(&state, path)
+}
+
+#[tauri::command]
 pub fn init_vault(state: tauri::State<'_, AppState>, username: String) -> Result<()> {
     app::init_vault(&state, username)
 }

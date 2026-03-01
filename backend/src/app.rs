@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fs;
 use std::path::PathBuf;
 
 use base64::{Engine as _, engine::general_purpose};
@@ -123,6 +124,14 @@ pub struct SetupInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExportPathInfo {
+    #[serde(rename = "path")]
+    pub path: Option<String>,
+    #[serde(rename = "exists")]
+    pub exists: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct ExportPayload {
     version: u32,
     username: String,
@@ -172,6 +181,32 @@ pub fn select_config_path(state: &AppState, path: String) -> Result<()> {
         *config = next_config;
     }
 
+    Ok(())
+}
+
+pub fn get_export_path_info(state: &AppState) -> Result<ExportPathInfo> {
+    let config = current_config(state)?;
+    let path = config.export_path.map(|p| p.display().to_string());
+    let exists = path
+        .as_ref()
+        .is_some_and(|value| PathBuf::from(value).exists());
+    Ok(ExportPathInfo { path, exists })
+}
+
+pub fn set_export_path(state: &AppState, path: String) -> Result<()> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::ConfigParse("export_path must not be empty".to_string()));
+    }
+    let parsed = PathBuf::from(trimmed);
+    if !parsed.exists() {
+        return Err(AppError::ConfigNotFound);
+    }
+    let mut config = state
+        .config
+        .lock()
+        .map_err(|_| AppError::Other("config mutex poisoned".to_string()))?;
+    config.export_path = Some(parsed);
     Ok(())
 }
 
@@ -554,6 +589,20 @@ pub fn export_vault(state: &AppState) -> Result<String> {
 
     serde_json::to_string_pretty(&payload)
         .map_err(|err| AppError::Other(format!("export serialization failed: {err}")))
+}
+
+pub fn export_vault_to_path(state: &AppState, path: String) -> Result<String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::ConfigParse("export_path must not be empty".to_string()));
+    }
+    let target = PathBuf::from(trimmed);
+    if !target.exists() {
+        return Err(AppError::ConfigNotFound);
+    }
+    let json = export_vault(state)?;
+    fs::write(&target, json)?;
+    Ok(target.display().to_string())
 }
 
 pub fn rotate_master_key(state: &AppState, new_key_b64: String) -> Result<()> {
@@ -996,6 +1045,7 @@ mod tests {
             AppConfig {
                 root_master_key: root_key,
                 db_path,
+                export_path: None,
                 username: username.to_string(),
                 backup_on_save: false,
                 log_level: "warn".to_string(),
@@ -1051,6 +1101,7 @@ mod tests {
             AppConfig {
                 root_master_key: wrong_root,
                 db_path: state_config.db_path.clone(),
+                export_path: None,
                 username: "alice".to_string(),
                 backup_on_save: false,
                 log_level: "warn".to_string(),
@@ -1282,6 +1333,7 @@ mod tests {
             AppConfig {
                 root_master_key: old_root,
                 db_path: state_config.db_path.clone(),
+                export_path: None,
                 username: "alice".to_string(),
                 backup_on_save: false,
                 log_level: "warn".to_string(),
@@ -1296,6 +1348,7 @@ mod tests {
             AppConfig {
                 root_master_key: new_root,
                 db_path: state_config.db_path.clone(),
+                export_path: None,
                 username: "alice".to_string(),
                 backup_on_save: false,
                 log_level: "warn".to_string(),

@@ -17,6 +17,7 @@ const MIN_ROOT_MASTER_KEY_LEN: usize = 256;
 pub struct AppConfig {
     pub root_master_key: Vec<u8>,
     pub db_path: PathBuf,
+    pub export_path: Option<PathBuf>,
     pub username: String,
     pub backup_on_save: bool,
     pub log_level: String,
@@ -36,6 +37,7 @@ pub struct BackupTargetConfig {
 struct FileConfig {
     root_master_key: String,
     db_path: String,
+    export_path: Option<String>,
     username: String,
     backup_on_save: Option<bool>,
     log_level: Option<String>,
@@ -58,10 +60,15 @@ pub fn load_config(explicit_path: Option<PathBuf>) -> Result<AppConfig> {
     }
 
     let db_path = expand_tilde(parsed.db_path)?;
+    let export_path = match parsed.export_path {
+        Some(path) if !path.trim().is_empty() => Some(expand_tilde(path)?),
+        _ => None,
+    };
 
     Ok(AppConfig {
         root_master_key,
         db_path,
+        export_path,
         username: parsed.username,
         backup_on_save: parsed.backup_on_save.unwrap_or(false),
         log_level: parsed.log_level.unwrap_or_else(|| "warn".to_string()),

@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import SpinnerBtn from './SpinnerBtn';
-import { backupPull, backupPush, exportVault, generateRootMasterKey, getVaultStats, rotateMasterKey } from '../api';
+import {
+  backupPull,
+  backupPush,
+  browseExportPath,
+  exportVaultToPath,
+  generateRootMasterKey,
+  getExportPathInfo,
+  getVaultStats,
+  rotateMasterKey,
+  setExportPath,
+} from '../api';
 
 function StatsHeading({ children }) {
   return <div className="text-muted small fw-semibold mb-1">{children}</div>;
@@ -125,24 +135,57 @@ function AboutPage() {
 
 function ExportPage() {
   const [exporting, setExporting] = useState(false);
+  const [loadingPath, setLoadingPath] = useState(true);
+  const [exportPath, setExportPathState] = useState('');
+  const [pathExists, setPathExists] = useState(false);
+  const [status, setStatus] = useState(null);
+
+  const loadPathInfo = useCallback(async () => {
+    setLoadingPath(true);
+    try {
+      const info = await getExportPathInfo();
+      setExportPathState(info?.path || '');
+      setPathExists(Boolean(info?.exists));
+    } catch {
+      setExportPathState('');
+      setPathExists(false);
+    } finally {
+      setLoadingPath(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPathInfo();
+  }, [loadPathInfo]);
 
   const handleExport = useCallback(async () => {
+    if (!exportPath || !pathExists) {
+      setStatus({ type: 'error', msg: 'Select a valid export file path first.' });
+      return;
+    }
     setExporting(true);
+    setStatus(null);
     try {
-      const json = await exportVault();
-      const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `secbits-export-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      window.alert('Failed to export vault');
+      const written = await exportVaultToPath(exportPath);
+      setStatus({ type: 'success', msg: `Exported to ${written}` });
+    } catch (err) {
+      setStatus({ type: 'error', msg: err?.message || 'Failed to export vault' });
     } finally {
       setExporting(false);
     }
-  }, []);
+  }, [exportPath, pathExists]);
+
+  const handlePickPath = useCallback(async () => {
+    setStatus(null);
+    try {
+      const selected = await browseExportPath();
+      if (!selected) return;
+      await setExportPath(selected);
+      await loadPathInfo();
+    } catch (err) {
+      setStatus({ type: 'error', msg: err?.message || 'Failed to select export path' });
+    }
+  }, [loadPathInfo]);
 
   return (
     <div className="p-4" style={{ maxWidth: 680 }}>
@@ -152,15 +195,42 @@ function ExportPage() {
       <p className="text-muted small">
         Export returns fully decrypted JSON. Store it securely.
       </p>
+      {loadingPath ? (
+        <div className="text-muted small mb-3">
+          <span className="spinner-border spinner-border-sm me-2"></span>Loading export path...
+        </div>
+      ) : pathExists ? (
+        <div className="mb-3 small">
+          <div className="text-muted mb-1">Export file path</div>
+          <div className="font-monospace">{exportPath}</div>
+        </div>
+      ) : (
+        <div className="mb-3">
+          <button
+            type="button"
+            className="btn btn-outline-secondary btn-sm"
+            onClick={handlePickPath}
+            disabled={exporting}
+          >
+            <i className="bi bi-folder2-open me-1"></i>Select export file path
+          </button>
+        </div>
+      )}
       <SpinnerBtn
         className="btn btn-primary btn-sm"
         onClick={handleExport}
+        disabled={!pathExists}
         busy={exporting}
         busyLabel="Exporting..."
         icon="bi-download"
       >
         Export Vault JSON
       </SpinnerBtn>
+      {status && (
+        <div className={`alert mt-3 mb-0 small ${status.type === 'error' ? 'alert-danger' : 'alert-success'}`}>
+          {status.msg}
+        </div>
+      )}
     </div>
   );
 }

@@ -108,6 +108,18 @@ export async function browseConfigPath() {
   return call('browse_config_path');
 }
 
+export async function browseExportPath() {
+  return call('browse_export_path');
+}
+
+export async function getExportPathInfo() {
+  return call('get_export_path_info');
+}
+
+export async function setExportPath(path) {
+  return call('set_export_path', { path });
+}
+
 export async function isVaultInitialized() {
   return call('is_initialized');
 }
@@ -178,6 +190,10 @@ export async function getTotp(id) {
 
 export async function exportVault() {
   return call('export_vault');
+}
+
+export async function exportVaultToPath(path) {
+  return call('export_vault_to_path', { path });
 }
 
 export async function generateRootMasterKey() {
