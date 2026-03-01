@@ -1,0 +1,320 @@
+import { useEffect, useState } from 'react';
+import SpinnerBtn from './SpinnerBtn';
+import { formatExact } from '../entryUtils.js';
+
+function computeLineDiff(a, b) {
+  const as = String(a ?? '').split('\n');
+  const bs = String(b ?? '').split('\n');
+  const m = as.length;
+  const n = bs.length;
+  const dp = Array.from({ length: m + 1 }, () => new Int32Array(n + 1));
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = as[i - 1] === bs[j - 1]
+        ? dp[i - 1][j - 1] + 1
+        : Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+
+  const out = [];
+  let i = m;
+  let j = n;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && as[i - 1] === bs[j - 1]) {
+      out.unshift({ type: 'eq', v: as[i - 1] });
+      i -= 1;
+      j -= 1;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      out.unshift({ type: 'add', v: bs[j - 1] });
+      j -= 1;
+    } else {
+      out.unshift({ type: 'del', v: as[i - 1] });
+      i -= 1;
+    }
+  }
+
+  return out;
+}
+
+const CTX = 3;
+const MAX_DIFF_LINES = 1000;
+
+function withContext(lines) {
+  const near = new Uint8Array(lines.length);
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].type !== 'eq') {
+      for (let j = Math.max(0, i - CTX); j <= Math.min(lines.length - 1, i + CTX); j++) {
+        near[j] = 1;
+      }
+    }
+  }
+
+  const out = [];
+  let skip = 0;
+  for (let i = 0; i < lines.length; i++) {
+    if (near[i]) {
+      if (skip > 0) {
+        out.push({ type: 'hunk', skip });
+        skip = 0;
+      }
+      out.push(lines[i]);
+    } else {
+      skip += 1;
+    }
+  }
+
+  if (skip > 0) out.push({ type: 'hunk', skip });
+  return out;
+}
+
+const FIELD_ORDER = ['title', 'username', 'password', 'notes', 'urls', 'totpSecrets', 'tags', 'customFields', 'cardholderName', 'cardNumber', 'expiry', 'cvv'];
+const SCALAR_FIELDS = new Set(['title', 'username', 'password', 'cardholderName', 'cardNumber', 'expiry', 'cvv']);
+const ARRAY_STR_FIELDS = new Set(['urls', 'totpSecrets', 'tags']);
+
+function buildDiffSections(fromSnap, toSnap, changedFields) {
+  const isInitial = !fromSnap;
+
+  const fields = isInitial
+    ? FIELD_ORDER.filter((field) => {
+      const value = toSnap?.[field];
+      return Array.isArray(value) ? value.length > 0 : Boolean(value && String(value).trim());
+    })
+    : (changedFields?.length ? changedFields : []);
+
+  return fields.flatMap((field) => {
+    const oldVal = fromSnap?.[field];
+    const newVal = toSnap?.[field];
+
+    if (field === 'notes') {
+      const oldLines = String(oldVal ?? '').split('\n');
+      const newLines = String(newVal ?? '').split('\n');
+      if (oldLines.length > MAX_DIFF_LINES || newLines.length > MAX_DIFF_LINES) {
+        return [{ field, lines: [{ type: 'large' }] }];
+      }
+
+      const raw = computeLineDiff(oldVal ?? '', newVal ?? '');
+      return [{ field, lines: isInitial ? raw : withContext(raw) }];
+    }
+
+    if (SCALAR_FIELDS.has(field)) {
+      const lines = [];
+      if (oldVal) lines.push({ type: 'del', v: String(oldVal) });
+      if (newVal) lines.push({ type: 'add', v: String(newVal) });
+      return lines.length ? [{ field, lines }] : [];
+    }
+
+    if (ARRAY_STR_FIELDS.has(field)) {
+      const a = Array.isArray(oldVal) ? oldVal : [];
+      const b = Array.isArray(newVal) ? newVal : [];
+      const lines = [
+        ...a.filter((item) => !b.includes(item)).map((item) => ({ type: 'del', v: item })),
+        ...b.filter((item) => !a.includes(item)).map((item) => ({ type: 'add', v: item })),
+      ];
+      return lines.length ? [{ field, lines }] : [];
+    }
+
+    if (field === 'customFields') {
+      const a = Array.isArray(oldVal) ? oldVal : [];
+      const b = Array.isArray(newVal) ? newVal : [];
+      const lines = [];
+
+      for (const oldField of a) {
+        const nextField = b.find((item) => item.label === oldField.label);
+        if (!nextField) {
+          lines.push({ type: 'del', v: `[${oldField.label}] ${oldField.value}` });
+        } else if (nextField.value !== oldField.value) {
+          lines.push({ type: 'del', v: `[${oldField.label}] ${oldField.value}` });
+          lines.push({ type: 'add', v: `[${nextField.label}] ${nextField.value}` });
+        }
+      }
+
+      for (const nextField of b) {
+        if (!a.find((item) => item.label === nextField.label)) {
+          lines.push({ type: 'add', v: `[${nextField.label}] ${nextField.value}` });
+        }
+      }
+
+      return lines.length ? [{ field, lines }] : [];
+    }
+
+    return [];
+  });
+}
+
+function DiffLine({ line }) {
+  if (line.type === 'large') {
+    return <div className="px-2 py-1 text-muted fst-italic">Notes too large to diff inline.</div>;
+  }
+
+  if (line.type === 'hunk') {
+    return <div className="px-2 text-primary bg-primary bg-opacity-10">@@ {line.skip} lines unchanged @@</div>;
+  }
+
+  if (line.type === 'eq') {
+    return <div className="px-2 text-muted" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>&nbsp;{line.v}</div>;
+  }
+
+  if (line.type === 'del') {
+    return <div className="px-2 bg-danger bg-opacity-10" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}><span className="text-danger fw-bold me-1">-</span>{line.v}</div>;
+  }
+
+  if (line.type === 'add') {
+    return <div className="px-2 bg-success bg-opacity-10" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}><span className="text-success fw-bold me-1">+</span>{line.v}</div>;
+  }
+
+  return null;
+}
+
+function CommitDiff({ commits, idx }) {
+  const commit = commits[idx];
+  if (!commit?.snapshot) return <p className="text-muted small mb-0">Snapshot unavailable for this commit.</p>;
+
+  const parentCommit = commit?.parent ? commits.find((item) => item.hash === commit.parent) : null;
+  const parentSnapshot = parentCommit?.snapshot || null;
+  const sections = buildDiffSections(parentSnapshot, commit.snapshot, commit.changed);
+
+  if (sections.length === 0) {
+    return <p className="text-muted small mb-0">No content changes in this commit.</p>;
+  }
+
+  return (
+    <div>
+      {sections.map(({ field, lines }) => (
+        <div key={field} className="mb-3">
+          <div className="text-muted mb-1 small fw-semibold">{field}</div>
+          <div className="border rounded overflow-hidden" style={{ fontFamily: 'monospace', fontSize: '0.78rem', lineHeight: 1.55 }}>
+            {lines.map((line, i) => <DiffLine key={i} line={line} />)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, saving, isMobile, canRestore = true }) {
+  const selectedCommit = commits[idx];
+  const [mobileStep, setMobileStep] = useState(isMobile ? 'list' : 'diff');
+
+  useEffect(() => {
+    setMobileStep(isMobile ? 'list' : 'diff');
+  }, [isMobile, commits.length]);
+
+  const showList = !isMobile || mobileStep === 'list';
+  const showDiff = !isMobile || mobileStep === 'diff';
+
+  return (
+    <div
+      className="modal d-block history-modal"
+      tabIndex="-1"
+      style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1055 }}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !saving) {
+          onClose();
+        }
+      }}
+    >
+      <div
+        className={`modal-dialog modal-dialog-scrollable ${isMobile ? 'modal-fullscreen-sm-down' : 'modal-xl'}`}
+        style={{ maxHeight: '90vh' }}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="modal-content" style={{ height: isMobile ? '100vh' : '85vh' }}>
+          <div className="modal-header py-2">
+            <h6 className="modal-title fw-semibold mb-0">
+              <i className="bi bi-git me-2"></i>
+              History - {commits.length} version{commits.length !== 1 ? 's' : ''}
+            </h6>
+            {isMobile && (
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-secondary"
+                onClick={() => {
+                  if (mobileStep === 'diff') setMobileStep('list');
+                  else onClose();
+                }}
+                disabled={saving}
+              >
+                <i className="bi bi-chevron-left"></i>
+              </button>
+            )}
+          </div>
+
+          <div className={`modal-body p-0 overflow-hidden ${isMobile ? '' : 'd-flex'}`} style={{ flex: 1, minHeight: 0 }}>
+            {showList && (
+              <div className={`bg-light ${isMobile ? '' : 'border-end'}`} style={{ width: isMobile ? '100%' : 260, overflowY: 'auto' }}>
+                {commits.map((commit, index) => (
+                  <button
+                    key={`${commit.hash}-${index}`}
+                    type="button"
+                    onClick={() => {
+                      onIdxChange(index);
+                      if (isMobile) setMobileStep('diff');
+                    }}
+                    className={`w-100 text-start border-0 border-bottom px-3 py-2${index === idx ? ' bg-primary-subtle' : ' bg-transparent'}`}
+                  >
+                    <div className="d-flex align-items-center gap-1 mb-1">
+                      <code style={{ fontSize: '0.75em' }}>{commit.hash ? `${commit.hash.slice(0, 12)}...` : ''}</code>
+                      {index === 0 && <span className="badge bg-success ms-1" style={{ fontSize: '0.6em' }}>HEAD</span>}
+                    </div>
+                    {Array.isArray(commit.changed) && commit.changed.length > 0 ? (
+                      <div className="d-flex flex-wrap gap-1 mb-1">
+                        {commit.changed.map((field) => (
+                          <span key={field} className="badge bg-secondary" style={{ fontSize: '0.6em' }}>{field}</span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-muted mb-1" style={{ fontSize: '0.72em' }}>initial version</div>
+                    )}
+                    <div className="text-muted" style={{ fontSize: '0.7em' }}>
+                      {formatExact(commit.timestamp)}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {showDiff && (
+              <div className="flex-grow-1 overflow-auto p-3" style={{ height: '100%' }}>
+                {selectedCommit && (
+                  <>
+                    <div className="d-flex align-items-center gap-2 mb-3 pb-2 border-bottom">
+                      <code className="small">{selectedCommit.hash}</code>
+                      {idx === 0 && <span className="badge bg-success">HEAD</span>}
+                      <span className="text-muted small ms-auto">{formatExact(selectedCommit.timestamp)}</span>
+                    </div>
+                    <CommitDiff commits={commits} idx={idx} />
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="modal-footer py-2">
+            {idx > 0 && showDiff && canRestore && typeof onRestore === 'function' && (
+              <SpinnerBtn
+                className="btn btn-sm btn-outline-warning me-auto"
+                onClick={() => {
+                  if (window.confirm('Restore this version? The current state will be preserved in history.')) {
+                    onRestore(selectedCommit.hash);
+                  }
+                }}
+                disabled={saving}
+                busy={saving}
+                busyLabel="Restoring..."
+                icon="bi-arrow-counterclockwise"
+              >
+                Restore this version
+              </SpinnerBtn>
+            )}
+            <button type="button" className="btn btn-sm btn-secondary" onClick={onClose} disabled={saving}>
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default HistoryDiffModal;

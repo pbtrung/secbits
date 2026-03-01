@@ -1,15 +1,15 @@
 import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
-  clearScreen: false,
+  plugins: [react()],
   server: {
+    port: 1420,
     strictPort: true,
-    port: 1420
   },
-  envPrefix: ['VITE_', 'TAURI_'],
-  build: {
-    target: process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
-    minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
-    sourcemap: !!process.env.TAURI_DEBUG
-  }
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    include: ['frontend/tests/**/*.test.{js,jsx}'],
+  },
 });
