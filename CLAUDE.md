@@ -128,10 +128,20 @@ backup_pull(target)               → void
 
 ## Build & Test
 
+All commands can be run from the project root using npm/npx:
+
 ```bash
-npm install                  # install frontend deps
-cargo tauri dev              # dev mode (Vite HMR + Tauri)
-cargo tauri build            # release binary
-cd backend && cargo test     # Rust tests
-npm test                     # Vitest frontend tests
+npm install       # install frontend deps (one-time setup)
+npx tauri dev     # dev mode (Vite HMR + Tauri)
+npx tauri build   # release binary → backend/target/release/secbits
+npm test          # Vitest frontend tests
+```
+
+Alternatively, run Rust commands directly from the `backend/` folder:
+
+```bash
+cd backend
+cargo tauri dev     # dev mode
+cargo tauri build   # release binary
+cargo test          # Rust unit and integration tests
 ```
