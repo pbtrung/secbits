@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use base64::{Engine as _, engine::general_purpose};
 use chrono::Utc;
@@ -199,7 +199,8 @@ pub fn set_export_path(state: &AppState, path: String) -> Result<()> {
         return Err(AppError::ConfigParse("export_path must not be empty".to_string()));
     }
     let parsed = PathBuf::from(trimmed);
-    if !parsed.exists() {
+    let parent = parsed.parent().unwrap_or_else(|| Path::new("."));
+    if !parent.exists() {
         return Err(AppError::ConfigNotFound);
     }
     let mut config = state
@@ -597,7 +598,8 @@ pub fn export_vault_to_path(state: &AppState, path: String) -> Result<String> {
         return Err(AppError::ConfigParse("export_path must not be empty".to_string()));
     }
     let target = PathBuf::from(trimmed);
-    if !target.exists() {
+    let parent = target.parent().unwrap_or_else(|| Path::new("."));
+    if !parent.exists() {
         return Err(AppError::ConfigNotFound);
     }
     let json = export_vault(state)?;

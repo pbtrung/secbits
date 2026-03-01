@@ -137,7 +137,6 @@ function ExportPage() {
   const [exporting, setExporting] = useState(false);
   const [loadingPath, setLoadingPath] = useState(true);
   const [exportPath, setExportPathState] = useState('');
-  const [pathExists, setPathExists] = useState(false);
   const [status, setStatus] = useState(null);
 
   const loadPathInfo = useCallback(async () => {
@@ -145,10 +144,8 @@ function ExportPage() {
     try {
       const info = await getExportPathInfo();
       setExportPathState(info?.path || '');
-      setPathExists(Boolean(info?.exists));
     } catch {
       setExportPathState('');
-      setPathExists(false);
     } finally {
       setLoadingPath(false);
     }
@@ -159,31 +156,20 @@ function ExportPage() {
   }, [loadPathInfo]);
 
   const handleExport = useCallback(async () => {
-    if (!exportPath || !pathExists) {
-      setStatus({ type: 'error', msg: 'Select a valid export file path first.' });
-      return;
-    }
     setExporting(true);
-    setStatus(null);
-    try {
-      const written = await exportVaultToPath(exportPath);
-      setStatus({ type: 'success', msg: `Exported to ${written}` });
-    } catch (err) {
-      setStatus({ type: 'error', msg: err?.message || 'Failed to export vault' });
-    } finally {
-      setExporting(false);
-    }
-  }, [exportPath, pathExists]);
-
-  const handlePickPath = useCallback(async () => {
     setStatus(null);
     try {
       const selected = await browseExportPath();
       if (!selected) return;
+
       await setExportPath(selected);
+      const written = await exportVaultToPath(selected);
+      setStatus({ type: 'success', msg: `Exported to ${written}` });
       await loadPathInfo();
     } catch (err) {
-      setStatus({ type: 'error', msg: err?.message || 'Failed to select export path' });
+      setStatus({ type: 'error', msg: err?.message || 'Failed to export vault' });
+    } finally {
+      setExporting(false);
     }
   }, [loadPathInfo]);
 
@@ -199,27 +185,20 @@ function ExportPage() {
         <div className="text-muted small mb-3">
           <span className="spinner-border spinner-border-sm me-2"></span>Loading export path...
         </div>
-      ) : pathExists ? (
+      ) : exportPath ? (
         <div className="mb-3 small">
-          <div className="text-muted mb-1">Export file path</div>
+          <div className="text-muted mb-1">Default export file path</div>
           <div className="font-monospace">{exportPath}</div>
         </div>
       ) : (
-        <div className="mb-3">
-          <button
-            type="button"
-            className="btn btn-outline-secondary btn-sm"
-            onClick={handlePickPath}
-            disabled={exporting}
-          >
-            <i className="bi bi-folder2-open me-1"></i>Select export file path
-          </button>
+        <div className="text-muted small mb-3">
+          No default export file path configured.
         </div>
       )}
       <SpinnerBtn
         className="btn btn-primary btn-sm"
         onClick={handleExport}
-        disabled={!pathExists}
+        disabled={loadingPath || exporting}
         busy={exporting}
         busyLabel="Exporting..."
         icon="bi-download"

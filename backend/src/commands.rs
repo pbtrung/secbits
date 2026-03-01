@@ -3,6 +3,7 @@ use crate::app;
 use crate::model::EntrySnapshot;
 use crate::state::AppState;
 use rfd::FileDialog;
+use std::path::PathBuf;
 
 #[tauri::command]
 pub fn get_setup_info() -> Result<app::SetupInfo> {
@@ -24,11 +25,26 @@ pub fn browse_config_path() -> Option<String> {
 }
 
 #[tauri::command]
-pub fn browse_export_path() -> Option<String> {
-    FileDialog::new()
+pub fn browse_export_path(state: tauri::State<'_, AppState>) -> Option<String> {
+    let default_export_path = app::get_export_path_info(&state)
+        .ok()
+        .and_then(|info| info.path)
+        .map(PathBuf::from);
+    let mut dialog = FileDialog::new()
         .add_filter("JSON", &["json"])
-        .set_title("Select export file")
-        .pick_file()
+        .set_title("Select export file");
+
+    if let Some(path) = default_export_path.as_ref() {
+        if let Some(parent) = path.parent() {
+            dialog = dialog.set_directory(parent);
+        }
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            dialog = dialog.set_file_name(name);
+        }
+    }
+
+    dialog
+        .save_file()
         .map(|p| p.display().to_string())
 }
 
