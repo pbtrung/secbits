@@ -136,7 +136,7 @@ cargo install tauri-cli
 cargo tauri dev         # Vite dev server + Tauri window (hot reload)
 
 # Production build
-cargo tauri build       # platform binary in backend/target/release/bundle/
+cargo tauri build       # platform binary in backend/target/release/
 
 # Tests
 cd backend && cargo test     # Rust unit + integration tests

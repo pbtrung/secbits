@@ -178,8 +178,7 @@ integration tests pass.
   full vault lifecycle, root key rotation, history overflow, corrupt blob handling,
   cross-type isolation, export completeness, backup round-trip (with mock S3), TOTP
   multi-secret, concurrent session safety.
-- `backend/tauri.conf.json`: bundle configuration for AppImage (Linux), dmg (macOS),
-  and msi + nsis (Windows).
+- `backend/tauri.conf.json`: bundling disabled; `cargo tauri build` produces only the raw binary on all platforms.
 - Release build verification: `cargo tauri build` produces a working binary; vault
   survives a lock/unlock cycle on the release binary.
 
