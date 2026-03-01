@@ -78,25 +78,29 @@ function AboutPage() {
               ]}
             />
 
-            <StatsHeading>Field coverage</StatsHeading>
-            <StatsTable
-              rows={[
-                { label: 'Password', value: `${stats.withPassword} / ${stats.entryCount}` },
-                { label: 'Username', value: `${stats.withUsername} / ${stats.entryCount}` },
-                { label: 'Notes', value: `${stats.withNotes} / ${stats.entryCount}` },
-                { label: 'URLs', value: `${stats.withUrls} / ${stats.entryCount}`, note: stats.totalUrls > 0 ? `${stats.totalUrls} total` : null },
-                { label: 'TOTP secrets', value: `${stats.withTotp} / ${stats.entryCount}`, note: stats.totalTotp > 0 ? `${stats.totalTotp} total` : null },
-                { label: 'Custom fields', value: `${stats.withCustomFields} / ${stats.entryCount}`, note: stats.totalCustomFields > 0 ? `${stats.totalCustomFields} total` : null },
-                { label: 'Tags', value: `${stats.withTags} / ${stats.entryCount}` },
-              ]}
-            />
+            {stats.withPassword != null && (<>
+              <StatsHeading>Field coverage</StatsHeading>
+              <StatsTable
+                rows={[
+                  { label: 'Password', value: `${stats.withPassword} / ${stats.entryCount}` },
+                  { label: 'Username', value: `${stats.withUsername} / ${stats.entryCount}` },
+                  { label: 'Notes', value: `${stats.withNotes} / ${stats.entryCount}` },
+                  { label: 'URLs', value: `${stats.withUrls} / ${stats.entryCount}`, note: stats.totalUrls > 0 ? `${stats.totalUrls} total` : null },
+                  { label: 'TOTP secrets', value: `${stats.withTotp} / ${stats.entryCount}`, note: stats.totalTotp > 0 ? `${stats.totalTotp} total` : null },
+                  { label: 'Custom fields', value: `${stats.withCustomFields} / ${stats.entryCount}`, note: stats.totalCustomFields > 0 ? `${stats.totalCustomFields} total` : null },
+                  { label: 'Tags', value: `${stats.withTags} / ${stats.entryCount}` },
+                ]}
+              />
+            </>)}
 
             <StatsHeading>Version history</StatsHeading>
             <StatsTable
               rows={[
                 { label: 'Avg commits per entry', value: Number(stats.avgCommitsPerEntry).toFixed(1) },
-                { label: 'Max commits on one entry', value: stats.maxCommits },
-                { label: 'Never edited', value: stats.neverEdited },
+                ...(stats.maxCommits != null ? [
+                  { label: 'Max commits on one entry', value: stats.maxCommits },
+                  { label: 'Never edited', value: stats.neverEdited },
+                ] : []),
               ]}
             />
 
@@ -177,6 +181,8 @@ function SecurityPage() {
     try {
       const key = await generateRootMasterKey();
       setNewKeyB64(key);
+    } catch (err) {
+      setStatus({ type: 'error', msg: err?.message || 'Failed to generate key.' });
     } finally {
       setGenerating(false);
     }
