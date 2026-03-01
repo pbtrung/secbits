@@ -115,8 +115,10 @@ and lock it. No entry operations yet.
 **Acceptance**
 
 - `cargo test` passes all tests including TOTP test vectors.
-- Backend is feature-complete; all IPC commands in `design/ipc.md` are registered and
-  return correct results.
+- All M4 IPC commands (`get_history`, `get_commit_snapshot`, `restore_to_commit`,
+  `get_totp`, `export_vault`, `rotate_master_key`, `get_vault_stats`) are registered
+  and return correct results. Backup commands (`backup_push`, `backup_pull`) are
+  deferred to M6.
 
 ---
 

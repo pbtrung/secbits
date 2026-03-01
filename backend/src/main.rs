@@ -27,7 +27,13 @@ fn main() {
             commands::get_trash_entry,
             commands::restore_entry,
             commands::purge_entry,
-            commands::restore_to_commit
+            commands::restore_to_commit,
+            commands::get_history,
+            commands::get_commit_snapshot,
+            commands::get_totp,
+            commands::export_vault,
+            commands::rotate_master_key,
+            commands::get_vault_stats
         ])
         .run(tauri::generate_context!())
         .expect("failed to run SecBits Tauri app");

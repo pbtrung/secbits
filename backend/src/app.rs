@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use chrono::Utc;
 use rand::TryRngCore;
 use rand::rngs::OsRng;
@@ -9,7 +11,10 @@ use crate::compression::{compress, decompress};
 use crate::crypto::{DOC_KEY_LEN, USER_MASTER_KEY_LEN, decrypt_bytes_from_blob, encrypt_bytes_to_blob};
 use crate::db;
 use crate::error::AppError;
-use crate::model::{EntrySnapshot, HistoryObject, append_snapshot, restore_to_commit as model_restore_to_commit};
+use crate::model::{
+    EntrySnapshot, HistoryObject, append_snapshot, reconstruct_snapshot,
+    restore_to_commit as model_restore_to_commit,
+};
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -39,6 +44,74 @@ pub struct EntryDetail {
     #[serde(rename = "type")]
     pub entry_type: String,
     pub snapshot: EntrySnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CommitMeta {
+    pub hash: String,
+    pub parent: Option<String>,
+    pub timestamp: String,
+    pub changed: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TotpResult {
+    pub code: String,
+    #[serde(rename = "remainingSecs")]
+    pub remaining_secs: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VaultStats {
+    #[serde(rename = "entryCount")]
+    pub entry_count: usize,
+    #[serde(rename = "trashCount")]
+    pub trash_count: usize,
+    #[serde(rename = "loginCount")]
+    pub login_count: usize,
+    #[serde(rename = "noteCount")]
+    pub note_count: usize,
+    #[serde(rename = "cardCount")]
+    pub card_count: usize,
+    #[serde(rename = "topTags")]
+    pub top_tags: Vec<TagCount>,
+    #[serde(rename = "totalCommits")]
+    pub total_commits: usize,
+    #[serde(rename = "avgCommitsPerEntry")]
+    pub avg_commits_per_entry: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TagCount {
+    pub tag: String,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct ExportPayload {
+    version: u32,
+    username: String,
+    data: Vec<ExportEntry>,
+    trash: Vec<ExportTrashEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct ExportEntry {
+    id: i64,
+    #[serde(rename = "type")]
+    entry_type: String,
+    #[serde(flatten)]
+    snapshot: EntrySnapshot,
+    #[serde(rename = "_commits")]
+    commits: Vec<CommitMeta>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct ExportTrashEntry {
+    #[serde(flatten)]
+    entry: ExportEntry,
+    #[serde(rename = "deletedAt")]
+    deleted_at: String,
 }
 
 pub fn init_vault(state: &AppState, username: String) -> Result<()> {
@@ -316,6 +389,169 @@ pub fn restore_to_commit(state: &AppState, id: i64, hash: String) -> Result<Entr
     Ok(history_to_meta(id, &history))
 }
 
+pub fn get_history(state: &AppState, id: i64) -> Result<Vec<CommitMeta>> {
+    let umk = require_unlocked_umk(state)?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|_| AppError::Other("database mutex poisoned".to_string()))?;
+
+    let row = db::get_active_entry(&conn, id)?.ok_or(AppError::EntryNotFound)?;
+    let history = decrypt_history(&umk, &row.entry_key, &row.value)?;
+
+    Ok(history.commits.into_iter().map(commit_to_meta).collect())
+}
+
+pub fn get_commit_snapshot(state: &AppState, id: i64, hash: String) -> Result<EntrySnapshot> {
+    let umk = require_unlocked_umk(state)?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|_| AppError::Other("database mutex poisoned".to_string()))?;
+
+    let row = db::get_active_entry(&conn, id)?.ok_or(AppError::EntryNotFound)?;
+    let history = decrypt_history(&umk, &row.entry_key, &row.value)?;
+    reconstruct_snapshot(&history, &hash)
+}
+
+pub fn get_totp(state: &AppState, id: i64) -> Result<Vec<TotpResult>> {
+    let umk = require_unlocked_umk(state)?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|_| AppError::Other("database mutex poisoned".to_string()))?;
+
+    let row = db::get_active_entry(&conn, id)?.ok_or(AppError::EntryNotFound)?;
+    let history = decrypt_history(&umk, &row.entry_key, &row.value)?;
+    get_totp_from_snapshot_at_timestamp(&history.head_snapshot, Utc::now().timestamp())
+}
+
+pub fn export_vault(state: &AppState) -> Result<String> {
+    let umk = require_unlocked_umk(state)?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|_| AppError::Other("database mutex poisoned".to_string()))?;
+
+    let active_rows = db::list_active_entries(&conn)?;
+    let mut data = Vec::with_capacity(active_rows.len());
+    for row in active_rows {
+        let history = decrypt_history(&umk, &row.entry_key, &row.value)?;
+        data.push(ExportEntry {
+            id: row.entry_id,
+            entry_type: history.entry_type.clone(),
+            snapshot: history.head_snapshot,
+            commits: history.commits.into_iter().map(commit_to_meta).collect(),
+        });
+    }
+
+    let trashed_rows = db::list_trashed_entries(&conn)?;
+    let mut trash = Vec::with_capacity(trashed_rows.len());
+    for row in trashed_rows {
+        let history = decrypt_history(&umk, &row.entry.entry_key, &row.entry.value)?;
+        trash.push(ExportTrashEntry {
+            entry: ExportEntry {
+                id: row.entry.entry_id,
+                entry_type: history.entry_type.clone(),
+                snapshot: history.head_snapshot,
+                commits: history.commits.into_iter().map(commit_to_meta).collect(),
+            },
+            deleted_at: row.deleted_at,
+        });
+    }
+
+    let payload = ExportPayload {
+        version: 1,
+        username: state.config.username.clone(),
+        data,
+        trash,
+    };
+
+    serde_json::to_string_pretty(&payload)
+        .map_err(|err| AppError::Other(format!("export serialization failed: {err}")))
+}
+
+pub fn rotate_master_key(state: &AppState, new_key_b64: String) -> Result<()> {
+    let new_root_key =
+        crate::config::decode_root_master_key(new_key_b64.trim()).map_err(|_| AppError::InvalidRootMasterKey)?;
+
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|_| AppError::Other("database mutex poisoned".to_string()))?;
+
+    let umk_blob = db::get_umk_blob(&conn)?.ok_or(AppError::UserNotFound)?;
+    let mut umk = match decrypt_bytes_from_blob(&state.config.root_master_key, &umk_blob) {
+        Ok(v) => v,
+        Err(AppError::DecryptionFailedAuthentication) => return Err(AppError::WrongRootMasterKey),
+        Err(err) => return Err(err),
+    };
+    let rotated_blob = encrypt_bytes_to_blob(&new_root_key, &umk)?;
+    umk.zeroize();
+
+    db::set_umk_blob(&conn, &rotated_blob, &now_iso())?;
+    Ok(())
+}
+
+pub fn get_vault_stats(state: &AppState) -> Result<VaultStats> {
+    let umk = require_unlocked_umk(state)?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|_| AppError::Other("database mutex poisoned".to_string()))?;
+
+    let active_rows = db::list_active_entries(&conn)?;
+    let trashed_rows = db::list_trashed_entries(&conn)?;
+
+    let mut login_count = 0_usize;
+    let mut note_count = 0_usize;
+    let mut card_count = 0_usize;
+    let mut total_commits = 0_usize;
+    let mut tag_counts: BTreeMap<String, usize> = BTreeMap::new();
+
+    for row in &active_rows {
+        let history = decrypt_history(&umk, &row.entry_key, &row.value)?;
+        match history.entry_type.as_str() {
+            "login" => login_count += 1,
+            "note" => note_count += 1,
+            "card" => card_count += 1,
+            _ => {}
+        }
+        total_commits += history.commits.len();
+        for tag in history.head_snapshot.tags {
+            if tag.trim().is_empty() {
+                continue;
+            }
+            *tag_counts.entry(tag.to_ascii_lowercase()).or_insert(0) += 1;
+        }
+    }
+
+    let mut top_tags = tag_counts
+        .into_iter()
+        .map(|(tag, count)| TagCount { tag, count })
+        .collect::<Vec<_>>();
+    top_tags.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.tag.cmp(&b.tag)));
+    top_tags.truncate(5);
+
+    let entry_count = active_rows.len();
+    let avg_commits_per_entry = if entry_count == 0 {
+        0.0
+    } else {
+        total_commits as f64 / entry_count as f64
+    };
+
+    Ok(VaultStats {
+        entry_count,
+        trash_count: trashed_rows.len(),
+        login_count,
+        note_count,
+        card_count,
+        top_tags,
+        total_commits,
+        avg_commits_per_entry,
+    })
+}
+
 fn require_unlocked_umk(state: &AppState) -> Result<Vec<u8>> {
     let session = state
         .session
@@ -361,6 +597,15 @@ fn history_to_meta(id: i64, history: &HistoryObject) -> EntryMeta {
     }
 }
 
+fn commit_to_meta(commit: crate::model::HistoryCommit) -> CommitMeta {
+    CommitMeta {
+        hash: commit.hash,
+        parent: commit.parent,
+        timestamp: commit.timestamp,
+        changed: commit.changed,
+    }
+}
+
 fn now_iso() -> String {
     Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
@@ -389,14 +634,194 @@ fn matches_filter(snapshot: &EntrySnapshot, filter: Option<&str>) -> bool {
     in_title || in_username || in_urls
 }
 
+fn get_totp_from_snapshot_at_timestamp(
+    snapshot: &EntrySnapshot,
+    unix_timestamp: i64,
+) -> Result<Vec<TotpResult>> {
+    if snapshot.totp_secrets.is_empty() {
+        return Err(AppError::NoTotpSecret);
+    }
+
+    let timestamp = unix_timestamp.max(0) as u64;
+    let counter = timestamp / 30;
+    let rem = 30 - (timestamp % 30);
+    let remaining_secs = if rem == 0 { 30 } else { rem as u32 };
+
+    let mut out = Vec::new();
+    for secret in &snapshot.totp_secrets {
+        if let Some(code) = generate_totp(secret, counter) {
+            out.push(TotpResult {
+                code,
+                remaining_secs,
+            });
+        }
+    }
+
+    if out.is_empty() {
+        return Err(AppError::NoTotpSecret);
+    }
+
+    Ok(out)
+}
+
+fn generate_totp(secret: &str, counter: u64) -> Option<String> {
+    let key = base32_decode(secret)?;
+    if key.is_empty() {
+        return None;
+    }
+
+    let mut counter_bytes = [0_u8; 8];
+    counter_bytes.copy_from_slice(&counter.to_be_bytes());
+    let mac = hmac_sha1(&key, &counter_bytes);
+
+    let offset = (mac[19] & 0x0f) as usize;
+    let code = ((u32::from(mac[offset]) & 0x7f) << 24)
+        | (u32::from(mac[offset + 1]) << 16)
+        | (u32::from(mac[offset + 2]) << 8)
+        | u32::from(mac[offset + 3]);
+
+    Some(format!("{:06}", code % 1_000_000))
+}
+
+fn base32_decode(input: &str) -> Option<Vec<u8>> {
+    let mut bits: u16 = 0;
+    let mut bit_len: u8 = 0;
+    let mut out = Vec::new();
+
+    for ch in input.chars() {
+        let value = match ch {
+            'A'..='Z' => ch as u8 - b'A',
+            'a'..='z' => ch as u8 - b'a',
+            '2'..='7' => ch as u8 - b'2' + 26,
+            ' ' | '\t' | '\n' | '\r' | '=' | '_' | '-' => continue,
+            _ => return None,
+        };
+
+        bits = (bits << 5) | u16::from(value);
+        bit_len += 5;
+
+        while bit_len >= 8 {
+            bit_len -= 8;
+            out.push(((bits >> bit_len) & 0xff) as u8);
+            bits &= (1 << bit_len) - 1;
+        }
+    }
+
+    Some(out)
+}
+
+fn hmac_sha1(key: &[u8], message: &[u8]) -> [u8; 20] {
+    const BLOCK_SIZE: usize = 64;
+    let mut key_block = [0_u8; BLOCK_SIZE];
+
+    if key.len() > BLOCK_SIZE {
+        let hashed = sha1_digest(key);
+        key_block[..hashed.len()].copy_from_slice(&hashed);
+    } else {
+        key_block[..key.len()].copy_from_slice(key);
+    }
+
+    let mut ipad = [0_u8; BLOCK_SIZE];
+    let mut opad = [0_u8; BLOCK_SIZE];
+    for idx in 0..BLOCK_SIZE {
+        ipad[idx] = key_block[idx] ^ 0x36;
+        opad[idx] = key_block[idx] ^ 0x5c;
+    }
+
+    let mut inner = Vec::with_capacity(BLOCK_SIZE + message.len());
+    inner.extend_from_slice(&ipad);
+    inner.extend_from_slice(message);
+    let inner_hash = sha1_digest(&inner);
+
+    let mut outer = Vec::with_capacity(BLOCK_SIZE + inner_hash.len());
+    outer.extend_from_slice(&opad);
+    outer.extend_from_slice(&inner_hash);
+    sha1_digest(&outer)
+}
+
+fn sha1_digest(data: &[u8]) -> [u8; 20] {
+    let mut h0: u32 = 0x67452301;
+    let mut h1: u32 = 0xEFCDAB89;
+    let mut h2: u32 = 0x98BADCFE;
+    let mut h3: u32 = 0x10325476;
+    let mut h4: u32 = 0xC3D2E1F0;
+
+    let bit_len = (data.len() as u64) * 8;
+    let mut padded = data.to_vec();
+    padded.push(0x80);
+    while (padded.len() % 64) != 56 {
+        padded.push(0);
+    }
+    padded.extend_from_slice(&bit_len.to_be_bytes());
+
+    for chunk in padded.chunks_exact(64) {
+        let mut w = [0_u32; 80];
+        for (i, word) in w.iter_mut().take(16).enumerate() {
+            let start = i * 4;
+            *word = u32::from_be_bytes([
+                chunk[start],
+                chunk[start + 1],
+                chunk[start + 2],
+                chunk[start + 3],
+            ]);
+        }
+
+        for i in 16..80 {
+            w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
+        }
+
+        let mut a = h0;
+        let mut b = h1;
+        let mut c = h2;
+        let mut d = h3;
+        let mut e = h4;
+
+        for (i, word) in w.iter().enumerate() {
+            let (f, k) = match i {
+                0..=19 => (((b & c) | ((!b) & d)), 0x5A827999),
+                20..=39 => (b ^ c ^ d, 0x6ED9EBA1),
+                40..=59 => (((b & c) | (b & d) | (c & d)), 0x8F1BBCDC),
+                _ => (b ^ c ^ d, 0xCA62C1D6),
+            };
+            let temp = a
+                .rotate_left(5)
+                .wrapping_add(f)
+                .wrapping_add(e)
+                .wrapping_add(k)
+                .wrapping_add(*word);
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = temp;
+        }
+
+        h0 = h0.wrapping_add(a);
+        h1 = h1.wrapping_add(b);
+        h2 = h2.wrapping_add(c);
+        h3 = h3.wrapping_add(d);
+        h4 = h4.wrapping_add(e);
+    }
+
+    let mut out = [0_u8; 20];
+    out[..4].copy_from_slice(&h0.to_be_bytes());
+    out[4..8].copy_from_slice(&h1.to_be_bytes());
+    out[8..12].copy_from_slice(&h2.to_be_bytes());
+    out[12..16].copy_from_slice(&h3.to_be_bytes());
+    out[16..20].copy_from_slice(&h4.to_be_bytes());
+    out
+}
+
 #[cfg(test)]
 mod tests {
+    use base64::{Engine as _, engine::general_purpose};
     use tempfile::tempdir;
 
     use super::{
-        create_entry, delete_entry, get_entry, get_trash_entry, init_vault, is_initialized, list_entries,
-        list_trash, lock_vault, purge_entry, restore_entry, restore_to_commit, unlock_vault,
-        update_entry,
+        create_entry, delete_entry, export_vault, get_commit_snapshot, get_entry, get_history, get_totp,
+        get_totp_from_snapshot_at_timestamp, get_trash_entry, get_vault_stats, init_vault,
+        is_initialized, list_entries, list_trash, lock_vault, purge_entry, restore_entry,
+        restore_to_commit, rotate_master_key, unlock_vault, update_entry,
     };
     use crate::config::AppConfig;
     use crate::db::open_connection;
@@ -559,5 +984,227 @@ mod tests {
         purge_entry(&state, created.id).expect("purge");
         let err = get_entry(&state, created.id).expect_err("must be gone");
         assert!(matches!(err, AppError::EntryNotFound));
+    }
+
+    #[test]
+    fn history_commands_return_expected_data() {
+        let state = new_state(vec![7_u8; 256], "alice");
+        init_vault(&state, "alice".to_string()).expect("init");
+        unlock_vault(&state).expect("unlock");
+
+        let created = create_entry(
+            &state,
+            "login".to_string(),
+            login_snapshot("Email", "alice", "one"),
+        )
+        .expect("create");
+        update_entry(
+            &state,
+            created.id,
+            login_snapshot("Email", "alice", "two"),
+        )
+        .expect("update");
+
+        let history = get_history(&state, created.id).expect("history");
+        assert_eq!(history.len(), 2);
+        assert!(history.iter().all(|c| !c.hash.is_empty()));
+        assert!(history[0].parent.is_some());
+
+        let older = get_commit_snapshot(&state, created.id, history[1].hash.clone()).expect("snapshot");
+        assert_eq!(older.password, "one");
+    }
+
+    #[test]
+    fn totp_matches_rfc_6238_vectors() {
+        // RFC 6238 Appendix B test vectors for HMAC-SHA1.
+        // Key = ASCII "12345678901234567890" (base32 = GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ).
+        let mut snapshot = EntrySnapshot::default();
+        snapshot.totp_secrets = vec!["GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ".to_string()];
+
+        let vectors: &[(i64, &str, u32)] = &[
+            (59,          "287082", 1),
+            (1111111109,  "081804", 1),
+            (1111111111,  "050471", 29),
+            (1234567890,  "005924", 30),
+            (2000000000,  "279037", 10),
+            (20000000000, "353130", 10),
+        ];
+
+        for &(ts, expected_code, expected_remaining) in vectors {
+            let codes = get_totp_from_snapshot_at_timestamp(&snapshot, ts)
+                .unwrap_or_else(|_| panic!("totp failed at ts={ts}"));
+            assert_eq!(codes[0].code, expected_code, "wrong code at ts={ts}");
+            assert_eq!(codes[0].remaining_secs, expected_remaining, "wrong remaining at ts={ts}");
+        }
+    }
+
+    #[test]
+    fn get_totp_supports_multiple_secrets() {
+        let state = new_state(vec![2_u8; 256], "alice");
+        init_vault(&state, "alice".to_string()).expect("init");
+        unlock_vault(&state).expect("unlock");
+
+        let mut snapshot = login_snapshot("2FA", "alice", "pw");
+        snapshot.totp_secrets = vec![
+            "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ".to_string(),
+            "JBSWY3DPEHPK3PXP".to_string(),
+        ];
+        let created = create_entry(&state, "login".to_string(), snapshot).expect("create");
+
+        let codes = get_totp(&state, created.id).expect("totp");
+        assert_eq!(codes.len(), 2);
+        assert!(codes.iter().all(|c| c.code.len() == 6));
+        assert!(codes.iter().all(|c| (1..=30).contains(&c.remaining_secs)));
+    }
+
+    #[test]
+    fn export_contains_active_and_trashed_entries() {
+        let state = new_state(vec![4_u8; 256], "alice");
+        init_vault(&state, "alice".to_string()).expect("init");
+        unlock_vault(&state).expect("unlock");
+
+        let active = create_entry(
+            &state,
+            "login".to_string(),
+            login_snapshot("Active", "alice", "pw"),
+        )
+        .expect("active");
+        let trashed = create_entry(
+            &state,
+            "note".to_string(),
+            EntrySnapshot {
+                title: "Trashed".to_string(),
+                notes: "gone".to_string(),
+                ..EntrySnapshot::default()
+            },
+        )
+        .expect("trashed");
+        delete_entry(&state, trashed.id).expect("trash");
+
+        let json = export_vault(&state).expect("export");
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid json");
+        assert_eq!(parsed["version"], 1);
+        assert_eq!(parsed["username"], "alice");
+
+        let data = parsed["data"].as_array().expect("data array");
+        let trash = parsed["trash"].as_array().expect("trash array");
+        assert_eq!(data.len(), 1);
+        assert_eq!(trash.len(), 1);
+        assert_eq!(data[0]["id"], active.id);
+        assert!(data[0]["_commits"].is_array());
+        assert_eq!(trash[0]["id"], trashed.id);
+        assert!(trash[0]["deletedAt"].as_str().is_some());
+    }
+
+    #[test]
+    fn rotate_master_key_reencrypts_umk_blob() {
+        let old_root = vec![6_u8; 256];
+        let state = new_state(old_root.clone(), "alice");
+        init_vault(&state, "alice".to_string()).expect("init");
+        unlock_vault(&state).expect("unlock");
+        create_entry(
+            &state,
+            "login".to_string(),
+            login_snapshot("Entry", "alice", "pw"),
+        )
+        .expect("create");
+
+        let new_root = vec![9_u8; 256];
+        let new_root_b64 = general_purpose::STANDARD.encode(&new_root);
+        rotate_master_key(&state, new_root_b64).expect("rotate");
+        lock_vault(&state).expect("lock");
+
+        let old_state = AppState::new(
+            open_connection(&state.config.db_path).expect("open db old"),
+            AppConfig {
+                root_master_key: old_root,
+                db_path: state.config.db_path.clone(),
+                username: "alice".to_string(),
+                backup_on_save: false,
+                log_level: "warn".to_string(),
+                targets: Default::default(),
+            },
+        );
+        let old_err = unlock_vault(&old_state).expect_err("old key must fail");
+        assert!(matches!(old_err, AppError::WrongRootMasterKey));
+
+        let new_state = AppState::new(
+            open_connection(&state.config.db_path).expect("open db new"),
+            AppConfig {
+                root_master_key: new_root,
+                db_path: state.config.db_path.clone(),
+                username: "alice".to_string(),
+                backup_on_save: false,
+                log_level: "warn".to_string(),
+                targets: Default::default(),
+            },
+        );
+        unlock_vault(&new_state).expect("new key unlocks");
+        let entries = list_entries(&new_state, None).expect("entries intact");
+        assert_eq!(entries.len(), 1);
+    }
+
+    #[test]
+    fn vault_stats_include_counts_commits_and_tags() {
+        let state = new_state(vec![8_u8; 256], "alice");
+        init_vault(&state, "alice".to_string()).expect("init");
+        unlock_vault(&state).expect("unlock");
+
+        let login_id = create_entry(
+            &state,
+            "login".to_string(),
+            EntrySnapshot {
+                title: "Login".to_string(),
+                tags: vec!["Work".to_string(), "Email".to_string()],
+                ..EntrySnapshot::default()
+            },
+        )
+        .expect("login")
+        .id;
+        create_entry(
+            &state,
+            "note".to_string(),
+            EntrySnapshot {
+                title: "Note".to_string(),
+                tags: vec!["Work".to_string()],
+                ..EntrySnapshot::default()
+            },
+        )
+        .expect("note");
+        let card_id = create_entry(
+            &state,
+            "card".to_string(),
+            EntrySnapshot {
+                title: "Card".to_string(),
+                tags: vec!["Billing".to_string()],
+                ..EntrySnapshot::default()
+            },
+        )
+        .expect("card")
+        .id;
+
+        update_entry(
+            &state,
+            login_id,
+            EntrySnapshot {
+                title: "Login".to_string(),
+                password: "changed".to_string(),
+                tags: vec!["work".to_string(), "email".to_string()],
+                ..EntrySnapshot::default()
+            },
+        )
+        .expect("update login");
+        delete_entry(&state, card_id).expect("trash card");
+
+        let stats = get_vault_stats(&state).expect("stats");
+        assert_eq!(stats.entry_count, 2);
+        assert_eq!(stats.trash_count, 1);
+        assert_eq!(stats.login_count, 1);
+        assert_eq!(stats.note_count, 1);
+        assert_eq!(stats.card_count, 0);
+        assert_eq!(stats.total_commits, 3);
+        assert!((stats.avg_commits_per_entry - 1.5).abs() < f64::EPSILON);
+        assert_eq!(stats.top_tags[0].tag, "work");
+        assert_eq!(stats.top_tags[0].count, 2);
     }
 }

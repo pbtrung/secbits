@@ -87,3 +87,37 @@ pub fn restore_to_commit(
 ) -> Result<app::EntryMeta> {
     app::restore_to_commit(&state, id, hash)
 }
+
+#[tauri::command]
+pub fn get_history(state: tauri::State<'_, AppState>, id: i64) -> Result<Vec<app::CommitMeta>> {
+    app::get_history(&state, id)
+}
+
+#[tauri::command]
+pub fn get_commit_snapshot(
+    state: tauri::State<'_, AppState>,
+    id: i64,
+    hash: String,
+) -> Result<EntrySnapshot> {
+    app::get_commit_snapshot(&state, id, hash)
+}
+
+#[tauri::command]
+pub fn get_totp(state: tauri::State<'_, AppState>, id: i64) -> Result<Vec<app::TotpResult>> {
+    app::get_totp(&state, id)
+}
+
+#[tauri::command]
+pub fn export_vault(state: tauri::State<'_, AppState>) -> Result<String> {
+    app::export_vault(&state)
+}
+
+#[tauri::command]
+pub fn rotate_master_key(state: tauri::State<'_, AppState>, new_key_b64: String) -> Result<()> {
+    app::rotate_master_key(&state, new_key_b64)
+}
+
+#[tauri::command]
+pub fn get_vault_stats(state: tauri::State<'_, AppState>) -> Result<app::VaultStats> {
+    app::get_vault_stats(&state)
+}

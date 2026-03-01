@@ -338,5 +338,5 @@ interface EntrySnapshot {
 | `BackupTargetNotConfigured` | Named target absent from config |
 | `BackupUploadFailed` | S3 upload error |
 | `BackupDownloadFailed` | S3 download error |
-| `ShareKeysNotInitialized` | Sharing keypair not generated yet (M7) |
+| `ShareKeysNotInitialized` | Sharing keypair not generated yet |
 | `Other` | Unexpected internal error; includes message |
