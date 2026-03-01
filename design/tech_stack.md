@@ -125,20 +125,3 @@ Column boundaries are draggable via `ResizeHandle`.
 
 Mobile: stacked single-column view with back navigation.
 
-## Dev Workflow
-
-```bash
-# One-time setup
-npm install
-cargo install tauri-cli
-
-# Development
-cargo tauri dev         # Vite dev server + Tauri window (hot reload)
-
-# Production build
-cargo tauri build       # platform binary in backend/target/release/
-
-# Tests
-cd backend && cargo test     # Rust unit + integration tests
-npm test                     # Vitest frontend tests
-```

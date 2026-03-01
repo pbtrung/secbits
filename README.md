@@ -43,13 +43,39 @@ See `design/crypto.md` for the full cipher spec.
 
 ## Development
 
+One-time setup (project root):
+
 ```bash
-npm install          # install frontend dependencies
-cargo tauri dev      # start dev server (Vite + Tauri)
-cargo tauri build    # produce release binary
-cargo test           # run Rust unit/integration tests
-npm test             # run Vitest frontend tests
+npm install              # install frontend dependencies
 ```
+
+Start the dev server with hot reload (project root):
+
+```bash
+npx tauri dev
+```
+
+Run frontend tests (project root):
+
+```bash
+npm test
+```
+
+Run Rust unit and integration tests (`backend/` folder):
+
+```bash
+cargo test
+```
+
+## Release Build
+
+Build the release binary (`backend/` folder):
+
+```bash
+cargo tauri build
+```
+
+The binary is written to `backend/target/release/secbits`.
 
 ## Config
 
