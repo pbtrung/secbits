@@ -9,9 +9,13 @@ fn main() {
     // Force X11 backend on Linux so KDE (and other WMs) provide native
     // server-side window decorations instead of GTK/libdecor CSD, which
     // breaks resize handles and window controls under KDE Plasma + Wayland.
+    //
+    // Disable the DMA-BUF renderer to prevent WebKitGTK from crashing on
+    // startup on some Wayland compositors (WebKitGTK 2.40+).
     #[cfg(target_os = "linux")]
     unsafe {
         std::env::set_var("GDK_BACKEND", "x11");
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
 
     let config = load_config(None).expect("failed to load config");
