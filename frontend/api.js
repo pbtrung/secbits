@@ -168,6 +168,10 @@ export async function exportVault() {
   return call('export_vault');
 }
 
+export async function generateRootMasterKey() {
+  return call('generate_root_master_key');
+}
+
 export async function rotateMasterKey(newKeyB64) {
   return call('rotate_master_key', {
     newKeyB64,

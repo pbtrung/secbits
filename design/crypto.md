@@ -153,6 +153,42 @@ magic(2) || version(2) || salt(64) || brotli_ciphertext(var) || tag(64)
 ```
 Encrypted under the entry's doc key. The plaintext is Brotli-compressed history JSON.
 
+## Root Master Key Rotation
+
+Rotation re-encrypts only the 196-byte UMK blob stored in `key_store`. All
+per-entry data is untouched.
+
+### Key generation
+
+The frontend calls `generate_root_master_key()` (IPC). The backend generates
+256 bytes from the OS CSPRNG (`OsRng`) and returns them base64-encoded. No
+random bytes are ever produced in the browser.
+
+### Rotation steps
+
+1. Validate the incoming base64: decode and assert length ≥ 256 bytes;
+   return `AppError::InvalidRootMasterKey` otherwise.
+2. Decrypt the existing UMK blob from `key_store WHERE type='umk'` using the
+   current root master key already held in `AppState`.
+3. Generate a fresh 64-byte random salt.
+4. `HKDF-SHA3-512(ikm=new_root_master_key, salt=new_salt)` → `encKey + encIv`.
+5. `Ascon-Keccak-512-AEAD-encrypt(encKey, encIv, umk, AAD)` → new UMK blob.
+6. Write the new blob to `key_store` inside a transaction; update `rotated_at`.
+7. Update `AppState` to hold the new root master key for the remainder of the
+   session.
+
+### Scope
+
+| Affected | Not affected |
+|----------|-------------|
+| `key_store` UMK blob (196 bytes) | All `entries.entry_key` blobs |
+| `AppState` root master key | All `entries.value` blobs |
+| | Per-entry doc keys (never re-keyed) |
+
+The user must update the `root_master_key` field in their TOML config before
+the session ends. Failure to do so results in a permanent lockout on next
+unlock.
+
 ## Brotli Compression
 
 History JSON is compressed with Brotli before encryption. Compression:

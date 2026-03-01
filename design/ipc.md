@@ -240,6 +240,16 @@ invoke("export_vault"): Promise<string>  // JSON string
 
 ## Settings
 
+### `generate_root_master_key()`
+
+Generate 256 cryptographically random bytes via the OS CSPRNG and return them
+base64-encoded. Does not require an active session. The frontend displays the
+result in a read-only textarea; no crypto runs in the browser.
+
+```ts
+invoke("generate_root_master_key"): Promise<string>  // base64, 256 raw bytes
+```
+
 ### `rotate_master_key(newKeyB64: string)`
 
 Re-encrypt the user master key under a new root master key. The new key must be
@@ -264,9 +274,23 @@ interface VaultStats {
   loginCount: number
   noteCount: number
   cardCount: number
-  topTags: { tag: string; count: number }[]
+  // field coverage (counts of entries that have the field populated)
+  withPassword: number
+  withUsername: number
+  withNotes: number
+  withUrls: number
+  totalUrls: number
+  withTotp: number
+  totalTotp: number
+  withCustomFields: number
+  totalCustomFields: number
+  withTags: number
+  // version history
   totalCommits: number
   avgCommitsPerEntry: number
+  maxCommits: number
+  neverEdited: number
+  topTags: { tag: string; count: number }[]
 }
 ```
 
