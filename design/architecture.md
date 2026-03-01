@@ -5,7 +5,7 @@ Architecture decisions and their rationale.
 ## Tauri 2 Desktop Shell
 
 **Decision:** Package the app as a Tauri 2 desktop binary wrapping a React/Vite
-frontend and a Rust backend.
+frontend and a Rust backend. The bundle identifier is `com.secbits.desktop`.
 
 **Why:** Tauri gives native desktop integration (file system access, OS keychain,
 system tray) while keeping the frontend in the web stack. The Rust backend runs in
