@@ -2,6 +2,7 @@ use crate::Result;
 use crate::app;
 use crate::model::EntrySnapshot;
 use crate::state::AppState;
+use rfd::FileDialog;
 
 #[tauri::command]
 pub fn get_setup_info() -> Result<app::SetupInfo> {
@@ -11,6 +12,15 @@ pub fn get_setup_info() -> Result<app::SetupInfo> {
 #[tauri::command]
 pub fn select_config_path(state: tauri::State<'_, AppState>, path: String) -> Result<()> {
     app::select_config_path(&state, path)
+}
+
+#[tauri::command]
+pub fn browse_config_path() -> Option<String> {
+    FileDialog::new()
+        .add_filter("TOML", &["toml"])
+        .set_title("Select SecBits config.toml")
+        .pick_file()
+        .map(|p| p.display().to_string())
 }
 
 #[tauri::command]

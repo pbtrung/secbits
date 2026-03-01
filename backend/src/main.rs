@@ -46,6 +46,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::get_setup_info,
             commands::select_config_path,
+            commands::browse_config_path,
             commands::init_vault,
             commands::is_initialized,
             commands::unlock_vault,

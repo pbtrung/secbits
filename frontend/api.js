@@ -104,6 +104,10 @@ export async function selectConfigPath(path) {
   return call('select_config_path', { path });
 }
 
+export async function browseConfigPath() {
+  return call('browse_config_path');
+}
+
 export async function isVaultInitialized() {
   return call('is_initialized');
 }
