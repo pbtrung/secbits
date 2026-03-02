@@ -90,6 +90,15 @@ describe('worker keys routes', () => {
     expect(res.status).toBe(200);
   });
 
+  it('PUT /keys/:key_id updates encrypted_data for owned row', async () => {
+    const queryMock = vi.fn().mockResolvedValueOnce([{ key_id: GOOD_ID }]);
+    const { handler } = makeHandler({ query: queryMock });
+    const res = await handler(req(`/keys/${GOOD_ID}`, 'PUT', {
+      encrypted_data: BLOB_132,
+    }), { FIREBASE_PROJECT_ID: 'proj' });
+    expect(res.status).toBe(200);
+  });
+
   it('GET /users/:user_id/public-key returns key, 404 otherwise, and requires auth', async () => {
     const queryMock = vi.fn()
       .mockResolvedValueOnce([{ encrypted_data: BLOB_132 }])

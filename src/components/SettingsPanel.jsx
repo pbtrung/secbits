@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import SpinnerBtn from './SpinnerBtn';
-import { bytesToB64, decodeRootMasterKey } from '../lib/crypto';
-import { buildExportData, fetchUserEntries, getUsername, getVaultStats, rotateRootMasterKey } from '../lib/api';
+import { buildExportData, fetchUserEntries, getUsername, getVaultStats } from '../lib/api';
+import KeyStoreManager from './KeyStoreManager';
+import KeyRotation from './KeyRotation';
 
 function formatBytes(bytes) {
   if (bytes === 0) return '0 B';
@@ -248,116 +249,16 @@ function ExportPage() {
 }
 
 function SecurityPage() {
-  const [newKeyB64, setNewKeyB64] = useState('');
-  const [confirmed, setConfirmed] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState(null);
-  const [copied, setCopied] = useState(false);
-
-  const generateKey = useCallback(() => {
-    const bytes = crypto.getRandomValues(new Uint8Array(256));
-    setNewKeyB64(bytesToB64(bytes));
-    setConfirmed(false);
-    setStatus(null);
-    setCopied(false);
-  }, []);
-
-  useEffect(() => {
-    generateKey();
-  }, [generateKey]);
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(newKeyB64);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // clipboard not available
-    }
-  };
-
-  const handleChange = async () => {
-    if (!confirmed || loading) return;
-    setLoading(true);
-    setStatus(null);
-    try {
-      const newKeyBytes = decodeRootMasterKey(newKeyB64);
-      await rotateRootMasterKey(newKeyBytes);
-      setStatus({ type: 'success', msg: 'Root master key changed successfully. Update your config JSON with the new key.' });
-    } catch (err) {
-      setStatus({ type: 'error', msg: err?.message || 'Failed to change root master key.' });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
-    <div className="p-4" style={{ maxWidth: 500 }}>
+    <div className="p-4" style={{ maxWidth: 760 }}>
       <h5 className="fw-bold mb-3">
         <i className="bi bi-shield-lock me-2"></i>Security
       </h5>
-
-      <div className="fw-semibold mb-1">Change Root Master Key</div>
-      <p className="text-muted small mb-1">
-        The root master key wraps your session key stored on the server. Rotating it re-encrypts only that blob — your entries are unaffected.
-      </p>
       <p className="text-muted small mb-3">
-        <strong>Warning: After saving the new key, you must update your config JSON immediately. If you lose the new key, you will be permanently locked out.</strong>
+        Manage key material and perform root/UMK rotations. These operations do not require sharing features (M7).
       </p>
-
-      <label className="form-label small fw-semibold mb-1">New root master key</label>
-      <textarea
-        className="form-control font-monospace mb-1"
-        style={{ fontSize: '0.7rem' }}
-        rows={6}
-        readOnly
-        value={newKeyB64}
-      />
-      <div className="d-flex gap-2 mb-3">
-        <button
-          className="btn btn-outline-secondary btn-sm"
-          onClick={handleCopy}
-          disabled={loading}
-        >
-          <i className={`bi ${copied ? 'bi-check' : 'bi-clipboard'} me-1`}></i>
-          {copied ? 'Copied!' : 'Copy'}
-        </button>
-        <button
-          className="btn btn-outline-secondary btn-sm"
-          onClick={generateKey}
-          disabled={loading}
-        >
-          <i className="bi bi-arrow-clockwise me-1"></i>Regenerate
-        </button>
-      </div>
-
-      <div className="form-check mb-3">
-        <input
-          className="form-check-input"
-          type="checkbox"
-          id="securityConfirmCheck"
-          checked={confirmed}
-          onChange={(e) => setConfirmed(e.target.checked)}
-          disabled={loading}
-        />
-        <label className="form-check-label small" htmlFor="securityConfirmCheck">
-          I have copied and saved the new root master key to my config JSON and a secure location.
-        </label>
-      </div>
-
-      <SpinnerBtn
-        className="btn btn-danger btn-sm"
-        onClick={handleChange}
-        disabled={!confirmed}
-        busy={loading}
-        busyLabel="Changing..."
-      >Change root master key</SpinnerBtn>
-
-      {status && (
-        <div className={`alert alert-${status.type === 'success' ? 'success' : 'danger'} mt-3 small mb-0`}>
-          {status.msg}
-        </div>
-      )}
+      <KeyRotation />
+      <KeyStoreManager />
     </div>
   );
 }

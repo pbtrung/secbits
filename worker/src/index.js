@@ -226,6 +226,19 @@ async function handleEntries(request, env, deps, userId, segments) {
       return { id: entryId, updated_at: ts };
     }
 
+    if (segments.length === 3 && segments[2] === 'entry-key' && request.method === 'PUT') {
+      const body = await parseJsonBody(request);
+      requireBlobBase64(body.entry_key, 'entry_key', ENTRY_KEY_MIN_LEN);
+      const entry = await getOwnedEntry(env, deps, userId, entryId);
+      if (!entry) throw new HttpError(404, 'Entry not found');
+      await deps.execute(
+        env,
+        'UPDATE entries SET entry_key = ? WHERE id = ? AND user_id = ?',
+        [body.entry_key, entryId, userId],
+      );
+      return { id: entryId };
+    }
+
     if (segments.length === 2 && request.method === 'DELETE') {
       const entry = await getOwnedEntry(env, deps, userId, entryId);
       if (!entry) throw new HttpError(404, 'Entry not found');
@@ -298,26 +311,38 @@ async function handleKeys(request, env, deps, userId, segments) {
     return { key_id: body.key_id, created_at: ts, _status: 201 };
   }
 
-  if (segments.length === 2) {
-    const keyId = segments[1];
-    requireZbase32Id(keyId, 'key_id');
+    if (segments.length === 2) {
+      const keyId = segments[1];
+      requireZbase32Id(keyId, 'key_id');
 
-    if (request.method === 'GET') {
+      if (request.method === 'GET') {
       const row = await getOwnedKey(env, deps, userId, keyId);
       if (!row) throw new HttpError(404, 'Key not found');
       return row;
     }
-    if (request.method === 'DELETE') {
-      const row = await getOwnedKey(env, deps, userId, keyId);
-      if (!row) throw new HttpError(404, 'Key not found');
-      await deps.execute(
-        env,
-        'DELETE FROM key_store WHERE key_id = ? AND user_id = ?',
-        [keyId, userId],
-      );
-      return { key_id: keyId };
+      if (request.method === 'DELETE') {
+        const row = await getOwnedKey(env, deps, userId, keyId);
+        if (!row) throw new HttpError(404, 'Key not found');
+        await deps.execute(
+          env,
+          'DELETE FROM key_store WHERE key_id = ? AND user_id = ?',
+          [keyId, userId],
+        );
+        return { key_id: keyId };
+      }
+      if (request.method === 'PUT') {
+        const body = await parseJsonBody(request);
+        requireBlobBase64(body.encrypted_data, 'encrypted_data', BLOB_MIN_LEN);
+        const row = await getOwnedKey(env, deps, userId, keyId);
+        if (!row) throw new HttpError(404, 'Key not found');
+        await deps.execute(
+          env,
+          'UPDATE key_store SET encrypted_data = ? WHERE key_id = ? AND user_id = ?',
+          [body.encrypted_data, keyId, userId],
+        );
+        return { key_id: keyId };
+      }
     }
-  }
 
   throw new HttpError(404, 'Not found');
 }

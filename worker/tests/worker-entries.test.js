@@ -102,6 +102,15 @@ describe('worker entries routes', () => {
     expect((await handler(req(`/entries/${GOOD_ID}/purge`, 'DELETE'), { FIREBASE_PROJECT_ID: 'proj' })).status).toBe(200);
   });
 
+  it('PUT /entries/:id/entry-key rewrites wrapped entry key', async () => {
+    const queryMock = vi.fn().mockResolvedValueOnce([{ id: GOOD_ID }]);
+    const { handler } = makeHandler({ query: queryMock });
+    const res = await handler(req(`/entries/${GOOD_ID}/entry-key`, 'PUT', {
+      entry_key: BLOB_196,
+    }), { FIREBASE_PROJECT_ID: 'proj' });
+    expect(res.status).toBe(200);
+  });
+
   it('POST /entries returns 409 on duplicate id', async () => {
     const { handler } = makeHandler({
       query: vi.fn().mockResolvedValueOnce([{ id: GOOD_ID }]), // duplicate found

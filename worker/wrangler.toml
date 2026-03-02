@@ -1,0 +1,7 @@
+name = "secbits-worker"
+main = "src/index.js"
+compatibility_date = "2026-03-02"
+
+# Configure these in Cloudflare dashboard or via wrangler:
+# account_id = "<cloudflare-account-id>"
+# workers_dev = true

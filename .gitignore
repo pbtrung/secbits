@@ -27,7 +27,7 @@ yarn-error.log*
 /dist
 
 # config
-worker/wrangler.toml
+# worker/wrangler.toml is tracked as deployment config.
 
 # wrangler local dev state
 worker/.wrangler/

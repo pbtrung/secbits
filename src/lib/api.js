@@ -3,6 +3,7 @@ import {
   decryptEntry,
   decryptEntryKey,
   decryptUMK,
+  encryptBlob,
   encryptEntry,
   encryptEntryKey,
   encryptUMK,
@@ -346,7 +347,7 @@ async function bootstrapUMKIfNeeded() {
     );
     const pubRaw = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));
     const privPkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', kp.privateKey));
-    const encPriv = await encryptEntryKey(privPkcs8, currentUMK);
+    const encPriv = await encryptBlob(currentUMK, privPkcs8);
     await addKey({ key_id: randomId(), type: 'own_public', label: null, encrypted_data: bytesToB64(pubRaw), peer_user_id: null });
     await addKey({ key_id: randomId(), type: 'own_private', label: null, encrypted_data: bytesToB64(encPriv), peer_user_id: null });
   }
@@ -483,6 +484,13 @@ export async function getHistory(id) {
   return requestJson(`/entries/${encodeURIComponent(id)}/history`);
 }
 
+export async function updateEntryKeyBlob(id, entryKeyB64) {
+  return requestJson(`/entries/${encodeURIComponent(id)}/entry-key`, {
+    method: 'PUT',
+    body: JSON.stringify({ entry_key: entryKeyB64 }),
+  });
+}
+
 export async function getKeys() {
   return requestJson('/keys');
 }
@@ -499,8 +507,58 @@ export async function deleteKey(keyId) {
   return requestJson(`/keys/${encodeURIComponent(keyId)}`, { method: 'DELETE' });
 }
 
+export async function updateKey(keyId, encrypted_data) {
+  return requestJson(`/keys/${encodeURIComponent(keyId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ encrypted_data }),
+  });
+}
+
 export async function getPeerPublicKey(userId) {
   return requestJson(`/users/${encodeURIComponent(userId)}/public-key`);
+}
+
+export async function listKeyStore() {
+  const keys = await getKeys();
+  return keys.slice().sort((a, b) => {
+    if (a.type === b.type) return String(b.created_at).localeCompare(String(a.created_at));
+    return String(a.type).localeCompare(String(b.type));
+  });
+}
+
+export async function addEmergencyKey(label = null) {
+  const root = ensureRootKey();
+  const bytes = generateEntryKey();
+  const encrypted = await encryptBlob(root, bytes);
+  const payload = {
+    key_id: randomId(),
+    type: 'emergency',
+    label: label ? String(label) : null,
+    encrypted_data: bytesToB64(encrypted),
+    peer_user_id: null,
+  };
+  return addKey(payload);
+}
+
+export async function regenerateOwnKeyPair() {
+  const currentUMK = ensureUMK();
+  const keys = await getKeys();
+  const removable = keys.filter((k) => k.type === 'own_public' || k.type === 'own_private');
+  for (const key of removable) {
+    await deleteKey(key.key_id);
+  }
+
+  const kp = await crypto.subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' },
+    true,
+    ['deriveBits'],
+  );
+  const pubRaw = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));
+  const privPkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', kp.privateKey));
+  const encPriv = await encryptBlob(currentUMK, privPkcs8);
+
+  await addKey({ key_id: randomId(), type: 'own_public', label: null, encrypted_data: bytesToB64(pubRaw), peer_user_id: null });
+  await addKey({ key_id: randomId(), type: 'own_private', label: null, encrypted_data: bytesToB64(encPriv), peer_user_id: null });
 }
 
 export async function fetchUserEntries() {
@@ -652,19 +710,42 @@ export async function rotateRootMasterKey(newRootMasterKeyBytes) {
   const currentUmk = ensureUMK().slice();
 
   const rewrapped = await encryptUMK(currentUmk, newRootMasterKeyBytes);
-  await deleteKey(umkKeyRecord.key_id);
-  await addKey({
-    key_id: umkKeyRecord.key_id,
-    type: 'umk',
-    label: umkKeyRecord.label ?? null,
-    encrypted_data: bytesToB64(rewrapped),
-    peer_user_id: null,
-  });
+  await updateKey(umkKeyRecord.key_id, bytesToB64(rewrapped));
 
   zeroizeBytes(rootMasterKeyBytes);
   rootMasterKeyBytes = newRootMasterKeyBytes.slice();
   umkKeyRecord = { ...umkKeyRecord, encrypted_data: bytesToB64(rewrapped) };
   zeroizeBytes(oldRoot);
+}
+
+export async function rotateUserMasterKey() {
+  const root = ensureRootKey();
+  const oldUmk = ensureUMK();
+  if (!umkKeyRecord?.key_id) throw new Error('UMK record missing');
+  await ensureVaultLoaded();
+
+  const allEntryIds = Array.from(new Set([
+    ...entriesCache.map((e) => e.id),
+    ...trashCache.map((e) => e.id),
+  ]));
+  const newUmk = generateEntryKey();
+  const attempted = new Set();
+
+  for (const entryId of allEntryIds) {
+    const rawEntryKey = entryKeyById.get(entryId);
+    if (!rawEntryKey) continue;
+    const rewrappedBlob = await encryptEntryKey(rawEntryKey, newUmk);
+    attempted.add(entryId);
+    await updateEntryKeyBlob(entryId, bytesToB64(rewrappedBlob));
+  }
+
+  const newUmkBlob = await encryptUMK(newUmk, root);
+  await updateKey(umkKeyRecord.key_id, bytesToB64(newUmkBlob));
+
+  zeroizeBytes(umkBytes);
+  umkBytes = newUmk;
+  umkKeyRecord = { ...umkKeyRecord, encrypted_data: bytesToB64(newUmkBlob) };
+  return { rotatedEntries: attempted.size };
 }
 
 export function getVaultStats() {
