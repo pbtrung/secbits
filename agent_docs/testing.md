@@ -40,9 +40,9 @@ cd worker && npx vitest run
 |------|--------|
 | `worker/tests/firebase.test.js` | Valid RS256 token accepted; expired token 401; wrong audience 401; forged signature 401; malformed JWT 401; `deriveUserId` known UID → expected 52-character z-base-32 string |
 | `worker/tests/rqlite.test.js` | Basic Auth header on every request; parameterized body format; BLOB params as base64; rqlite error response throws; network failure throws |
-| `worker/tests/worker-entries.test.js` | All entry routes (correct responses, auth enforcement, ownership); history cap at 20; `entry_key` and `encrypted_data` size validation; missing token 401; invalid z-base-32 ID 400 |
+| `worker/tests/worker-entries.test.js` | All entry routes (correct responses, auth enforcement, ownership); history cap at 20; `entry_key` and `encrypted_data` size validation; malformed base64 and short decoded payloads rejected with 400; missing token 401; invalid z-base-32 ID 400 |
 | `worker/tests/worker-keys.test.js` | All key routes + public-key route; `GET /keys` omits `encrypted_data`; invalid key type 400; `peer_user_id` = own `user_id` 400; cross-user key access 404 |
-| `worker/tests/migration.test.js` | All tables and indexes created; `key_types` seeded with 5 rows; idempotent re-run; `schema_version` correct after full migration; FK enforcement on `key_store.type` |
+| `worker/tests/schema.test.js` | Schema applies cleanly to a fresh DB; idempotent re-run; all tables and indexes created; `key_types` seeded with 5 rows; FK enforcement on `key_store.type` |
 
 ### Milestone 4: Frontend Core
 
@@ -58,7 +58,7 @@ cd worker && npx vitest run
 | File | Covers |
 |------|--------|
 | `src/tests/totp.test.js` | All six RFC 6238 reference codes (SHA-1, 30 s, 6-digit); always 6 digits; different secrets produce different codes; adjacent windows differ; invalid base32 throws |
-| `src/tests/history.test.js` | Fresh entry has 1 commit; cap at 20; 21st edit drops oldest; commits ordered newest-first; snapshot decrypts to correct JSON at each point; commit hash verified after decrypt |
+| `src/tests/history.test.js` | Fresh entry has 1 commit; cap at 20; 21st edit drops oldest; commits ordered newest-first with deterministic tie-break (`created_at DESC, id DESC`); snapshot decrypts to correct JSON at each point; commit hash verified after decrypt |
 | `src/tests/search.test.js` | Title substring match; username match; case-insensitive; no match returns `[]`; empty query returns all live entries; tag filter; combined text + tag; trash excluded |
 | `src/tests/export-data.test.js` | Extended: all live and trashed entries included; each entry's decrypted fields present (type, title, fields, tags, commits) |
 
@@ -72,7 +72,7 @@ cd worker && npx vitest run
 
 | File | Covers |
 |------|--------|
-| `worker/tests/sharing.test.js` | `GET /users/:user_id/public-key` returns 200 with `public_key`; 404 if no `own_public`; `peer_public` stored and retrievable; `peer_user_id` = own `user_id` rejected with 400 |
+| `worker/tests/sharing.test.js` | `GET /users/:user_id/public-key` requires auth and returns 200 with `public_key`; 404 if no `own_public`; `peer_public` stored and retrievable; `peer_user_id` = own `user_id` rejected with 400 |
 | `src/tests/e2e.test.js` | Full session (create → update → history → delete → restore → purge); TOTP live code; key rotation end-to-end; export shape; wrong RMK at login; expired token mid-session; sharing flow end-to-end |
 
 ### Milestone 8: Deployment
@@ -89,7 +89,7 @@ No automated tests. Validated by a successful end-to-end deployment against a li
 4. Decryption with the wrong UMK fails at the entry_key blob's AEAD tag check.
 5. Decryption with the wrong root_master_key fails at the UMK blob's AEAD tag check.
 6. Each encryption of the same plaintext produces a different blob (fresh 64-byte salt each time).
-7. Commit hash embedded in `encrypted_snapshot` matches `hex(SHA-256(snapshotJson)).slice(0,32)` after decrypt.
+7. Commit hash embedded in `encrypted_snapshot` matches `hex(SHA-256(canonicalJson(snapshotWithoutCommitHash))).slice(0,32)` after decrypt.
 
 ### Key hierarchy
 
@@ -124,6 +124,8 @@ No automated tests. Validated by a successful end-to-end deployment against a li
 
 25. Config JSON with `root_master_key` shorter than 256 decoded bytes is rejected at startup.
 26. TOTP codes match all six RFC 6238 SHA-1 reference vectors.
+27. Commit ordering is stable when timestamps collide (`created_at DESC, id DESC`).
+28. Base64 validators reject malformed alphabet/padding and payloads that decode below minimum blob length.
 
 ## Regression Priorities
 
@@ -138,4 +140,4 @@ Run these checks on every change touching crypto, the Worker, or the session flo
 - Root master key validation: a short or non-base64 `root_master_key` in config is caught before any network call.
 - TOTP: all six RFC 6238 reference codes pass on every run (no floating-point or endianness regression).
 - History cap: after 20 commits a new edit results in exactly 20 rows in `entry_history`, not 21.
-- Schema migration: `migrate.js` run against a fresh database produces all expected tables, indexes, and `key_types` rows.
+- Schema bootstrap: applying the schema bootstrap SQL on a fresh database produces all expected tables, indexes, and `key_types` rows.

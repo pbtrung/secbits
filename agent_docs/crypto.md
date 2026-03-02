@@ -117,7 +117,7 @@ Any single-bit modification to the magic, version, salt, ciphertext, or tag caus
 
 ## Versioning Strategy
 
-Every blob carries its own version field. The decoder reads `version[0]` (major) and dispatches to the appropriate decode path before any crypto work begins. Old and new blob versions can coexist in rqlite indefinitely; no coordinated migration is required at write time.
+Every blob carries its own version field. The decoder reads `version[0]` (major) and dispatches to the appropriate decode path before any crypto work begins. Old and new blob versions can coexist in rqlite indefinitely; no coordinated rewrite is required at write time.
 
 ### What each version component signals
 
@@ -127,14 +127,14 @@ Every blob carries its own version field. The decoder reads `version[0]` (major)
 - A decoder for v1.0 that encounters a v1.1 blob can still decode it correctly by ignoring unknown fields.
 
 **Major bump** (`0x01 0x00` → `0x02 0x00`): breaking change. A v1.x decoder must refuse a v2.x blob rather than attempt to decode it. Examples:
-- Different cipher or KDF (e.g., migration to a post-quantum algorithm after NIST standardization).
+- Different cipher or KDF (e.g., upgrade to a post-quantum algorithm after NIST standardization).
 - Different blob layout (field sizes, field ordering, removal of a field).
 - Different magic bytes.
 - Different salt or tag sizes.
 
-### Migration
+### Upgrade Handling
 
-When a new format version is deployed, existing blobs remain valid at their original version. The client re-encrypts a blob to the current version only when it writes it (lazy migration on update). An explicit re-encrypt-all operation can migrate the entire vault eagerly: for each entry, decrypt with the old version decoder and re-encrypt with the current version encoder.
+When a new format version is deployed, existing blobs remain valid at their original version. The client re-encrypts a blob to the current version only when it writes it (lazy upgrade on update). An explicit re-encrypt-all operation can upgrade the entire vault eagerly: for each entry, decrypt with the old version decoder and re-encrypt with the current version encoder.
 
 The Worker is version-agnostic — it stores and forwards blobs without inspecting the version field. Version awareness lives entirely in the client.
 
@@ -146,8 +146,8 @@ v1.0 (`0x01 0x00`): magic `SB`, Ascon-Keccak-512 AEAD, HKDF-SHA3-512, 64-byte sa
 
 Blob versioning covers the cryptographic layer. Two additional versioning concerns are handled separately:
 
-- **rqlite schema**: additive changes (new columns, new tables) are applied directly. Breaking changes require a migration script. A `meta` table can record the current schema version if needed.
-- **Worker API**: breaking API changes are deployed under a new URL prefix (e.g., `/v2/entries`) so old clients continue to work against the v1 routes until migrated.
+- **rqlite schema**: additive changes (new columns, new tables) are applied directly. Breaking changes are handled with explicit one-time SQL update steps.
+- **Worker API**: breaking API changes are deployed under a new URL prefix (e.g., `/v2/entries`) so old clients continue to work against the v1 routes until upgraded.
 
 ## Blob Storage
 
@@ -180,13 +180,13 @@ The same pipeline applies to every blob type. The IKM passed to HKDF varies by b
 
 ## Commit Hash
 
-The commit hash is computed in the browser over the plaintext snapshot JSON before encryption:
+The commit hash is computed in the browser over a canonical snapshot object that excludes the `commit_hash` field:
 
 ```
-commitHash = hex(SHA-256(snapshotJson)).slice(0, 32)  -- 32 hex chars (128-bit truncation)
+commitHash = hex(SHA-256(canonicalJson(snapshotWithoutCommitHash))).slice(0, 32)  -- 32 hex chars (128-bit truncation)
 ```
 
-It is embedded inside the `encrypted_snapshot` blob as a field of the snapshot JSON. The `entry_history` table stores no plaintext commit hash column. After decrypting a snapshot the client can verify the hash by recomputing it over the decrypted JSON.
+`canonicalJson` must be deterministic (stable key ordering, UTF-8, no pretty-print). The resulting hash is embedded inside the `encrypted_snapshot` blob as `commit_hash`. The `entry_history` table stores no plaintext commit hash column. After decrypting a snapshot the client verifies by removing `commit_hash`, canonicalizing the remaining object, and recomputing the hash.
 
 ## Security Properties
 

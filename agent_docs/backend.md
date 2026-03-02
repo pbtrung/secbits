@@ -134,7 +134,7 @@ In the rqlite HTTP API, BLOB columns are passed and received as base64-encoded s
 | `GET`    | `/users/:user_id/public-key`  | Get another user's own_public key |
 | `GET`    | `/health`                     | Health check (no auth required) |
 
-All routes except `/health` and `GET /users/:user_id/public-key` are scoped to the authenticated user's `user_id`. No client-supplied user identifier is trusted; the Worker derives `user_id` from the verified Firebase token on every request.
+All routes except `/health` are authenticated. User-owned routes are scoped to the authenticated user's `user_id`. `GET /users/:user_id/public-key` is also authenticated, but reads the target `:user_id` so users can fetch another user's public key for sharing. No client-supplied user identifier is trusted for user-owned row access; the Worker derives `user_id` from the verified Firebase token on every request.
 
 All request and response bodies use `Content-Type: application/json`.
 

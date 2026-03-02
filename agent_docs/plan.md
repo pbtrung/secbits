@@ -98,7 +98,7 @@ UMK is 64 raw random bytes, AEAD-encrypted with root_master_key.
 
 ## Milestone 3: Worker Backend
 
-**Goal.** Cloudflare Worker complete: Firebase auth, user_id derivation, rqlite client, schema migration, and all 14 API routes with full validation and ownership enforcement.
+**Goal.** Cloudflare Worker complete: Firebase auth, user_id derivation, rqlite client, schema bootstrap, and all 14 API routes with full validation and ownership enforcement.
 
 ### Deliverables
 
@@ -107,9 +107,7 @@ UMK is 64 raw random bytes, AEAD-encrypted with root_master_key.
 | `worker/src/firebase.js` | adapt | `verifyFirebaseToken` unchanged; add `deriveUserId(uid)` = z-base-32(SHA3-256(uid)) |
 | `worker/src/rqlite.js` | create | `query(sql, params)` and `execute(sql, params)` over HTTP Basic Auth |
 | `worker/src/index.js` | rewrite | All 14 routes, user_id scoping, ownership checks, input validation |
-| `worker/migrations/0001_initial.sql` | create | `key_types`, `users`, `key_store`, `entries`, `entry_history`, 3 indexes |
-| `worker/migrations/0002_schema_version.sql` | create | `schema_version` table; inserts version 1 |
-| `worker/scripts/migrate.js` | create | Reads current version, applies pending migrations in order, updates `schema_version` |
+| `worker/schema.sql` | create | Consolidated bootstrap SQL for `key_types`, `users`, `key_store`, `entries`, `entry_history`, 3 indexes |
 
 On every authenticated request: verify Firebase token → derive `user_id` → upsert `users` row → scope all queries to that `user_id`. No client-supplied identifier is trusted for authorization.
 
@@ -147,6 +145,7 @@ On every authenticated request: verify Firebase token → derive `user_id` → u
 - Invalid z-base-32 `id`: 400.
 - `encrypted_data` < 132 decoded bytes: 400.
 - `entry_key` < 196 decoded bytes: 400.
+- Malformed base64 (`encrypted_data`, `encrypted_snapshot`, `entry_key`): 400.
 
 **`worker/tests/worker-keys.test.js`** (create)
 - `GET /keys`: metadata only; no `encrypted_data` in response.
@@ -158,9 +157,9 @@ On every authenticated request: verify Firebase token → derive `user_id` → u
 - `DELETE /keys/:key_id`: row removed.
 - `GET /users/:user_id/public-key`: returns `{user_id, public_key}` if `own_public` exists; 404 otherwise.
 
-**`worker/tests/migration.test.js`** (create, in-process SQLite)
-- Fresh database: all migrations applied; `schema_version` = latest.
-- Re-run: idempotent, no errors, version unchanged.
+**`worker/tests/schema.test.js`** (create, in-process SQLite)
+- Fresh database: schema applies successfully.
+- Re-run: idempotent, no errors.
 - All tables and indexes present.
 - `key_types` seeded with exactly 5 rows.
 - FK on `key_store.type`: insert with unknown type fails.
@@ -241,7 +240,7 @@ Most frontend files already exist. This milestone adapts them to the new backend
 | `src/components/TagsSidebar.jsx` | exists | Tags read from decrypted entry JSON; verify no `type` column dependency |
 | `src/components/SettingsPanel.jsx` | exists | Add export action; key rotation triggers land in M6 |
 | `src/components/SettingsList.jsx` | exists | No changes expected |
-| `src/entryUtils.js` | adapt | Add `buildSnapshotPayload(entry)` that embeds commit hash inside snapshot JSON before encryption |
+| `src/entryUtils.js` | adapt | Add `buildSnapshotPayload(entry)` that computes `commit_hash = hex(SHA-256(canonicalJson(snapshotWithoutCommitHash))).slice(0,32)` and embeds it inside snapshot JSON before encryption |
 
 ### Tests
 
@@ -257,8 +256,9 @@ Most frontend files already exist. This milestone adapts them to the new backend
 - After 20 edits: exactly 20 commits.
 - 21st edit: oldest commit gone; still 20 commits.
 - Commits ordered newest-first.
+- When `created_at` ties, ordering is deterministic (`created_at DESC, id DESC`).
 - Decrypt any snapshot with `entry_key`: recover entry JSON at that point in time.
-- Commit hash in snapshot = `hex(SHA-256(snapshotJson)).slice(0,32)`.
+- Commit hash in snapshot = `hex(SHA-256(canonicalJson(snapshotWithoutCommitHash))).slice(0,32)`.
 
 **`src/tests/search.test.js`** (create)
 - Title substring match: entry returned.
@@ -319,6 +319,7 @@ Worker's `GET /users/:user_id/public-key` route is already specified in backend.
 **`worker/tests/sharing.test.js`** (create)
 - `GET /users/:user_id/public-key` for a user with `own_public`: 200 with `public_key`.
 - `GET /users/:user_id/public-key` for user with no `own_public`: 404.
+- Missing Bearer token on `GET /users/:user_id/public-key`: 401.
 - `POST /keys` with `type="peer_public"` and valid `peer_user_id`: key stored; retrievable via `GET /keys/:key_id`.
 - `POST /keys` with `type="peer_public"` and `peer_user_id` = own `user_id`: 400.
 
@@ -345,7 +346,7 @@ Worker's `GET /users/:user_id/public-key` route is already specified in backend.
 
 **Deployment sequence:**
 1. `wrangler secret put FIREBASE_PROJECT_ID / RQLITE_URL / RQLITE_USERNAME / RQLITE_PASSWORD`
-2. Apply `worker/migrations/0001_initial.sql` against rqlite to initialize schema.
+2. Apply the schema bootstrap SQL (from `worker/schema.sql` or README setup) against rqlite.
 3. `wrangler deploy`
 
 **CF Pages:** build command `npm run build`, output directory `dist`, environment variable `VITE_WORKER_URL` = deployed Worker URL.

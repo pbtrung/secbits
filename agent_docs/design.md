@@ -30,7 +30,7 @@ Architectural decisions and their rationale.
 
 **Decision:** A `key_types` table lists the five valid key type identifiers (`umk`, `emergency`, `own_public`, `own_private`, `peer_public`). The `key_store.type` column references it as a foreign key.
 
-**Why:** Storing the valid set of key types in the database lets SQLite enforce the constraint at the storage layer rather than relying solely on Worker-side validation. It also makes the schema self-documenting: any query against `key_types` shows the full enumeration without consulting code. Adding a new key type in the future requires only a new row in `key_types` and a code change, with no schema migration needed.
+**Why:** Storing the valid set of key types in the database lets SQLite enforce the constraint at the storage layer rather than relying solely on Worker-side validation. It also makes the schema self-documenting: any query against `key_types` shows the full enumeration without consulting code. Adding a new key type in the future requires only a new row in `key_types` and a code change, with no table-structure change needed.
 
 ## rqlite Credentials as Worker Secrets
 
@@ -70,7 +70,7 @@ Architectural decisions and their rationale.
 
 **Decision:** Entry JSON is Brotli-compressed before AEAD encryption.
 
-**Why:** Encrypted data is statistically indistinguishable from random; a compressor finds no structure in ciphertext. Compressing first takes advantage of the highly repetitive field names in entry JSON and achieves meaningful size reduction. The compressed size is hidden inside the AEAD envelope and unobservable to an attacker.
+**Why:** Encrypted data is statistically indistinguishable from random; a compressor finds no structure in ciphertext. Compressing first takes advantage of the highly repetitive field names in entry JSON and achieves meaningful size reduction. Content remains confidential, but ciphertext length still leaks coarse size metadata.
 
 ## Firebase RS256 Token Verification at the Worker
 

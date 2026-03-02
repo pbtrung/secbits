@@ -36,7 +36,7 @@ Decrypted entry data lives in the JS heap for the duration of the session. A suc
 
 - Keep `secbits-config.json` off shared machines and out of version control.
 - The `root_master_key` field must be at least 256 bytes when base64-decoded. Use the Security settings page to generate a cryptographically random key.
-- After rotating the root master key, update the config file immediately. The old key stops working as soon as all entry blobs are re-encrypted and written to rqlite.
+- After rotating the root master key, update the config file immediately. The old key stops working as soon as the UMK blob is re-encrypted with the new root key and written to rqlite.
 - No client-supplied namespace identifier is required in config; authorization scope is derived from Firebase identity at the Worker.
 
 ## Root Master Key Rotation
