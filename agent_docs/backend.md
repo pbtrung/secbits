@@ -34,6 +34,12 @@ IDs for entries, history, and keys are generated in the browser using `crypto.ge
 ## rqlite Schema
 
 ```sql
+CREATE TABLE IF NOT EXISTS key_types (
+  type TEXT PRIMARY KEY  -- "umk" | "emergency" | "own_public" | "own_private" | "peer_public"
+);
+INSERT OR IGNORE INTO key_types (type) VALUES
+  ('umk'), ('emergency'), ('own_public'), ('own_private'), ('peer_public');
+
 CREATE TABLE IF NOT EXISTS users (
   user_id    TEXT PRIMARY KEY,  -- z-base-32(SHA3-256(firebase_uid))
   created_at TEXT NOT NULL      -- ISO 8601
@@ -42,7 +48,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS key_store (
   key_id         TEXT PRIMARY KEY,  -- z-base-32(random 256 bits)
   user_id        TEXT NOT NULL REFERENCES users(user_id),
-  type           TEXT NOT NULL,     -- see key types below
+  type           TEXT NOT NULL REFERENCES key_types(type),  -- enforced by DB
   label          TEXT,              -- optional human-readable name
   encrypted_data BLOB,             -- key material; see type notes below
   peer_user_id   TEXT,             -- for "peer_public": source user's user_id
@@ -306,9 +312,11 @@ Response `200`:
 ```json
 {
   "user_id": "<z-base-32>",
-  "encrypted_data": "<base64>"
+  "public_key": "<base64>"
 }
 ```
+
+`public_key` contains the raw public key bytes base64-encoded. Public keys are not encrypted; the field is named `public_key` rather than `encrypted_data` to make this explicit.
 
 Response `404` if the user has no `own_public` key record.
 
@@ -371,8 +379,8 @@ The Worker validates all inputs before constructing SQL parameters:
 - `id`, `key_id`, `history_id`: required, valid z-base-32 string, 52 characters.
 - `:id` and `:key_id` path parameters: valid z-base-32 strings, 52 characters.
 - `type` (key): must be one of `"umk"`, `"emergency"`, `"own_public"`, `"own_private"`, `"peer_public"`.
-- `entry_key`: required on `POST /entries`; valid base64 string; minimum 201 bytes when decoded (137-byte minimum blob + 64-byte ciphertext for the key itself).
-- `encrypted_data` / `encrypted_snapshot`: required where applicable; valid base64 string; minimum 137 bytes when decoded (minimum valid blob length).
+- `entry_key`: required on `POST /entries`; valid base64 string; minimum 196 bytes when decoded (132-byte minimum blob overhead + 64-byte entry key ciphertext).
+- `encrypted_data` / `encrypted_snapshot`: required where applicable; valid base64 string; minimum 132 bytes when decoded (minimum valid blob length).
 - `peer_user_id`: required when `type` is `"peer_public"`; valid z-base-32 string, 52 characters; must not equal the authenticated user's own `user_id`.
 - The Worker enforces that `:id` and `:key_id` path parameters resolve to rows owned by the authenticated user before executing any write or delete.
 

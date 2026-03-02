@@ -4,33 +4,45 @@ Architectural decisions and their rationale.
 
 ## Firebase Auth + CF Worker + CF Pages + rqlite
 
-**Decision:** Firebase Authentication issues identity tokens; a Cloudflare Worker verifies tokens and mediates all database access; Cloudflare Pages hosts the static frontend; rqlite stores encrypted entry rows over HTTP with Basic Auth.
+**Decision:** Firebase Authentication issues identity tokens; a Cloudflare Worker verifies tokens and mediates all database access; Cloudflare Pages hosts the static frontend; rqlite stores encrypted rows over HTTP with Basic Auth.
 
-**Why:** Each layer has a single bounded responsibility. Firebase handles credential management and token issuance without the Worker needing to store passwords or issue its own tokens. The Worker is a thin auth-enforcement and database gateway — it never handles plaintext. rqlite stores opaque encrypted blobs per entry row. Cloudflare Pages provides globally distributed static hosting that integrates cleanly with a Cloudflare Worker origin. rqlite is lightweight, self-hostable, and exposes a familiar SQLite model over a simple HTTP API.
+**Why:** Each layer has a single bounded responsibility. Firebase handles credential management and token issuance without the Worker needing to store passwords or issue its own tokens. The Worker is a thin auth-enforcement and database gateway — it never handles plaintext. rqlite stores opaque encrypted blobs as rows in a relational schema. Cloudflare Pages provides globally distributed static hosting that integrates cleanly with a Cloudflare Worker origin. rqlite is lightweight, self-hostable, and exposes standard SQLite semantics over a simple HTTP API.
 
-## Per-Entry Encryption
+## User Identity via SHA3-256 z-base-32
 
-**Decision:** Each entry is encrypted as an independent blob. The Worker stores one ciphertext blob per entry row in rqlite. Create and update operations encrypt only the affected entry, not the entire vault.
+**Decision:** The Worker derives a stable `user_id` from the verified Firebase UID: `user_id = z-base-32(SHA3-256(firebase_uid))`. This is the primary key for all user-scoped queries. On the first authenticated request the Worker upserts a row into `users` to register the account.
 
-**Why:** Per-entry encryption enables incremental writes — only the modified entry needs re-encryption and re-upload on each save. History commits are independent encrypted blobs stored as individual rows in `entry_history`. Fetching one entry's history does not require downloading the full vault. This scales better with large vaults and makes the read and write paths symmetric and entry-scoped.
+**Why:** Deriving `user_id` from the Firebase UID at the Worker means the client supplies no namespace identifier. The derivation is deterministic and collision-resistant (SHA3-256 is a one-way function over the UID). z-base-32 encoding produces a compact, URL-safe, case-insensitive 52-character string that is human-readable in logs and database dumps without any ambiguous characters.
 
-## rqlite for Structured Entry Storage
+## Per-Entry Encryption with Entry Key Wrapping
 
-**Decision:** All entries and their history commits are stored as rows in rqlite. Trash is represented by a nullable `deleted_at` column on the `entries` table rather than a separate store.
+**Decision:** Each entry has a dedicated 64-byte random key (`entry_key`) generated at creation. The `entry_key` is AEAD-encrypted with the user master key (UMK) and stored in `entries.entry_key`. All entry data blobs and history snapshot blobs for that entry are encrypted with the `entry_key` via HKDF-SHA3-512 + AEAD.
 
-**Why:** A relational schema lets the Worker filter entries by `vault_id`, query live and trashed entries with a single predicate, and manage history commits with row-level insert and delete. Per-entry row storage means the database holds structured metadata (entry ID, type, timestamps, deletion state) alongside the opaque encrypted blob — enabling efficient queries without the client downloading everything to perform filtering. rqlite exposes standard SQLite semantics over HTTP, so queries use parameterized SQL and the Worker needs no SQL driver or native binding.
+**Why:** A per-entry key creates a three-level hierarchy (root_master_key → UMK → entry_key) where each level can rotate independently. Rotating the root master key requires re-encrypting only the `key_store` row holding the UMK. Rotating the UMK requires re-encrypting all `entry_key` blobs but leaves all entry data and history snapshots untouched. This keeps rotation operations bounded and fast regardless of vault size.
+
+## rqlite for Structured Storage
+
+**Decision:** Entries, history commits, users, key records, and key type constraints are all stored as rows in rqlite. Trash is a nullable `deleted_at` column on `entries`. History is capped at 20 rows per entry.
+
+**Why:** A relational schema lets the Worker scope all queries to a `user_id`, manage entry and history rows independently, and enforce referential integrity between tables. Per-entry row storage enables incremental writes — only the modified entry row is updated on save. rqlite uses parameterized SQL over HTTP, so the Worker needs no native database driver and all queries are injection-safe by construction.
+
+## key_types Lookup Table
+
+**Decision:** A `key_types` table lists the five valid key type identifiers (`umk`, `emergency`, `own_public`, `own_private`, `peer_public`). The `key_store.type` column references it as a foreign key.
+
+**Why:** Storing the valid set of key types in the database lets SQLite enforce the constraint at the storage layer rather than relying solely on Worker-side validation. It also makes the schema self-documenting: any query against `key_types` shows the full enumeration without consulting code. Adding a new key type in the future requires only a new row in `key_types` and a code change, with no schema migration needed.
 
 ## rqlite Credentials as Worker Secrets
 
 **Decision:** The rqlite HTTP endpoint URL, Basic Auth username, and Basic Auth password are stored as Cloudflare Worker secrets (`RQLITE_URL`, `RQLITE_USERNAME`, `RQLITE_PASSWORD`). The browser has no knowledge of these values.
 
-**Why:** The browser communicates only with the Worker using Firebase ID tokens. Exposing rqlite credentials to the client would allow any authenticated user to query or mutate any row in the database directly, bypassing the Worker's auth enforcement and vault_id scoping. Keeping credentials in Worker secrets means rqlite is only reachable through the Worker's auth-enforced API.
+**Why:** The browser communicates only with the Worker using Firebase ID tokens. Exposing rqlite credentials to the client would allow any user to query or mutate any row in the database directly, bypassing the Worker's auth enforcement and `user_id` scoping. Keeping credentials in Worker secrets means rqlite is only reachable through the Worker's auth-enforced API.
 
-## vault_id for Auth-Independent Scoping
+## Public Keys Stored Unencrypted
 
-**Decision:** All entry rows are scoped to a `vault_id` column supplied from the client config JSON. The Worker enforces that every query filters by the authenticated user's `vault_id`. `vault_id` is a secret random string in the config, alongside the root master key.
+**Decision:** `own_public` and `peer_public` entries in `key_store` store raw public key bytes in the `encrypted_data` column without an encryption envelope. The `GET /users/:user_id/public-key` endpoint returns the raw bytes in a `public_key` field, not `encrypted_data`.
 
-**Why:** Tying the storage namespace to the auth provider identity (e.g. Firebase UID) would couple storage layout to the auth layer. A stable config-supplied `vault_id` keeps the namespace consistent across auth changes or provider migrations without requiring data migration. It also functions as an additional access control layer: a client without the config cannot determine which rows belong to a given vault. The Worker verifies the Firebase token on every request before using the client-supplied `vault_id` to scope queries.
+**Why:** Public keys are by definition non-secret. Applying an encryption envelope to them would waste space and add complexity without any security benefit, since any party can hold and distribute a public key freely. Using the same `encrypted_data` column for storage simplifies the schema while the route contract and documentation make it explicit that the bytes are unencrypted for these two key types.
 
 ## Ascon-Keccak-512 AEAD
 
@@ -40,15 +52,15 @@ Architectural decisions and their rationale.
 
 ## HKDF-SHA3-512 with Per-Blob Fresh Salt
 
-**Decision:** Every encryption derives a unique `(encKey, encIv)` pair from a fresh 64-byte random salt via HKDF-SHA3-512.
+**Decision:** Every encryption derives a unique `(encKey, encIv)` pair from a fresh 64-byte random salt via `HKDF-SHA3-512(ikm=K, salt=randomSalt, length=128)`, where `K` is the appropriate key material for the blob type per the key hierarchy.
 
-**Why:** IV reuse under the same AEAD key is catastrophic — identical `(key, IV)` on two encryptions exposes the XOR of both plaintexts. Per-blob salt derivation makes IV reuse structurally impossible: the caller stores only the static root master key; all per-blob key material is ephemeral and never stored.
+**Why:** IV reuse under the same AEAD key is catastrophic — identical `(key, IV)` on two encryptions exposes the XOR of both plaintexts. Per-blob salt derivation makes IV reuse structurally impossible regardless of how many blobs share the same parent key.
 
-## Blob Format with Versioned Magic Header
+## Blob Format with 2-Byte Magic Header
 
-**Decision:** Every encrypted blob is prefixed with a 9-byte header: 7-byte magic (`SecBits` UTF-8) and a 2-byte version (`major · minor`). The full header and salt are passed as AEAD additional data so the tag covers the entire blob.
+**Decision:** Every encrypted blob is prefixed with a 4-byte header: 2-byte magic (`SB` UTF-8, `0x53 0x42`) and a 2-byte version (`major · minor`). The full header and salt are passed as AEAD additional data so the tag covers the entire blob.
 
-**Why (magic bytes):** The magic bytes allow any tool or the app itself to immediately identify a SecBits blob in a hex dump or from raw rqlite data, and to fast-fail with a clear error when handed the wrong binary rather than producing a misleading decryption error.
+**Why (magic bytes):** Two bytes are sufficient for format identification in hex dumps and for fast-fail rejection of blobs that are not SecBits encrypted objects before any crypto work begins. A shorter magic reduces the fixed overhead of each blob while still making format mismatches immediately visible.
 
 **Why (version field):** The blob format may need to evolve. Without a version field there is no in-band signal to branch on at decode time. Two bytes (major · minor) provide 256 distinct values per component.
 
@@ -58,7 +70,7 @@ Architectural decisions and their rationale.
 
 **Decision:** Entry JSON is Brotli-compressed before AEAD encryption.
 
-**Why:** Encrypted data is statistically indistinguishable from random; a compressor finds no structure in ciphertext. Compressing before encryption takes advantage of the highly repetitive field names in entry JSON and achieves meaningful size reduction. The compressed size is hidden inside the AEAD envelope and unobservable to an attacker.
+**Why:** Encrypted data is statistically indistinguishable from random; a compressor finds no structure in ciphertext. Compressing first takes advantage of the highly repetitive field names in entry JSON and achieves meaningful size reduction. The compressed size is hidden inside the AEAD envelope and unobservable to an attacker.
 
 ## Firebase RS256 Token Verification at the Worker
 
@@ -72,20 +84,20 @@ Architectural decisions and their rationale.
 
 **Why:** Any persistent browser storage API keeps keying material alive beyond the user's intended session. Holding everything in the JS heap means a hard reload, tab close, or explicit logout clears all secrets immediately and reliably. This also limits the XSS exposure window to the active page lifetime.
 
-## Typed Entries
+## Type and Commit Hash Inside Ciphertext
 
-**Decision:** Every entry carries a `type` field with one of three values: `"login"`, `"note"`, `"card"`. The type is selected at creation, stored in the `entries` row as a plaintext column and within the encrypted blob, and determines which fields are shown in the editor and detail view.
+**Decision:** The entry `type` field and the history commit hash are included only inside the encrypted payload; neither is stored as a plaintext column in rqlite.
 
-**Why:** Displaying every possible field for all entries produces a noisy, context-free form. Typed entries surface only the fields meaningful for the selected credential kind. The `type` column is also stored in plaintext in rqlite so the Worker can return typed metadata without decrypting anything — but the actual field values remain inside the ciphertext.
+**Why:** Storing `type` in plaintext would allow the Worker or anyone with database access to observe the distribution of entry types across users, leaking metadata. Storing the commit hash in plaintext would allow correlation of commit activity without decryption. Keeping both inside the ciphertext means the Worker operates on opaque blobs only and no structural metadata about entries is exposed at the database layer.
 
-## UUID Entry IDs
+## z-base-32 IDs from 256-Bit Random Values
 
-**Decision:** New persisted entries are assigned IDs with `crypto.randomUUID()`.
+**Decision:** Entry, history, and key IDs are `z-base-32(random 256 bits)`, producing 52-character strings. IDs are generated in the browser with `crypto.getRandomValues` and sent to the Worker.
 
-**Why:** Native UUID generation is collision-resistant for this use case, avoids custom ID schemes, and keeps ID generation logic auditable.
+**Why:** 256-bit random IDs provide negligible collision probability for any realistic vault size. Using the same 256-bit size as SHA3-256 output (used for `user_id`) makes all IDs a uniform 52-character z-base-32 string, simplifying validation. z-base-32 is URL-safe, case-insensitive, and avoids visually ambiguous characters.
 
 ## Per-Entry History in rqlite
 
-**Decision:** Each history commit is a row in the `entry_history` table containing an independently encrypted full snapshot of the entry at that point. The row carries a `commit_hash` (32-hex-character SHA-256 truncation of the plaintext snapshot, computed before encryption) and a creation timestamp. History is capped at 20 commits per entry; the oldest commit is deleted when the cap is exceeded.
+**Decision:** Each history commit is a row in `entry_history` containing an encrypted full snapshot of the entry at that point in time. The commit hash is embedded inside the encrypted snapshot. History is capped at 20 rows per entry; the oldest row is deleted when the cap is exceeded.
 
-**Why:** Storing history commits as individual rows in the database lets the Worker retrieve history for a single entry without downloading the full vault. Full snapshots per commit are simpler than deltas and eliminate the need to replay a commit chain to reconstruct a past state. The commit hash is computed over the plaintext so it remains a stable content-addressable identifier that can be verified after decryption.
+**Why:** Storing history as individual rows lets the Worker retrieve history for a single entry efficiently. Full snapshots per commit are simpler than deltas and eliminate the need to replay a chain to reconstruct a past state. Embedding the commit hash inside the ciphertext means it cannot be tampered with or correlated without the entry key.
