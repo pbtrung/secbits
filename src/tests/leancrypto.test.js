@@ -462,6 +462,34 @@ function testHkdf(lib) {
   }
 }
 
+function testHkdfSha3_512(lib) {
+  // KAT: IKM = 22 × 0x0b, salt = 0x00..0x0c, no info, 128-byte OKM.
+  // Expected output computed via leancrypto _lc_hkdf with _lc_sha3_512.
+  const ikm = new Uint8Array(22).fill(0x0b);
+  const salt = new Uint8Array([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c]);
+  const exp = hexToU8(`
+    a028cafac3bc77073b20cc81200f52e4a324f5a36be5320adc7991248092eef5
+    19e6ce5f0b48302c58e9e9fe64960590992cc082424cd77438faff3ad18a6d31
+    93f7fdfaff003353ce6cdcc55fe0c8f77eb259dae0ff26383c10d6fe17f54dc1
+    5245c3f08c606989c1394b940e4761705cc140855a27f433683b7266f0800280
+  `);
+
+  const sha3_512_ptr = resolveHashPtr(lib, lib._lc_sha3_512);
+  const ikmPtr = allocAndWrite(lib, ikm);
+  const saltPtr = allocAndWrite(lib, salt);
+  const outPtr = lib._malloc(exp.length);
+  try {
+    const rc = lib._lc_hkdf(sha3_512_ptr, ikmPtr, ikm.length, saltPtr, salt.length, 0, 0, outPtr, exp.length);
+    assertRc("hkdf_sha3_512 oneshot", rc);
+    assertEqBytes("hkdf_sha3_512 oneshot", readBytes(lib, outPtr, exp.length), exp);
+    console.log("PASS hkdf_sha3_512");
+  } finally {
+    lib._free(ikmPtr);
+    lib._free(saltPtr);
+    lib._free(outPtr);
+  }
+}
+
 function testSphincs(lib) {
   // enum lc_sphincs_type values from lc_sphincs.h
   const SPHINCS_SHAKE_256s = 1;
@@ -646,6 +674,7 @@ async function main() {
   testHmacSha3_224(lib);
   testSha3_512(lib);
   testHkdf(lib);
+  testHkdfSha3_512(lib);
   testSphincs(lib);
 
   console.log("All leancrypto WASM vector tests passed");
