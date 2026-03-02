@@ -38,17 +38,17 @@ cd worker && npx vitest run
 
 | File | Covers |
 |------|--------|
-| `worker/tests/firebase.test.js` | Valid RS256 token accepted; expired token 401; wrong audience 401; forged signature 401; malformed JWT 401; future `iat` 401 |
+| `worker/tests/firebase.test.js` | Valid RS256 token accepted; expired token 401; wrong audience 401; forged signature 401; malformed JWT 401; `deriveUserId` known UID → expected 52-character z-base-32 string |
 | `worker/tests/rqlite.test.js` | Basic Auth header on every request; parameterized body format; BLOB params as base64; rqlite error response throws; network failure throws |
-| `worker/tests/worker-entries.test.js` | All 8 entry routes (correct responses, auth enforcement, ownership); history cap at 20; `entry_key` and `encrypted_data` size validation; missing token 401; invalid z-base-32 ID 400 |
-| `worker/tests/worker-keys.test.js` | All 4 key routes + public-key route; `GET /keys` omits `encrypted_data`; invalid key type 400; `peer_user_id` = own `user_id` 400; cross-user key access 404 |
+| `worker/tests/worker-entries.test.js` | All entry routes (correct responses, auth enforcement, ownership); history cap at 20; `entry_key` and `encrypted_data` size validation; missing token 401; invalid z-base-32 ID 400 |
+| `worker/tests/worker-keys.test.js` | All key routes + public-key route; `GET /keys` omits `encrypted_data`; invalid key type 400; `peer_user_id` = own `user_id` 400; cross-user key access 404 |
 | `worker/tests/migration.test.js` | All tables and indexes created; `key_types` seeded with 5 rows; idempotent re-run; `schema_version` correct after full migration; FK enforcement on `key_store.type` |
 
 ### Milestone 4: Frontend Core
 
 | File | Covers |
 |------|--------|
-| `src/tests/validation.test.js` | Config field validators (worker_url, email, root_master_key, firebase_api_key); URL field validation; custom field key validation |
+| `src/tests/validation.test.js` | Config field validators (worker_url, email, root_master_key, firebase_api_key); z-base-32 ID format check; URL field validation |
 | `src/tests/api.test.js` | All `api.js` functions with mocked `fetch`; correct HTTP method, path, and headers for each call; 401 and 400 Worker responses throw with typed errors |
 | `src/tests/entry-lifecycle.test.js` | Create → update → delete → restore → purge; `entry_key` unchanged across updates; `encrypted_data` and `encrypted_snapshot` both present on create |
 | `src/tests/export-data.test.js` | `buildExportData` shape: `data` + `trash` arrays; no `deleted_at` in live entries; `deleted_at` present in trashed entries; empty vault |
@@ -60,16 +60,26 @@ cd worker && npx vitest run
 | `src/tests/totp.test.js` | All six RFC 6238 reference codes (SHA-1, 30 s, 6-digit); always 6 digits; different secrets produce different codes; adjacent windows differ; invalid base32 throws |
 | `src/tests/history.test.js` | Fresh entry has 1 commit; cap at 20; 21st edit drops oldest; commits ordered newest-first; snapshot decrypts to correct JSON at each point; commit hash verified after decrypt |
 | `src/tests/search.test.js` | Title substring match; username match; case-insensitive; no match returns `[]`; empty query returns all live entries; tag filter; combined text + tag; trash excluded |
-| `src/tests/commit-hash.test.js` | Two inputs differing by 1 char produce different hashes; stable across calls; survives encrypt/decrypt round-trip |
+| `src/tests/export-data.test.js` | Extended: all live and trashed entries included; each entry's decrypted fields present (type, title, fields, tags, commits) |
 
-### Milestone 6: Key Store, Rotation, Sharing
+### Milestone 6: Key Store and Rotation
 
 | File | Covers |
 |------|--------|
 | `src/tests/key-rotation.test.js` | RMK rotation re-encrypts UMK only (entry_key and encrypted_data blobs untouched); old RMK rejected after rotation; UMK rotation re-encrypts all entry_keys (encrypted_data untouched); old UMK rejected; interrupted rotation is retriable |
+
+### Milestone 7: Sharing
+
+| File | Covers |
+|------|--------|
 | `worker/tests/sharing.test.js` | `GET /users/:user_id/public-key` returns 200 with `public_key`; 404 if no `own_public`; `peer_public` stored and retrievable; `peer_user_id` = own `user_id` rejected with 400 |
-| `worker/tests/migration.test.js` | Full coverage: all tables, all indexes, key_types seeded, schema_version correct, FK enforcement, idempotent re-run |
-| `src/tests/e2e.test.js` | Full session (create → update → history → delete → restore → purge); TOTP live code; key rotation end-to-end; export shape; wrong RMK at login; expired token mid-session |
+| `src/tests/e2e.test.js` | Full session (create → update → history → delete → restore → purge); TOTP live code; key rotation end-to-end; export shape; wrong RMK at login; expired token mid-session; sharing flow end-to-end |
+
+### Milestone 8: Deployment
+
+| File | Covers |
+|------|--------|
+| `worker/tests/migration.test.js` | Full coverage: `migrate.js` applies all migrations in order; `schema_version` = latest; idempotent re-run; all tables and indexes present; `key_types` seeded with 5 rows; FK enforcement on `key_store.type`; simulated partial failure re-runs from correct point |
 
 ## Critical Path Coverage
 

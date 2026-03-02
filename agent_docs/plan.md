@@ -1,94 +1,94 @@
 # Implementation Plan
 
-Six milestones in dependency order. Each milestone is shippable and tested before the next begins. Tests are written alongside the implementation they cover, not after.
+Eight milestones in dependency order. Each is shippable and fully tested before the next begins. Tests are written alongside the code they cover.
+
+Existing source files are noted where they already exist and need adaptation rather than creation.
+
+---
 
 ## Milestone 1: Crypto Primitives
 
-**Goal.** Every cryptographic building block is implemented, independently tested, and produces known-good output against reference vectors before any higher-level code touches it.
+**Goal.** All cryptographic building blocks implemented and independently tested against reference vectors.
 
 ### Deliverables
 
-| File | What it provides |
-|------|-----------------|
-| `src/lib/zbase32.js` | z-base-32 encode / decode |
-| `src/lib/blob.js` | blob build (`magic \|\| version \|\| salt \|\| ciphertext \|\| tag`) and parse |
-| `src/lib/brotli.js` | Brotli compress / decompress via brotli-wasm |
-| `src/crypto.js` (partial) | `encryptBlob` / `decryptBlob` using leancrypto HKDF + AEAD |
+| File | Status | What it provides |
+|------|--------|-----------------|
+| `src/lib/zbase32.js` | create | z-base-32 encode / decode |
+| `src/lib/blob.js` | create | blob build and parse: `magic \|\| version \|\| salt \|\| ciphertext \|\| tag` |
+| `src/crypto.js` | adapt | `encryptBlob` / `decryptBlob` using leancrypto HKDF + AEAD; Brotli helpers |
 
-leancrypto WASM bundle is pre-built (see `leancrypto/`). The wrapper in `src/crypto.js` loads the module once and exposes typed helpers. No other file imports leancrypto directly.
+The leancrypto WASM bundle is pre-built in `leancrypto/`. No file other than `src/crypto.js` imports it directly.
 
 ### Tests
 
-**`src/tests/leancrypto.test.js`**
-- HKDF-SHA3-512: known-answer test (KAT) with fixed IKM, salt, length — output matches pre-computed reference.
+**`src/tests/leancrypto.test.js`** (exists — extend)
+- HKDF-SHA3-512 known-answer test: fixed IKM + salt → expected output bytes.
 - AEAD encrypt then decrypt: plaintext recovered exactly.
-- AEAD tamper — ciphertext byte flipped: decryption throws `EBADMSG` (-9).
-- AEAD tamper — tag byte flipped: decryption throws.
-- AEAD tamper — AD byte flipped: decryption throws.
-- Wrong key: decryption with different key throws.
-- AEAD empty plaintext: encrypt and decrypt succeed (min blob size only).
+- Tamper ciphertext byte: throws `EBADMSG` (-9).
+- Tamper tag byte: throws.
+- Tamper AD byte: throws.
+- Wrong key: throws.
+- Empty plaintext: encrypt and decrypt succeed.
 
-**`src/tests/zbase32.test.js`**
-- Encode → decode round-trip for random 256-bit input returns original bytes.
-- Known vector: fixed 32-byte input produces the expected 52-character z-base-32 string.
-- Decode rejects string with non-alphabet character.
-- Decode rejects string of wrong length.
+**`src/tests/zbase32.test.js`** (create)
+- Encode → decode round-trip for random 256-bit input.
+- Known vector: fixed 32-byte input → expected 52-character string.
+- Non-alphabet character: decode rejects.
+- Wrong length: decode rejects.
 
-**`src/tests/blob.test.js`**
-- Build then parse round-trip: all fields recovered identically.
-- Magic mismatch (`XY` instead of `SB`): parse throws before touching crypto.
+**`src/tests/blob.test.js`** (create)
+- Build → parse round-trip: all fields recovered identically.
+- Magic mismatch (`XY` not `SB`): parse throws before any crypto.
 - Blob shorter than 132 bytes: parse throws.
-- Version bytes extracted correctly from header.
-- AD bytes = `magic || version || salt` = exactly 68 bytes.
+- Version bytes extracted correctly.
+- AD = `magic || version || salt` = exactly 68 bytes.
 
-**`src/tests/crypto.test.js`** (round-trip only at this milestone)
-- `encryptBlob` / `decryptBlob` round-trip with a fresh random key: plaintext recovered.
-- Any single-byte modification anywhere in the blob causes `decryptBlob` to throw.
+**`src/tests/crypto.test.js`** (exists — extend with blob-level tests)
+- `encryptBlob` / `decryptBlob` round-trip with a fresh random key.
+- Any single-byte modification anywhere in the blob causes throw.
 
 ---
 
 ## Milestone 2: Key Hierarchy
 
-**Goal.** The three-level key hierarchy — root_master_key → UMK → entry_key → entry data — is implemented end-to-end, with independent tests at each level.
+**Goal.** The three-level hierarchy root_master_key → UMK → entry_key → entry data is complete and tested at every level.
 
 ### Deliverables
 
-| File | What it provides |
-|------|-----------------|
-| `src/crypto.js` (complete) | `decodeRootMasterKey`, `encryptUMK`, `decryptUMK`, `generateEntryKey`, `encryptEntryKey`, `decryptEntryKey`, `encryptEntry`, `decryptEntry` |
+| File | Status | What it provides |
+|------|--------|-----------------|
+| `src/crypto.js` | adapt | Add `decodeRootMasterKey`, `encryptUMK`, `decryptUMK`, `generateEntryKey`, `encryptEntryKey`, `decryptEntryKey`; update `encryptEntry` / `decryptEntry` to use entry_key as IKM instead of root_master_key |
 
 `encryptEntry` pipeline: entry JSON → Brotli compress → HKDF(entry_key) + AEAD → blob.
-`decryptEntry` pipeline: blob → AEAD decrypt → Brotli decompress → JSON parse.
-
-Entry key is 64 random bytes. It is AEAD-encrypted with the UMK before being sent to the Worker and stored in `entries.entry_key`. UMK is 64 random bytes AEAD-encrypted with the root_master_key.
+`entry_key` is 64 raw random bytes, AEAD-encrypted with the UMK before leaving the browser.
+UMK is 64 raw random bytes, AEAD-encrypted with root_master_key.
 
 ### Tests
 
-**`src/tests/crypto-root-key.test.js`**
-- Valid base64 string of exactly 256 decoded bytes: accepted.
-- Valid base64 string of 512 decoded bytes: accepted.
-- Base64 that decodes to 255 bytes: rejected.
-- Non-base64 string: rejected.
+**`src/tests/crypto-root-key.test.js`** (exists — verify coverage)
+- Valid base64 ≥ 256 decoded bytes: accepted.
+- 255 decoded bytes: rejected.
+- Non-base64: rejected.
 - Empty string: rejected.
 
-**`src/tests/key-hierarchy.test.js`**
-- UMK round-trip: `encryptUMK(rawUMK, RMK)` → `decryptUMK(blob, RMK)` returns original bytes.
-- Wrong RMK: `decryptUMK(blob, wrongRMK)` throws.
-- Entry key round-trip: `encryptEntryKey(rawKey, UMK)` → `decryptEntryKey(blob, UMK)` returns original bytes.
-- Wrong UMK: `decryptEntryKey(blob, wrongUMK)` throws.
-- Full 3-level round-trip: encrypt entry JSON with entry_key (itself wrapped with UMK, itself wrapped with RMK); peel all three layers; recover original JSON.
+**`src/tests/key-hierarchy.test.js`** (create)
+- UMK round-trip: `encryptUMK(raw, RMK)` → `decryptUMK(blob, RMK)` = original bytes.
+- Wrong RMK: `decryptUMK` throws.
+- Entry key round-trip: `encryptEntryKey(raw, UMK)` → `decryptEntryKey(blob, UMK)` = original bytes.
+- Wrong UMK: `decryptEntryKey` throws.
+- Full 3-level round-trip: encrypt entry JSON → peel all three layers → recover original JSON.
 - Each encryption of the same input produces a different blob (fresh salt each time).
-- Tamper at the entry_key blob level: `decryptEntryKey` throws; `decryptEntry` never called.
-- Tamper at the entry data blob level: `decryptEntry` throws.
+- Tamper at entry_key blob: `decryptEntryKey` throws; `decryptEntry` never reached.
+- Tamper at entry data blob: `decryptEntry` throws.
 
-**`src/tests/crypto.test.js`** (complete)
-- Full pipeline round-trip: entry object → `encryptEntry` → `decryptEntry` → deep-equal to original.
-- All entry types (`login`, `note`, `card`) round-trip cleanly.
-- Commit hash embedded in snapshot: after decrypt, `hash === hex(SHA-256(json)).slice(0,32)`.
-- `decryptEntry` with wrong entry_key throws at AEAD tag check.
-- Brotli compress/decompress of empty string and 10 kB JSON produce correct round-trips.
+**`src/tests/crypto.test.js`** (exists — extend)
+- Full pipeline round-trip: entry object → `encryptEntry` → `decryptEntry` → deep-equal.
+- All three entry types (`login`, `note`, `card`).
+- Commit hash embedded in snapshot survives round-trip.
+- Wrong entry_key: throws at AEAD tag check.
 
-**`src/tests/commit-hash.test.js`**
+**`src/tests/commit-hash.test.js`** (create)
 - Same JSON always produces the same hash.
 - Different JSON produces a different hash.
 - Output is exactly 32 lowercase hex characters.
@@ -98,234 +98,271 @@ Entry key is 64 random bytes. It is AEAD-encrypted with the UMK before being sen
 
 ## Milestone 3: Worker Backend
 
-**Goal.** The Cloudflare Worker is complete: Firebase token verification, user_id derivation, rqlite client, schema migration, and all 14 API routes with full input validation.
+**Goal.** Cloudflare Worker complete: Firebase auth, user_id derivation, rqlite client, schema migration, and all 14 API routes with full validation and ownership enforcement.
 
 ### Deliverables
 
-| File | What it provides |
-|------|-----------------|
-| `worker/src/firebase.js` | RS256 JWK verification; `verifyFirebaseToken(token)` → `{uid, ...}` |
-| `worker/src/rqlite.js` | `query(sql, params)` and `execute(sql, params)` over HTTP Basic Auth |
-| `worker/src/index.js` | All 14 routes, `user_id` derivation, ownership enforcement, input validation |
-| `worker/migrations/0001_initial.sql` | `key_types`, `users`, `key_store`, `entries`, `entry_history`, indexes |
-| `worker/migrations/0002_schema_version.sql` | `schema_version` table; inserts version 1 |
-| `worker/scripts/migrate.js` | Migration runner: reads current version, applies pending migrations in order |
+| File | Status | What it provides |
+|------|--------|-----------------|
+| `worker/src/firebase.js` | adapt | `verifyFirebaseToken` unchanged; add `deriveUserId(uid)` = z-base-32(SHA3-256(uid)) |
+| `worker/src/rqlite.js` | create | `query(sql, params)` and `execute(sql, params)` over HTTP Basic Auth |
+| `worker/src/index.js` | rewrite | All 14 routes, user_id scoping, ownership checks, input validation |
+| `worker/migrations/0001_initial.sql` | create | `key_types`, `users`, `key_store`, `entries`, `entry_history`, 3 indexes |
+| `worker/migrations/0002_schema_version.sql` | create | `schema_version` table; inserts version 1 |
+| `worker/scripts/migrate.js` | create | Reads current version, applies pending migrations in order, updates `schema_version` |
 
-`user_id = z-base-32(SHA3-256(firebase_uid))`. The Worker computes this on every authenticated request and uses it as the sole scope key for all queries. No client-supplied identifier is trusted for authorization.
+On every authenticated request: verify Firebase token → derive `user_id` → upsert `users` row → scope all queries to that `user_id`. No client-supplied identifier is trusted for authorization.
 
 ### Tests
 
-**`worker/tests/firebase.test.js`**
-- Valid RS256 token with correct audience and unexpired `exp`: accepted, `uid` returned.
-- Expired token: rejected with 401.
-- Wrong audience (`aud` ≠ `FIREBASE_PROJECT_ID`): rejected with 401.
-- Forged signature (token signed with a different private key): rejected with 401.
-- Malformed JWT (missing segments): rejected with 401.
-- Token with `iat` in the future: rejected with 401.
+**`worker/tests/firebase.test.js`** (create)
+- Valid RS256 token, correct audience, unexpired: accepted; `uid` returned.
+- Expired token: 401.
+- Wrong `aud`: 401.
+- Forged signature: 401.
+- Malformed JWT: 401.
+- `deriveUserId`: known Firebase UID → expected 52-character z-base-32 string.
 
-**`worker/tests/rqlite.test.js`** (mocked HTTP)
+**`worker/tests/rqlite.test.js`** (create, mocked HTTP)
 - `query` sends `POST /db/query` with correct Basic Auth header.
 - `execute` sends `POST /db/execute` with correct Basic Auth header.
-- Parameterized query body serialized as `[[sql, param1, param2]]`.
-- BLOB parameters sent as base64 strings.
-- rqlite error response (`"error"` key in result): `execute` throws.
+- Parameterized body: `[[sql, param1, param2]]`.
+- BLOB params sent as base64 strings.
+- rqlite error key in result: `execute` throws.
 - Network failure: both functions throw.
 
-**`worker/tests/worker-entries.test.js`** (Miniflare or mocked rqlite)
-- `GET /entries`: authenticated user with no entries returns `[]`.
-- `GET /entries`: returns all live entries for `user_id`, not other users' entries.
-- `POST /entries`: inserts entry row and initial history row; returns 201 with `id` and `created_at`.
-- `POST /entries`: duplicate `id` returns 409.
-- `PUT /entries/:id`: updates `encrypted_data`, `updated_at`; appends history row; returns 200.
-- `PUT /entries/:id` with 20 existing commits: 21st commit deletes oldest before inserting.
-- `DELETE /entries/:id`: sets `deleted_at`; entry absent from `GET /entries`; present in `GET /entries/trash`.
-- `POST /entries/:id/restore`: clears `deleted_at`; entry returns to `GET /entries`.
-- `DELETE /entries/:id/purge`: removes entry row and all history rows; returns 200.
-- `GET /entries/:id/history`: returns rows ordered by `created_at` descending.
-- Ownership: `PUT`/`DELETE`/`POST restore`/`DELETE purge` on another user's entry returns 404.
-- Missing Bearer token on any entry route: 401.
-- Invalid z-base-32 `id` in body or path: 400.
-- `encrypted_data` shorter than 132 decoded bytes: 400.
-- `entry_key` shorter than 196 decoded bytes: 400.
+**`worker/tests/worker-entries.test.js`** (create, Miniflare or mocked rqlite)
+- `GET /entries` for new user: `[]`.
+- `GET /entries` only returns rows owned by the authenticated `user_id`.
+- `POST /entries`: inserts entry row + initial history row atomically; returns 201 with `id` + `created_at`.
+- `POST /entries` duplicate `id`: 409.
+- `PUT /entries/:id`: updates `encrypted_data` and `updated_at`; appends history row.
+- `PUT /entries/:id` at 20 commits: 21st deletes oldest before inserting.
+- `DELETE /entries/:id`: sets `deleted_at`; absent from `GET /entries`; present in `GET /entries/trash`.
+- `POST /entries/:id/restore`: clears `deleted_at`; returns to live list.
+- `DELETE /entries/:id/purge`: removes entry row and all history rows.
+- `GET /entries/:id/history`: rows ordered by `created_at` descending.
+- Ownership: write/delete on another user's entry returns 404.
+- Missing Bearer: 401 on every entry route.
+- Invalid z-base-32 `id`: 400.
+- `encrypted_data` < 132 decoded bytes: 400.
+- `entry_key` < 196 decoded bytes: 400.
 
-**`worker/tests/worker-keys.test.js`**
-- `GET /keys`: returns metadata list for authenticated user; no `encrypted_data` in response.
-- `POST /keys`: inserts key row; returns 201.
-- `POST /keys` with invalid `type` (not in `key_types`): 400.
-- `POST /keys` with `type="peer_public"` and `peer_user_id` equal to own `user_id`: 400.
-- `GET /keys/:key_id`: returns full record including `encrypted_data`.
+**`worker/tests/worker-keys.test.js`** (create)
+- `GET /keys`: metadata only; no `encrypted_data` in response.
+- `POST /keys`: inserts; returns 201.
+- `POST /keys` with invalid `type`: 400.
+- `POST /keys` with `type="peer_public"` and `peer_user_id` = own `user_id`: 400.
+- `GET /keys/:key_id`: full record including `encrypted_data`.
 - `GET /keys/:key_id` for another user's key: 404.
-- `DELETE /keys/:key_id`: removes row; subsequent `GET` returns 404.
-- `GET /users/:user_id/public-key`: returns `{user_id, public_key}` if `own_public` exists.
-- `GET /users/:user_id/public-key` for user with no `own_public`: 404.
+- `DELETE /keys/:key_id`: row removed.
+- `GET /users/:user_id/public-key`: returns `{user_id, public_key}` if `own_public` exists; 404 otherwise.
 
-**`worker/tests/migration.test.js`** (in-process SQLite via better-sqlite3)
-- Fresh database: `migrate.js` applies all migrations in order; `schema_version` contains the latest version.
-- Re-running `migrate.js` on an already-migrated database: no-op, no error, version unchanged.
-- All expected tables and indexes present after migration.
-- `key_types` seeded with exactly five rows.
-- Partial migration (simulated mid-run failure): re-run resumes from correct point.
+**`worker/tests/migration.test.js`** (create, in-process SQLite)
+- Fresh database: all migrations applied; `schema_version` = latest.
+- Re-run: idempotent, no errors, version unchanged.
+- All tables and indexes present.
+- `key_types` seeded with exactly 5 rows.
+- FK on `key_store.type`: insert with unknown type fails.
 
 ---
 
 ## Milestone 4: Frontend Core
 
-**Goal.** The app runs end-to-end in the browser: config loading, Firebase sign-in, entry list from rqlite, and create / update / delete / restore / purge operations.
+**Goal.** Existing frontend code adapted for the new backend: key store session bootstrap, updated api.js, and entry CRUD working end-to-end with per-entry key wrapping.
 
 ### Deliverables
 
-| File | What it provides |
-|------|-----------------|
-| `src/validation.js` | Config field validators, URL validator, entry field validators |
-| `src/api.js` | Worker API client: all entry and key endpoints with auth header injection |
-| `src/App.jsx` | Session state machine: idle → config-loaded → signed-in → vault-loaded |
-| `src/components/ConfigLoader.jsx` | Config JSON upload and validation UI |
-| `src/components/EntryList.jsx` | Left panel: live entries, click to select |
-| `src/components/EntryDetail.jsx` | Middle panel: read-only entry view with type badge |
-| `src/components/EntryEditor.jsx` | Edit mode: typed form for login / note / card |
+Most frontend files already exist. This milestone adapts them to the new backend contract (no vault_id, entry_key per entry, UMK from key_store).
 
-Config is validated before any network call. UMK is decrypted from `key_store` after sign-in and held in JS heap for the session. Entry keys are decrypted on demand and cached in memory.
+| File | Status | What changes |
+|------|--------|-------------|
+| `src/App.jsx` | adapt | After sign-in: fetch `key_store`, decrypt UMK from the `umk` row; hold UMK in session state; generate and upload UMK + `own_public`/`own_private` pair on first login |
+| `src/api.js` | adapt | Add `getKeys`, `addKey`, `getKey`, `deleteKey`, `getPeerPublicKey`; remove `vault_id` from all entry calls; add `entry_key`, `history_id`, `encrypted_snapshot` to create/update calls |
+| `src/validation.js` | adapt | Remove `vault_id` validation; add z-base-32 ID format check |
+| `src/components/AppSetup.jsx` | exists | Config upload and validation UI — verify it works without `vault_id` field |
+| `src/components/EntryList.jsx` | exists | Entry list — verify it works with new response shape (no `type` column) |
+| `src/components/EntryDetail.jsx` | exists | Entry detail — verify `type` is read from decrypted JSON, not response metadata |
+| `src/components/LoginFields.jsx` | exists | Login typed form — no changes expected |
+| `src/components/CardFields.jsx` | exists | Card typed form — no changes expected |
+| `src/entryUtils.js` | adapt | Update `buildCreatePayload` / `buildUpdatePayload` to include `entry_key`, `history_id`, `encrypted_snapshot`; remove `vault_id` |
+| `src/limits.js` | exists | No changes expected |
 
 ### Tests
 
-**`src/tests/validation.test.js`** (complete)
-- `worker_url`: valid HTTPS URL accepted; HTTP rejected; missing scheme rejected.
-- `email`: well-formed accepted; missing `@` rejected.
-- `root_master_key`: valid base64 ≥ 256 decoded bytes accepted; short key rejected; non-base64 rejected.
-- `firebase_api_key`: non-empty string accepted; empty rejected.
-- URL field on entry: `https://` accepted; `javascript:` rejected; empty string accepted (optional).
-- Custom field key: non-empty accepted; empty rejected.
+**`src/tests/validation.test.js`** (exists — extend)
+- `root_master_key`: valid base64 ≥ 256 decoded bytes accepted; short rejected.
+- `worker_url`: HTTPS accepted; HTTP rejected.
+- z-base-32 ID format: 52-character valid string accepted; wrong length rejected; non-alphabet rejected.
+- `email` and `firebase_api_key`: non-empty accepted; empty rejected.
 
-**`src/tests/api.test.js`** (mocked `fetch`)
-- `getEntries()`: sends `GET /entries` with `Authorization: Bearer <token>`; returns parsed array.
-- `createEntry(data)`: sends `POST /entries` with correct body shape; returns `{id, created_at}`.
-- `updateEntry(id, data)`: sends `PUT /entries/:id`; returns `{id, updated_at}`.
-- `deleteEntry(id)`: sends `DELETE /entries/:id`; returns `{id, deleted_at}`.
-- `restoreEntry(id)`: sends `POST /entries/:id/restore`; returns `{id}`.
-- `purgeEntry(id)`: sends `DELETE /entries/:id/purge`; returns `{id}`.
-- `getHistory(id)`: sends `GET /entries/:id/history`; returns array.
-- `getKeys()`: sends `GET /keys`; returns metadata array.
-- `addKey(data)`: sends `POST /keys`; returns `{key_id, created_at}`.
-- `getKey(keyId)`: sends `GET /keys/:key_id`; returns full record.
-- `deleteKey(keyId)`: sends `DELETE /keys/:key_id`.
-- Worker 401 response: all functions throw with a recognizable auth error.
-- Worker 400 response: all functions throw with a recognizable validation error.
+**`src/tests/api.test.js`** (create, mocked `fetch`)
+- `getEntries()`: `GET /entries` with `Authorization: Bearer <token>`; returns array.
+- `createEntry(data)`: `POST /entries` with `entry_key`, `encrypted_data`, `history_id`, `encrypted_snapshot`; returns `{id, created_at}`.
+- `updateEntry(id, data)`: `PUT /entries/:id` without `entry_key`; returns `{id, updated_at}`.
+- `deleteEntry(id)`: `DELETE /entries/:id`.
+- `restoreEntry(id)`: `POST /entries/:id/restore`.
+- `purgeEntry(id)`: `DELETE /entries/:id/purge`.
+- `getHistory(id)`: `GET /entries/:id/history`; array returned.
+- `getKeys()`: `GET /keys`; metadata array.
+- `addKey(data)`: `POST /keys`; `{key_id, created_at}`.
+- `getKey(keyId)`: `GET /keys/:key_id`; full record.
+- `deleteKey(keyId)`: `DELETE /keys/:key_id`.
+- Worker 401: all functions throw with recognizable auth error.
+- Worker 400: throw with recognizable validation error.
 
-**`src/tests/entry-lifecycle.test.js`** (mocked API)
-- Create login entry: `encrypted_data` and `entry_key` present in POST body; history row created.
-- Decrypt entry after create: recover original JSON with type `"login"`.
-- Update entry: `entry_key` not re-sent; `encrypted_data` updated; new history row appended.
+**`src/tests/entry-lifecycle.test.js`** (create, mocked API)
+- Create login entry: `entry_key` and `encrypted_data` in POST body; history row created.
+- Decrypt after create: recover original JSON with type `"login"`.
+- Update: `entry_key` not re-sent; `encrypted_data` updated; new history row appended.
 - Decrypt updated entry: recover updated JSON.
-- Soft delete: entry absent from live list, present in trash.
-- Restore: entry back in live list, `deleted_at` null.
-- Purge: entry and all history rows gone.
-- `entry_key` is identical across create and update calls (not regenerated on edit).
+- `entry_key` bytes identical across create and update (not regenerated).
+- Soft delete → restore → soft delete → purge: final state correct at each step.
 
-**`src/tests/export-data.test.js`**
-- `buildExportData(liveEntries, trashEntries)` returns object with `data` array and `trash` array.
-- Each entry in `data` has all fields; no `deleted_at`.
-- Each entry in `trash` has all fields including `deleted_at`.
-- Export with empty vault: `{data: [], trash: []}`.
+**`src/tests/export-data.test.js`** (exists — verify)
+- `buildExportData` returns `{data, trash}`.
+- Live entries: no `deleted_at`.
+- Trashed entries: `deleted_at` present.
+- Empty vault: `{data: [], trash: []}`.
 
 ---
 
 ## Milestone 5: Advanced Features
 
-**Goal.** TOTP, version history with diff viewer, full-text search, password generator, trash view, and vault JSON export are complete and tested.
+**Goal.** TOTP, version history with diff, search, password generator, trash view, and export complete. Most components already exist; wire them to the new backend and add missing tests.
 
 ### Deliverables
 
-| File | What it provides |
-|------|-----------------|
-| `src/totp.js` | RFC 6238 TOTP: HMAC-SHA1, 30 s step, 6-digit code, countdown |
-| `src/components/HistoryViewer.jsx` | Commit list (newest first), restore-to-commit action |
-| `src/components/DiffViewer.jsx` | Field-level diff between any two decrypted snapshots |
-| `src/components/SearchBar.jsx` | Full-text search across title and username |
-| `src/components/TagSidebar.jsx` | Tag list with filter-by-tag |
-| `src/components/PasswordGenerator.jsx` | Configurable generator with copy button |
-| `src/components/TrashView.jsx` | Deleted entries panel: restore and permanent-delete actions |
+| File | Status | What changes |
+|------|--------|-------------|
+| `src/totp.js` | exists | Verify against RFC 6238 vectors; no changes expected |
+| `src/components/HistoryDiffModal.jsx` | exists | Adapt to decrypt snapshots with `entry_key` from session |
+| `src/components/PasswordGenerator.jsx` | exists | No changes expected |
+| `src/components/TagsSidebar.jsx` | exists | Tags read from decrypted entry JSON; verify no `type` column dependency |
+| `src/components/SettingsPanel.jsx` | exists | Add export action; key rotation triggers land in M6 |
+| `src/components/SettingsList.jsx` | exists | No changes expected |
+| `src/entryUtils.js` | adapt | Add `buildSnapshotPayload(entry)` that embeds commit hash inside snapshot JSON before encryption |
 
 ### Tests
 
-**`src/tests/totp.test.js`**
-- All six RFC 6238 TOTP reference codes (SHA-1, 30 s, 6-digit) match the spec.
-- Counter derived from `Math.floor(Date.now() / 1000 / 30)`.
-- Output is always exactly 6 digits (left-padded with zeros if needed).
+**`src/tests/totp.test.js`** (exists — verify full RFC 6238 coverage)
+- All six RFC 6238 SHA-1 reference codes match the spec.
+- Output always exactly 6 digits.
 - Different secrets produce different codes for the same timestamp.
-- Adjacent 30-second windows produce different codes.
-- Invalid base32 TOTP secret: function throws.
+- Adjacent 30-second windows differ.
+- Invalid base32 secret: throws.
 
-**`src/tests/history.test.js`**
-- History list for a fresh entry has exactly 1 commit (the creation snapshot).
-- After 20 edits, entry has exactly 20 commits.
-- On the 21st edit, the oldest commit is gone and there are still 20 commits.
-- Commits are ordered newest-first.
-- Decrypting any snapshot with the entry's `entry_key` recovers the entry JSON at that point in time.
-- Commit hash inside decrypted snapshot matches `hex(SHA-256(snapshotJson)).slice(0,32)`.
-- Restoring from a historical snapshot re-encrypts and calls `PUT /entries/:id`.
+**`src/tests/history.test.js`** (create)
+- Fresh entry: 1 commit (creation snapshot).
+- After 20 edits: exactly 20 commits.
+- 21st edit: oldest commit gone; still 20 commits.
+- Commits ordered newest-first.
+- Decrypt any snapshot with `entry_key`: recover entry JSON at that point in time.
+- Commit hash in snapshot = `hex(SHA-256(snapshotJson)).slice(0,32)`.
 
-**`src/tests/search.test.js`**
-- Query matching title substring: entry returned.
-- Query matching username substring: entry returned.
-- Case-insensitive match: `"github"` matches entry with title `"GitHub"`.
-- Query with no matches: returns empty array.
-- Empty query string: returns all live entries.
-- Tag filter: only entries with that tag returned.
-- Combined text + tag filter: intersection applied.
-- Trashed entries excluded from all search results.
+**`src/tests/search.test.js`** (create)
+- Title substring match: entry returned.
+- Username substring match: entry returned.
+- Case-insensitive: `"github"` matches title `"GitHub"`.
+- No match: `[]`.
+- Empty query: all live entries.
+- Tag filter: only entries with that tag.
+- Combined text + tag: intersection.
+- Trashed entries excluded from all results.
 
-**`src/tests/commit-hash.test.js`** (extended)
-- Two snapshot JSONs that differ by only one character produce different hashes.
-- Hash is stable: same input on successive calls returns the same 32-character string.
-- Hash embedded in `encrypted_snapshot` survives an encrypt → decrypt round-trip unchanged.
+**`src/tests/export-data.test.js`** (exists — extend)
+- Export includes all live entries and all trashed entries.
+- Each entry's decrypted fields present (type, title, fields, tags, `_commits`).
 
 ---
 
-## Milestone 6: Key Store, Rotation, Sharing, Deployment
+## Milestone 6: Key Store and Rotation
 
-**Goal.** Key store management UI, root master key rotation, UMK rotation, cross-user public key sharing, CF Pages build config, and schema migration deployment script are complete and tested.
+**Goal.** Key store management UI, root master key rotation (re-encrypts UMK blob only), and UMK rotation (re-encrypts all entry_key blobs) are complete and tested.
 
 ### Deliverables
 
-| File | What it provides |
-|------|-----------------|
-| `src/components/KeyStoreManager.jsx` | List keys by type; add emergency key; generate asymmetric pair |
-| `src/components/KeyRotation.jsx` | RMK rotation (re-encrypt UMK only) and UMK rotation (re-encrypt all entry keys) |
-| `src/components/SharingPanel.jsx` | Fetch peer's public key by user_id; store as `peer_public` in key_store |
-| `worker/scripts/migrate.js` (final) | Idempotent migration runner with schema_version tracking |
-| `wrangler.toml` | Worker name, routes, no R2 bindings |
-| CF Pages build settings | `npm run build`, output `dist`, `VITE_WORKER_URL` env var |
+| File | Status | What it provides |
+|------|--------|-----------------|
+| `src/components/KeyStoreManager.jsx` | create | List keys by type; add emergency key; generate and upload asymmetric key pair |
+| `src/components/KeyRotation.jsx` | create | RMK rotation UI (re-encrypt UMK blob, prompt for new root_master_key); UMK rotation UI (re-encrypt all entry_key blobs) |
+| `src/components/SettingsPanel.jsx` | adapt | Add key rotation and key store panels |
 
 ### Tests
 
-**`src/tests/key-rotation.test.js`**
-- RMK rotation: `encryptUMK(rawUMK, newRMK)` produces a different blob; `decryptUMK(newBlob, newRMK)` recovers same raw UMK bytes.
-- RMK rotation does not alter any `entry_key` blob or `encrypted_data` blob.
-- Old RMK: `decryptUMK(newBlob, oldRMK)` throws immediately.
-- UMK rotation: all `entry_key` blobs re-encrypted; same 64-byte raw entry keys recovered with new UMK.
-- UMK rotation does not alter any `encrypted_data` or `encrypted_snapshot` blob.
+**`src/tests/key-rotation.test.js`** (create)
+- RMK rotation: `decryptUMK(encryptUMK(raw, newRMK), newRMK)` = original UMK bytes.
+- RMK rotation: entry_key blobs and encrypted_data blobs unchanged.
+- Old RMK: `decryptUMK(newBlob, oldRMK)` throws.
+- UMK rotation: all entry_key blobs re-encrypted; same 64-byte raw keys recovered with new UMK.
+- UMK rotation: encrypted_data and encrypted_snapshot blobs unchanged.
 - Old UMK: `decryptEntryKey(reEncryptedBlob, oldUMK)` throws.
-- Interrupted UMK rotation (only 5 of 10 entry_keys updated): retry re-encrypts remaining 5; final state consistent.
+- Interrupted UMK rotation (5 of 10 entry_keys updated): retry re-encrypts remaining 5; final state consistent.
 
-**`worker/tests/sharing.test.js`**
-- `GET /users/:user_id/public-key` for a user who has posted `own_public`: returns 200 with `public_key`.
-- `GET /users/:user_id/public-key` for a user with no `own_public`: returns 404.
+---
+
+## Milestone 7: Sharing
+
+**Goal.** Cross-user public key lookup and sharing flow: a user can fetch another user's public key, store it as a `peer_public` record, and use it to encrypt entries for sharing.
+
+### Deliverables
+
+| File | Status | What it provides |
+|------|--------|-----------------|
+| `src/components/SharingPanel.jsx` | create | Input a peer `user_id`; fetch their public key via `GET /users/:user_id/public-key`; store as `peer_public` in key_store; encrypt a selected entry's `entry_key` with the peer's public key |
+| `src/api.js` | adapt | `getPeerPublicKey(userId)` calls `GET /users/:user_id/public-key` |
+
+Worker's `GET /users/:user_id/public-key` route is already specified in backend.md and implemented in M3.
+
+### Tests
+
+**`worker/tests/sharing.test.js`** (create)
+- `GET /users/:user_id/public-key` for a user with `own_public`: 200 with `public_key`.
+- `GET /users/:user_id/public-key` for user with no `own_public`: 404.
 - `POST /keys` with `type="peer_public"` and valid `peer_user_id`: key stored; retrievable via `GET /keys/:key_id`.
-- `POST /keys` with `type="peer_public"` and `peer_user_id` equal to own `user_id`: 400.
-- `POST /keys` with `type="peer_public"` and `peer_user_id` of a non-existent user: stored (no existence check enforced at Worker level).
+- `POST /keys` with `type="peer_public"` and `peer_user_id` = own `user_id`: 400.
 
-**`worker/tests/migration.test.js`** (extended)
-- `0001_initial.sql` creates `key_types`, `users`, `key_store`, `entries`, `entry_history`, all three indexes.
-- `key_types` seeded with exactly `umk`, `emergency`, `own_public`, `own_private`, `peer_public`.
-- `0002_schema_version.sql` creates `schema_version` and inserts version 1.
-- Running migrations twice: idempotent, no duplicate rows, no errors.
-- `schema_version` after full migration matches `EXPECTED_SCHEMA_VERSION` constant in Worker.
-- Foreign key from `key_store.type` to `key_types.type` enforced: insert with unknown type fails.
-
-**`src/tests/e2e.test.js`** (mocked Worker responses)
-- Full session: load config → sign in → fetch entries and keys → create login entry → update it → view history (2 commits) → delete → restore → purge → entry gone.
-- TOTP entry: create login entry with TOTP secret → TOTP code generated inline → changes every 30 s.
+**`src/tests/e2e.test.js`** (create, mocked Worker)
+- Full session: load config → sign in → fetch entries and keys → create login entry → update → history (2 commits) → delete → restore → purge → entry gone.
+- TOTP entry: create login entry with TOTP secret → code generated inline.
 - Key rotation: sign in → rotate RMK → sign in again with new RMK → all entries still decrypt.
-- Export: after creating 3 entries and soft-deleting 1, export contains 2 in `data` and 1 in `trash`.
-- Wrong RMK at login: UMK decryption fails; session does not load; error displayed.
-- Expired Firebase token mid-session: next API call receives 401; session cleared.
+- Export: 3 entries created, 1 soft-deleted → export has 2 in `data`, 1 in `trash`.
+- Wrong RMK at login: UMK decryption fails; session does not load.
+- Expired Firebase token mid-session: next API call returns 401; session cleared.
+- Sharing: fetch peer public key → `peer_public` row stored → `entry_key` encrypts with peer's key.
+
+---
+
+## Milestone 8: Deployment
+
+**Goal.** Schema migration runner complete, CF Pages and Worker deployment documented and scripted, wrangler config finalized.
+
+### Deliverables
+
+| File | Status | What it provides |
+|------|--------|-----------------|
+| `worker/migrations/0001_initial.sql` | create | `key_types`, `users`, `key_store`, `entries`, `entry_history`, 3 indexes |
+| `worker/migrations/0002_schema_version.sql` | create | `schema_version` table; inserts version 1 |
+| `worker/scripts/migrate.js` | create | Idempotent migration runner: reads current version, applies pending files in order, updates `schema_version`; exits non-zero on failure |
+| `worker/wrangler.toml` | create from example | Worker name, account_id, routes; no R2 bindings |
+
+**Deployment sequence:**
+1. `wrangler secret put FIREBASE_PROJECT_ID / RQLITE_URL / RQLITE_USERNAME / RQLITE_PASSWORD`
+2. `wrangler deploy` (Worker starts but returns 503 if schema is behind)
+3. `node worker/scripts/migrate.js` (advances `schema_version` to expected)
+4. Worker begins serving normally
+
+**CF Pages:** build command `npm run build`, output directory `dist`, environment variable `VITE_WORKER_URL` = deployed Worker URL.
+
+**Worker startup check:** Worker reads `schema_version` on first request; if it does not match `EXPECTED_SCHEMA_VERSION`, returns `503 Schema version mismatch` until migration is run.
+
+### Tests
+
+**`worker/tests/migration.test.js`** (create, in-process SQLite via better-sqlite3)
+- Fresh database: `migrate.js` applies all migrations; `schema_version` = latest version number.
+- Re-run on already-migrated database: no-op, no errors, version unchanged.
+- All expected tables present after M1 migration: `key_types`, `users`, `key_store`, `entries`, `entry_history`.
+- `schema_version` table present after M2 migration; version = 1.
+- `key_types` seeded with exactly 5 rows.
+- FK from `key_store.type` to `key_types.type`: insert with unknown type fails.
+- Simulated partial failure mid-migration: re-run resumes from correct point.
