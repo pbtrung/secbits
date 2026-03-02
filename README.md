@@ -107,15 +107,16 @@ Save as `secbits-config.json` and keep it private — it is the trust anchor for
 
 ```json
 {
+  "username": "<display-name (optional)>",
   "worker_url": "https://<worker>.<account>.workers.dev",
-  "email": "you@example.com",
-  "password": "your-firebase-password",
+  "email": "<email>",
+  "password": "<password>",
   "firebase_api_key": "<firebase-web-api-key>",
-  "root_master_key": "<base64-encoded key, >= 256 bytes decoded>"
+  "root_master_key": "<base64, >=256 bytes>"
 }
 ```
 
-The `root_master_key` is the sole secret used to derive all encryption keys. The user identity is derived automatically from the Firebase UID at the Worker.
+`username` is optional and used as a display label in the UI. The `root_master_key` is the sole secret used to derive all encryption keys. The user identity is derived automatically from the Firebase UID at the Worker.
 
 ## Build and Run
 
