@@ -1,99 +1,240 @@
 # Backend
 
-Cloudflare Worker + Cloudflare R2.
+Cloudflare Worker + rqlite.
 
 ```
-Browser -> Worker -> R2
+Browser -> Worker -> rqlite
 ```
 
-Authentication: Firebase ID token (`Authorization: Bearer <token>`). The Worker verifies the token and uses `token.sub` as user identity. All routes except `/health` require a valid token.
+Authentication: Firebase ID token (`Authorization: Bearer <token>`). The Worker verifies the token on every request. All routes except `/health` require a valid token.
 
-## Storage Model
+The Worker holds rqlite credentials as secrets and communicates with rqlite over HTTP using Basic Auth. The browser has no knowledge of rqlite credentials.
 
-One encrypted binary object per user vault. The Worker never handles plaintext vault content — it reads and writes opaque bytes only.
+## rqlite Schema
 
-Inside that encrypted payload:
-- `data`: active entries
-- `trash`: soft-deleted entries with `deletedAt`
+```sql
+CREATE TABLE IF NOT EXISTS entries (
+  id           TEXT PRIMARY KEY,
+  vault_id     TEXT NOT NULL,
+  type         TEXT NOT NULL,
+  encrypted_data TEXT NOT NULL,   -- base64-encoded encrypted blob
+  created_at   TEXT NOT NULL,     -- ISO 8601
+  updated_at   TEXT NOT NULL,     -- ISO 8601
+  deleted_at   TEXT               -- NULL = live, non-NULL = in trash (ISO 8601)
+);
 
-Entry IDs are client-generated UUIDs (`crypto.randomUUID()`).
+CREATE TABLE IF NOT EXISTS entry_history (
+  id                 TEXT PRIMARY KEY,   -- UUID
+  entry_id           TEXT NOT NULL,
+  commit_hash        TEXT NOT NULL,      -- 32-hex-char SHA-256 truncation of plaintext
+  encrypted_snapshot TEXT NOT NULL,      -- base64-encoded encrypted blob
+  created_at         TEXT NOT NULL       -- ISO 8601
+);
 
-R2 object key:
+CREATE INDEX IF NOT EXISTS idx_entries_vault   ON entries(vault_id);
+CREATE INDEX IF NOT EXISTS idx_history_entry   ON entry_history(entry_id);
 ```
-{prefix}/{vault_id}/{file_name}
-```
-All three path segments are supplied by the client from its config JSON (`r2.prefix`, `vault_id`, `r2.file_name`). They are validated and sanitized server-side. The bearer token is still verified on every request; `vault_id` determines the storage path independently of the auth provider.
 
-## API
+`encrypted_data` and `encrypted_snapshot` are base64-encoded blobs of the format `magic(7) || version(2) || salt(64) || ciphertext(var) || tag(64)`. The Worker stores and returns them as opaque strings; it never decrypts them.
+
+## Worker API
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/vault/read` | Read encrypted vault blob from R2 |
-| `POST` | `/vault/write` | Write encrypted vault blob to R2 |
-| `GET`  | `/health` | Health check (no auth required) |
+| `GET`    | `/entries`             | List all live entries for the vault |
+| `GET`    | `/entries/trash`       | List all trashed entries for the vault |
+| `POST`   | `/entries`             | Create a new entry |
+| `PUT`    | `/entries/:id`         | Update an existing entry |
+| `DELETE` | `/entries/:id`         | Soft delete (set deleted_at) |
+| `POST`   | `/entries/:id/restore` | Restore a trashed entry |
+| `DELETE` | `/entries/:id/purge`   | Permanently delete an entry and its history |
+| `GET`    | `/entries/:id/history` | List history commits for an entry |
+| `GET`    | `/health`              | Health check (no auth required) |
 
-All vault routes require `Authorization: Bearer <firebase-id-token>`. Read uses `Content-Type: application/json`; write uses `Content-Type: application/octet-stream`.
+All vault routes require `Authorization: Bearer <firebase-id-token>`.
 
----
+All request and response bodies use `Content-Type: application/json`.
 
-### POST /vault/read
+The `vault_id` claim comes from the validated config sent in request bodies or query parameters. The Worker enforces that queries are scoped to the authenticated user's `vault_id`.
 
-Request body (`application/json`):
+## Route Details
+
+### GET /entries
+
+Query parameter: `vault_id` (required).
+
+Response `200`:
+```json
+[
+  {
+    "id": "uuid",
+    "vault_id": "...",
+    "type": "login",
+    "encrypted_data": "<base64 blob>",
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "updated_at": "2026-01-01T00:00:00.000Z"
+  }
+]
+```
+
+### GET /entries/trash
+
+Query parameter: `vault_id` (required).
+
+Response `200`: same shape as `GET /entries`, entries have non-null `deleted_at`.
+
+### POST /entries
+
+Request body:
 ```json
 {
-  "bucket_name": "secbits-data",
-  "prefix": "<r2.prefix from config>",
-  "vault_id": "<vault_id from config>",
-  "file_name": "vault.bin"
+  "id": "uuid",
+  "vault_id": "...",
+  "type": "login",
+  "encrypted_data": "<base64 blob>"
 }
 ```
 
-Response (object exists): `200 application/octet-stream` — raw encrypted blob bytes.
-Metadata in response headers:
-```
-X-Vault-Size: 4096
-X-Vault-Etag: "abc123"
-X-Vault-Uploaded: 2026-01-01T00:00:00.000Z
+Response `201`:
+```json
+{ "id": "uuid", "created_at": "2026-01-01T00:00:00.000Z" }
 ```
 
-Response (first login / object not yet created): `204 No Content` (no body).
+Also inserts a history commit row with the same `encrypted_data` as the initial snapshot.
 
----
+### PUT /entries/:id
 
-### POST /vault/write
-
-Request headers:
-```
-Content-Type: application/octet-stream
-X-Vault-Bucket: secbits-data
-X-Vault-Prefix: <r2.prefix from config>
-X-Vault-Id: <vault_id from config>
-X-Vault-File: vault.bin
-```
-
-Request body: raw encrypted blob bytes.
-
-Response (`application/json`):
+Request body:
 ```json
 {
-  "ok": true,
-  "size": 4096
+  "vault_id": "...",
+  "encrypted_data": "<base64 blob>"
 }
 ```
 
----
+Response `200`:
+```json
+{ "id": "uuid", "updated_at": "2026-01-01T00:00:00.000Z" }
+```
 
-## Path Validation
+Also appends a history commit row. If the entry already has 20 commits, the oldest commit is deleted before the new one is inserted.
 
-The Worker validates all path parts before constructing the R2 key:
-- `bucket_name` must match the Worker's `R2_BUCKET_NAME` environment variable.
-- `prefix`, `vault_id`, and `file_name` must not be empty and must not contain `..` or `\`.
+### DELETE /entries/:id
+
+Request body:
+```json
+{ "vault_id": "..." }
+```
+
+Sets `deleted_at` to the current UTC timestamp. Entry remains in the `entries` table. History is preserved.
+
+Response `200`:
+```json
+{ "id": "uuid", "deleted_at": "2026-01-01T00:00:00.000Z" }
+```
+
+### POST /entries/:id/restore
+
+Request body:
+```json
+{ "vault_id": "..." }
+```
+
+Sets `deleted_at` to NULL. Response `200`:
+```json
+{ "id": "uuid" }
+```
+
+### DELETE /entries/:id/purge
+
+Request body:
+```json
+{ "vault_id": "..." }
+```
+
+Deletes all rows in `entry_history` for the entry, then deletes the entry row. Response `200`:
+```json
+{ "id": "uuid" }
+```
+
+### GET /entries/:id/history
+
+Query parameter: `vault_id` (required).
+
+Response `200`:
+```json
+[
+  {
+    "id": "uuid",
+    "entry_id": "uuid",
+    "commit_hash": "abcdef1234567890abcdef1234567890",
+    "encrypted_snapshot": "<base64 blob>",
+    "created_at": "2026-01-01T00:00:00.000Z"
+  }
+]
+```
+
+Rows are ordered by `created_at` descending (newest first).
+
+## rqlite HTTP API
+
+The Worker communicates with rqlite using two endpoints:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /db/query` | Read queries (SELECT) |
+| `POST /db/execute` | Write queries (INSERT, UPDATE, DELETE) |
+
+Every request to rqlite carries `Authorization: Basic <base64(username:password)>` using the `RQLITE_URL`, `RQLITE_USERNAME`, and `RQLITE_PASSWORD` Worker secrets.
+
+Parameterized query format (array of `[sql, ...params]`):
+
+```json
+[["SELECT id, vault_id, type, encrypted_data, created_at, updated_at FROM entries WHERE vault_id = ? AND deleted_at IS NULL", "vault-id-value"]]
+```
+
+rqlite response format for reads:
+
+```json
+{
+  "results": [
+    {
+      "columns": ["id", "vault_id", "type", "encrypted_data", "created_at", "updated_at"],
+      "types":   ["text", "text", "text", "text", "text", "text"],
+      "values":  [["uuid", "vault-id", "login", "<base64>", "...", "..."]]
+    }
+  ]
+}
+```
+
+rqlite response format for writes:
+
+```json
+{
+  "results": [
+    { "rows_affected": 1, "last_insert_id": 0 }
+  ]
+}
+```
 
 ## Worker Secrets
 
 | Secret | Purpose |
 |--------|---------|
-| `FIREBASE_PROJECT_ID` | Used to verify the `aud` claim in Firebase ID tokens |
-| `R2_BUCKET_NAME` | Validated against the client-supplied `bucket_name` |
+| `FIREBASE_PROJECT_ID` | Validates the `aud` claim in Firebase ID tokens |
+| `RQLITE_URL` | Base URL of the rqlite HTTP API |
+| `RQLITE_USERNAME` | rqlite Basic Auth username |
+| `RQLITE_PASSWORD` | rqlite Basic Auth password |
 
-The R2 bucket is bound to the Worker via `wrangler.toml` (binding name: `SECBITS_R2`).
+## Input Validation
+
+The Worker validates all inputs before constructing SQL parameters:
+
+- `vault_id`: required, non-empty, max 256 characters, no `..` or `\`.
+- `type`: must be one of `"login"`, `"note"`, `"card"`.
+- `id`: required, non-empty, valid UUID format.
+- `encrypted_data` / `encrypted_snapshot`: required, valid base64 string, minimum length 137 bytes when decoded (minimum valid blob length).
+- `:id` path parameter: valid UUID format.
+- `vault_id` from query parameter or body must match the Firebase token's associated vault scope enforced at the Worker level.
+
+All SQL queries use parameterized statements. No string interpolation is used to construct SQL.

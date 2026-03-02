@@ -1,93 +1,64 @@
 # Design
 
-Architecture decisions and their rationale.
+Architectural decisions and their rationale.
 
----
+## Firebase Auth + CF Worker + CF Pages + rqlite
 
-## Firebase Auth → Worker → R2
+**Decision:** Firebase Authentication issues identity tokens; a Cloudflare Worker verifies tokens and mediates all database access; Cloudflare Pages hosts the static frontend; rqlite stores encrypted entry rows over HTTP with Basic Auth.
 
-**Decision:** Firebase Authentication issues the identity token; a Cloudflare Worker enforces auth and mediates R2 access; Cloudflare R2 stores the encrypted vault object.
+**Why:** Each layer has a single bounded responsibility. Firebase handles credential management and token issuance without the Worker needing to store passwords or issue its own tokens. The Worker is a thin auth-enforcement and database gateway — it never handles plaintext. rqlite stores opaque encrypted blobs per entry row. Cloudflare Pages provides globally distributed static hosting that integrates cleanly with a Cloudflare Worker origin. rqlite is lightweight, self-hostable, and exposes a familiar SQLite model over a simple HTTP API.
 
-**Why:** Each layer has a single, bounded responsibility. Firebase handles credential management and token issuance without the Worker needing to store passwords or issue its own tokens. The Worker is a thin auth-enforcement and storage gateway — it never touches plaintext. R2 holds one opaque binary object per user vault. There is no SQL schema, no relational model, and no secondary storage layer.
+## Per-Entry Encryption
 
----
+**Decision:** Each entry is encrypted as an independent blob. The Worker stores one ciphertext blob per entry row in rqlite. Create and update operations encrypt only the affected entry, not the entire vault.
 
-## Single Encrypted Vault Object
+**Why:** Per-entry encryption enables incremental writes — only the modified entry needs re-encryption and re-upload on each save. History commits are independent encrypted blobs stored as individual rows in `entry_history`. Fetching one entry's history does not require downloading the full vault. This scales better with large vaults and makes the read and write paths symmetric and entry-scoped.
 
-**Decision:** The entire vault is one encrypted binary object stored at a config-driven R2 path. Every save overwrites the object; every login reads it.
+## rqlite for Structured Entry Storage
 
-**Why:** Password vault data does not benefit from relational queries against ciphertext. A single object eliminates schema management, row-level key bookkeeping, and partial-write consistency problems. The read and write paths are symmetric and simple. Recovery requires only the config file and the R2 object.
+**Decision:** All entries and their history commits are stored as rows in rqlite. Trash is represented by a nullable `deleted_at` column on the `entries` table rather than a separate store.
 
----
+**Why:** A relational schema lets the Worker filter entries by `vault_id`, query live and trashed entries with a single predicate, and manage history commits with row-level insert and delete. Per-entry row storage means the database holds structured metadata (entry ID, type, timestamps, deletion state) alongside the opaque encrypted blob — enabling efficient queries without the client downloading everything to perform filtering. rqlite exposes standard SQLite semantics over HTTP, so queries use parameterized SQL and the Worker needs no SQL driver or native binding.
 
-## Export JSON as the Canonical Storage Format
+## rqlite Credentials as Worker Secrets
 
-**Decision:** The persisted payload is the export JSON serialized, Brotli-compressed, and AEAD-encrypted. The in-memory format and the stored format are the same structure.
+**Decision:** The rqlite HTTP endpoint URL, Basic Auth username, and Basic Auth password are stored as Cloudflare Worker secrets (`RQLITE_URL`, `RQLITE_USERNAME`, `RQLITE_PASSWORD`). The browser has no knowledge of these values.
 
-**Why:** A single format eliminates translation between internal representation and a separate storage schema. The export file a user downloads is byte-for-byte the same payload structure stored in R2, making manual recovery straightforward without special tooling.
+**Why:** The browser communicates only with the Worker using Firebase ID tokens. Exposing rqlite credentials to the client would allow any authenticated user to query or mutate any row in the database directly, bypassing the Worker's auth enforcement and vault_id scoping. Keeping credentials in Worker secrets means rqlite is only reachable through the Worker's auth-enforced API.
 
-Export JSON shape:
+## vault_id for Auth-Independent Scoping
 
-```json
-{
-  "version": 1,
-  "username": "<display name>",
-  "data": [ /* live entries */ ],
-  "trash": [ /* deleted entries, each with deletedAt */ ]
-}
-```
+**Decision:** All entry rows are scoped to a `vault_id` column supplied from the client config JSON. The Worker enforces that every query filters by the authenticated user's `vault_id`. `vault_id` is a secret random string in the config, alongside the root master key.
 
-Each entry object in `data` and `trash` carries a `type` field (`"login"`, `"note"`, or `"card"`) set at creation. Entries created before typed entries were introduced omit the field.
-
-`version` is a schema version integer. It exists so future format changes can be handled by branching on the version at parse time. Currently always `1`.
-
-`data` contains live entries. `trash` contains entries moved there by a soft delete; each carries all original fields, the full `_commits` history, and an added `deletedAt` ISO 8601 timestamp. Entries absent from both arrays are permanently gone.
-
----
-
-## Single Root Master Key
-
-**Decision:** One root master key (RMK), supplied from the config JSON, directly derives the AEAD encryption key for the entire vault blob.
-
-**Why:** The RMK is the trust anchor for the vault. Given that the config file is the user's primary secret and each user has an independent vault, additional indirection layers (UMK, per-entry doc keys) add complexity without providing meaningful security benefit under this threat model. A leaked RMK already implies a fully compromised vault regardless of how many wrapping layers exist; protecting the config file is the correct defense. The single-key model keeps the code path auditable and eliminates classes of bugs around key generation, wrapping, and zeroing across multiple layers.
-
----
+**Why:** Tying the storage namespace to the auth provider identity (e.g. Firebase UID) would couple storage layout to the auth layer. A stable config-supplied `vault_id` keeps the namespace consistent across auth changes or provider migrations without requiring data migration. It also functions as an additional access control layer: a client without the config cannot determine which rows belong to a given vault. The Worker verifies the Firebase token on every request before using the client-supplied `vault_id` to scope queries.
 
 ## Ascon-Keccak-512 AEAD
 
 **Decision:** All encryption uses leancrypto's Ascon-Keccak-512 AEAD with 512-bit key, IV, and tag.
 
-**Why:** Grover's algorithm halves the effective key length of symmetric ciphers on a quantum computer. 512-bit parameters retain 256-bit post-quantum security margins uniformly across key, IV, and tag. The leancrypto WASM bundle ships with the app, so no additional dependency is introduced.
-
----
-
-## Blob Format Versioning and Authenticated Header
-
-**Decision:** Every encrypted blob is prefixed with a 9-byte header: 7-byte magic (`SecBits` UTF-8) and a 2-byte version (`major · minor`). The full header and salt are passed as AEAD additional data, so the tag covers the entire blob.
-
-**Why — magic bytes:** A blob without a recognisable prefix is opaque. The magic bytes allow any tool or the app itself to immediately identify a SecBits vault object in a hex dump or from raw R2 storage, and to fast-fail with a clear error when handed the wrong binary rather than producing a confusing "wrong key" message.
-
-**Why — version field:** The blob format may need to evolve (cipher upgrade, layout change). Without a version field there is no in-band signal to branch on at decode time. Two bytes (major · minor) provide 256 distinct values per component — more than sufficient for a format that changes rarely.
-
-**Why — authenticated additional data:** The salt was previously unauthenticated. An attacker with write access to R2 could replace the salt bytes to produce a targeted denial-of-service: the vault would fail to open with a misleading "wrong key" error while the ciphertext itself remained intact. Binding the magic, version, and salt into the AEAD additional data means any modification to any byte in the header causes tag verification to fail, making the full blob tamper-evident.
-
----
+**Why:** Grover's algorithm halves the effective key length of symmetric ciphers on a quantum computer. 512-bit parameters retain 256-bit post-quantum security margins uniformly across key, IV, and tag. The leancrypto WASM bundle ships with the app, so no additional network dependency is introduced.
 
 ## HKDF-SHA3-512 with Per-Blob Fresh Salt
 
 **Decision:** Every encryption derives a unique `(encKey, encIv)` pair from a fresh 64-byte random salt via HKDF-SHA3-512.
 
-**Why:** IV reuse under the same AEAD key is catastrophic — identical `(key, IV)` on two encryptions exposes the XOR of both plaintexts. Per-blob salt derivation makes IV reuse structurally impossible: the caller stores only the static RMK; all per-blob key material is ephemeral and never stored.
+**Why:** IV reuse under the same AEAD key is catastrophic — identical `(key, IV)` on two encryptions exposes the XOR of both plaintexts. Per-blob salt derivation makes IV reuse structurally impossible: the caller stores only the static root master key; all per-blob key material is ephemeral and never stored.
 
----
+## Blob Format with Versioned Magic Header
+
+**Decision:** Every encrypted blob is prefixed with a 9-byte header: 7-byte magic (`SecBits` UTF-8) and a 2-byte version (`major · minor`). The full header and salt are passed as AEAD additional data so the tag covers the entire blob.
+
+**Why (magic bytes):** The magic bytes allow any tool or the app itself to immediately identify a SecBits blob in a hex dump or from raw rqlite data, and to fast-fail with a clear error when handed the wrong binary rather than producing a misleading decryption error.
+
+**Why (version field):** The blob format may need to evolve. Without a version field there is no in-band signal to branch on at decode time. Two bytes (major · minor) provide 256 distinct values per component.
+
+**Why (authenticated additional data):** Binding the magic, version, and salt into the AEAD additional data means any modification to any byte in the header causes tag verification to fail, making the full blob tamper-evident.
 
 ## Brotli Compression Before Encryption
 
-**Decision:** Export JSON is Brotli-compressed before AEAD encryption.
+**Decision:** Entry JSON is Brotli-compressed before AEAD encryption.
 
-**Why:** Encrypted data is statistically indistinguishable from random; a compressor finds no structure in ciphertext. Compressing before encryption takes advantage of the highly repetitive field names in entry JSON (`title`, `username`, `password`, `urls`, etc.) and achieves 50–70% size reduction. The compressed size is hidden inside the AEAD envelope and unobservable to an attacker.
-
----
+**Why:** Encrypted data is statistically indistinguishable from random; a compressor finds no structure in ciphertext. Compressing before encryption takes advantage of the highly repetitive field names in entry JSON and achieves meaningful size reduction. The compressed size is hidden inside the AEAD envelope and unobservable to an attacker.
 
 ## Firebase RS256 Token Verification at the Worker
 
@@ -95,34 +66,26 @@ Each entry object in `data` and `trash` carries a `type` field (`"login"`, `"not
 
 **Why:** RS256 tokens are self-contained and verifiable by any party with the issuer's public keys. The Worker fetches and caches Firebase's JWK set, then verifies the signature, expiry, and audience locally on every request. This avoids a synchronous call to Firebase on the critical path and does not require a shared secret between the Worker and Firebase.
 
----
-
 ## In-Memory-Only Session
 
-**Decision:** The root master key, Firebase token, and all decrypted vault data are held only in React component state (JS heap). Nothing is written to `localStorage`, `sessionStorage`, cookies, or IndexedDB.
+**Decision:** The root master key, Firebase token, and all decrypted entry data are held only in React component state (JS heap). Nothing is written to `localStorage`, `sessionStorage`, cookies, or IndexedDB.
 
 **Why:** Any persistent browser storage API keeps keying material alive beyond the user's intended session. Holding everything in the JS heap means a hard reload, tab close, or explicit logout clears all secrets immediately and reliably. This also limits the XSS exposure window to the active page lifetime.
 
----
+## Typed Entries
 
-## Typed Entries (Login / Note / Card)
+**Decision:** Every entry carries a `type` field with one of three values: `"login"`, `"note"`, `"card"`. The type is selected at creation, stored in the `entries` row as a plaintext column and within the encrypted blob, and determines which fields are shown in the editor and detail view.
 
-**Decision:** Every entry carries a `type` field with one of three values: `"login"`, `"note"`, `"card"`. The user selects a type before the entry editor opens; the type is stored on the entry and determines which fields are rendered.
-
-**Why:** Displaying a flat list of every possible field for all entries (card number, TOTP, URLs, CVV, …) produces a noisy, context-free form. Typed entries surface only the fields that are meaningful for the selected credential kind, reducing visual noise and guiding the user toward correct data entry. The `type` field is a lightweight tag on the existing entry schema — no migration logic is needed, and all entry records remain uniform JSON objects in the same `data` array.
-
----
+**Why:** Displaying every possible field for all entries produces a noisy, context-free form. Typed entries surface only the fields meaningful for the selected credential kind. The `type` column is also stored in plaintext in rqlite so the Worker can return typed metadata without decrypting anything — but the actual field values remain inside the ciphertext.
 
 ## UUID Entry IDs
 
 **Decision:** New persisted entries are assigned IDs with `crypto.randomUUID()`.
 
-**Why:** Native UUID generation is collision-resistant for this use case, avoids custom ID schemes, and keeps ID generation logic simple and auditable.
+**Why:** Native UUID generation is collision-resistant for this use case, avoids custom ID schemes, and keeps ID generation logic auditable.
 
----
+## Per-Entry History in rqlite
 
-## R2 Path Derived from Config
+**Decision:** Each history commit is a row in the `entry_history` table containing an independently encrypted full snapshot of the entry at that point. The row carries a `commit_hash` (32-hex-character SHA-256 truncation of the plaintext snapshot, computed before encryption) and a creation timestamp. History is capped at 20 commits per entry; the oldest commit is deleted when the cap is exceeded.
 
-**Decision:** The R2 object key is `{prefix}/{vault_id}/{file_name}`, where all three segments (`r2.prefix`, `vault_id`, `r2.file_name`) come from the client config JSON, are sent in the request body, and are validated server-side. The bearer token is still verified on every request; `vault_id` determines the storage namespace independently of the auth provider.
-
-**Why:** Tying the path namespace to an auth-provider identity (e.g. Firebase UID) would couple storage layout to the auth layer — switching auth backends would relocate the vault and require data migration. Using config-supplied path segments keeps the path stable across auth changes. A configurable `prefix` allows deployers to organise objects within the bucket (e.g. by environment or tenant) without changing the vault identity. Path isolation relies on the secrecy of `vault_id`, which lives in the config alongside the root master key — consistent with the overall trust model where the config file is the trust anchor.
+**Why:** Storing history commits as individual rows in the database lets the Worker retrieve history for a single entry without downloading the full vault. Full snapshots per commit are simpler than deltas and eliminate the need to replay a commit chain to reconstruct a past state. The commit hash is computed over the plaintext so it remains a stable content-addressable identifier that can be verified after decryption.
