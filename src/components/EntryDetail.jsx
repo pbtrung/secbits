@@ -5,8 +5,8 @@ import CardFields from './CardFields';
 import NotesField from './NotesField';
 import TagsField from './TagsField';
 import SpinnerBtn from './SpinnerBtn';
-import { isHttpUrl } from '../validation.js';
-import { formatDeletedLabel, ENTRY_TYPE_META } from '../entryUtils.js';
+import { isHttpUrl } from '../lib/validation.js';
+import { formatDeletedLabel, ENTRY_TYPE_META } from '../lib/entryUtils.js';
 import {
   TITLE_MAX,
   TAG_MAX,
@@ -14,7 +14,7 @@ import {
   URL_MAX, TOTP_SECRET_MAX,
   CUSTOM_FIELD_LABEL_MAX, CUSTOM_FIELD_VALUE_MAX,
   CARD_HOLDER_MAX, CARD_NUMBER_MAX, CARD_EXPIRY_MAX, CARD_CVV_MAX,
-} from '../limits.js';
+} from '../lib/limits.js';
 
 function hasDraftChanges(draft, entry, tagCurrentInput) {
   const normalizeText = (value) => (typeof value === 'string' ? value : '');

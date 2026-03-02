@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import SidebarPanel from './SidebarPanel';
-import { ENTRY_TYPES, ENTRY_TYPE_META } from '../entryUtils.js';
+import { ENTRY_TYPES, ENTRY_TYPE_META } from '../lib/entryUtils.js';
 
 function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, selectedTag, trashMode = false, mobile }) {
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);

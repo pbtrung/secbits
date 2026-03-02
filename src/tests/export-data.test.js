@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildExportData } from '../api.js';
+import { buildExportData } from '../lib/api.js';
 
 describe('buildExportData', () => {
   it('returns canonical export payload shape', () => {

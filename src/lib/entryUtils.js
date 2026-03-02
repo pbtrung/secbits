@@ -34,3 +34,11 @@ export const ENTRY_TYPES = [
 export const ENTRY_TYPE_META = Object.fromEntries(
   ENTRY_TYPES.map(({ type, icon, label }) => [type, { icon, label }])
 );
+
+export async function buildSnapshotPayload(entry) {
+  const snapshot = { ...entry };
+  delete snapshot.commit_hash;
+  const commitHash = await computeCommitHash(snapshot);
+  return { ...snapshot, commit_hash: commitHash };
+}
+import { computeCommitHash } from './commitHash';

@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
-import { initApi, setRootMasterKey, clearUserMasterKey } from '../api';
-import { decodeRootMasterKey } from '../crypto';
+import { initApi, setRootMasterKey, clearUserMasterKey } from '../lib/api';
+import { decodeRootMasterKey } from '../lib/crypto';
 
 function AppSetup({ onReady }) {
   const [error, setError] = useState(null);
@@ -17,12 +17,7 @@ function AppSetup({ onReady }) {
     if (!json.password) throw new Error('Missing required field: password');
     if (!json.worker_url) throw new Error('Missing required field: worker_url');
     if (!json.firebase_api_key) throw new Error('Missing required field: firebase_api_key');
-    if (!json.r2 || typeof json.r2 !== 'object') throw new Error('Missing required field: r2');
-    if (!json.r2.bucket_name) throw new Error('Missing required field: r2.bucket_name');
-    if (!json.r2.prefix) throw new Error('Missing required field: r2.prefix');
-    if (!json.r2.file_name) throw new Error('Missing required field: r2.file_name');
     if (!json.root_master_key) throw new Error('Missing required field: root_master_key');
-    if (!json.vault_id) throw new Error('Missing required field: vault_id');
 
     const rootMasterKeyBytes = decodeRootMasterKey(json.root_master_key);
     setRootMasterKey(rootMasterKeyBytes);
@@ -130,13 +125,7 @@ function AppSetup({ onReady }) {
   "email": "<email>",
   "password": "<password>",
   "firebase_api_key": "<firebase-web-api-key>",
-  "root_master_key": "<base64, >=256 bytes>",
-  "vault_id": "<random string, e.g. openssl rand -base64 32>",
-  "r2": {
-    "bucket_name": "<bucket-name>",
-    "prefix": "<path-prefix>",
-    "file_name": "<file-name>"
-  }
+  "root_master_key": "<base64, >=256 bytes>"
 }`}
             </pre>
           </div>

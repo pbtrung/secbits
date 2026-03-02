@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeRootMasterKey } from '../crypto.js';
+import { decodeRootMasterKey } from '../lib/crypto.js';
 
 function makeB64(length) {
   const bytes = new Uint8Array(length);

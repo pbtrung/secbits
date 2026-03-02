@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import leancrypto from '../../leancrypto/leancrypto.js';
 import { canonicalJson, computeCommitHash } from '../lib/commitHash.js';
+
+beforeAll(() => {
+  globalThis.leancrypto = leancrypto;
+});
 
 describe('commit hash', () => {
   it('same JSON yields same hash', async () => {
@@ -20,9 +25,9 @@ describe('commit hash', () => {
     expect(h).toMatch(/^[0-9a-f]{32}$/);
   });
 
-  it('empty object canonical hash matches SHA-256 reference truncation', async () => {
+  it('empty object canonical hash matches SHA3-256 reference truncation', async () => {
     const h = await computeCommitHash({});
     expect(canonicalJson({})).toBe('{}');
-    expect(h).toBe('44136fa355b3678a1146ad16f7e8649e');
+    expect(h).toBe('840eb7aa2a9935de63366bacbe9d97e9');
   });
 });

@@ -3,14 +3,14 @@ import { PasswordGenerator, PasswordStrengthBar } from './PasswordGenerator';
 import CopyBtn from './CopyBtn';
 import EyeToggleBtn from './EyeToggleBtn';
 import FieldSection from './FieldSection';
-import { generateTOTP } from '../totp.js';
-import { isHttpUrl } from '../validation.js';
+import { generateTOTP } from '../lib/totp.js';
+import { isHttpUrl } from '../lib/validation.js';
 import {
   USERNAME_MAX, PASSWORD_MAX,
   URL_MAX, TOTP_SECRET_MAX,
   CUSTOM_FIELD_LABEL_MAX, CUSTOM_FIELD_VALUE_MAX,
   MAX_URLS, MAX_TOTP_SECRETS, MAX_CUSTOM_FIELDS,
-} from '../limits.js';
+} from '../lib/limits.js';
 
 function TotpCode({ secret, onCopy, copiedLabel }) {
   const [code, setCode] = useState(() => generateTOTP(secret));

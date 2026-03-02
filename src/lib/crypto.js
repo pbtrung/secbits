@@ -5,7 +5,7 @@ import {
   BLOB_VERSION,
   buildBlob,
   parseBlob,
-} from './lib/blob';
+} from './blob';
 
 const ENC_KEY_LEN = 64;
 const ENC_IV_LEN = 64;
@@ -101,6 +101,10 @@ function writeBytes(lib, data) {
 
 function readBytes(lib, ptr, len) {
   return lib.HEAPU8.slice(ptr, ptr + len);
+}
+
+function toHex(bytes) {
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 function hkdfSync(lib, keyBytes, salt) {
@@ -295,4 +299,23 @@ export async function encryptEntry(entry, entryKeyBytes) {
 export async function decryptEntry(entryBlobBytes, entryKeyBytes) {
   const compressed = await decryptBlob(entryKeyBytes, entryBlobBytes);
   return decompressJson(compressed);
+}
+
+export async function sha3_256Hex(inputBytes) {
+  if (!(inputBytes instanceof Uint8Array)) {
+    throw new Error('sha3_256Hex expects byte array');
+  }
+  const lib = await getLc();
+  const hashPtr = resolveHashPtr(lib, lib._lc_sha3_256);
+  const inPtr = writeBytes(lib, inputBytes);
+  const outLen = 32;
+  const outPtr = lib._malloc(outLen);
+  try {
+    const rc = lib._lc_hash(hashPtr, inPtr, inputBytes.length, outPtr);
+    if (rc !== 0) throw new Error(`sha3_256 failed: rc=${rc}`);
+    return toHex(readBytes(lib, outPtr, outLen));
+  } finally {
+    lib._free(inPtr);
+    lib._free(outPtr);
+  }
 }

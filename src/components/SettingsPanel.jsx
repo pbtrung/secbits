@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import SpinnerBtn from './SpinnerBtn';
-import { bytesToB64, decodeRootMasterKey } from '../crypto';
-import { buildExportData, fetchUserEntries, getUsername, getVaultStats, rotateRootMasterKey } from '../api';
+import { bytesToB64, decodeRootMasterKey } from '../lib/crypto';
+import { buildExportData, fetchUserEntries, getUsername, getVaultStats, rotateRootMasterKey } from '../lib/api';
 
 function formatBytes(bytes) {
   if (bytes === 0) return '0 B';

@@ -16,7 +16,7 @@ import {
   restoreDeletedUserEntry,
   restoreDeletedEntryVersion,
   permanentlyDeleteUserEntry,
-} from './api';
+} from './lib/api';
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);

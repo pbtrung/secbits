@@ -1,4 +1,4 @@
-import { NOTES_MAX } from '../limits.js';
+import { NOTES_MAX } from '../lib/limits.js';
 import { SectionLabel } from './FieldSection';
 
 // Shared notes section used by all entry types.

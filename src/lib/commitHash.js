@@ -1,3 +1,5 @@
+import { sha3_256Hex } from './crypto';
+
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value && typeof value === 'object') {
@@ -9,16 +11,12 @@ function canonicalize(value) {
   return value;
 }
 
-function toHex(bytes) {
-  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
 export function canonicalJson(value) {
   return JSON.stringify(canonicalize(value));
 }
 
 export async function computeCommitHash(snapshotWithoutCommitHash) {
   const payload = new TextEncoder().encode(canonicalJson(snapshotWithoutCommitHash));
-  const digest = await crypto.subtle.digest('SHA-256', payload);
-  return toHex(new Uint8Array(digest)).slice(0, 32);
+  const digestHex = await sha3_256Hex(payload);
+  return digestHex.slice(0, 32);
 }

@@ -3,7 +3,7 @@ import EyeToggleBtn from './EyeToggleBtn';
 import FieldSection from './FieldSection';
 import {
   CARD_HOLDER_MAX, CARD_NUMBER_MAX, CARD_EXPIRY_MAX, CARD_CVV_MAX,
-} from '../limits.js';
+} from '../lib/limits.js';
 
 function MaskedReadOnlyField({ value, visible, onToggle, copied, onCopy, label, style }) {
   return (

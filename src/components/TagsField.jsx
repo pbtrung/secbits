@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { TAG_MAX, MAX_TAGS } from '../limits.js';
+import { TAG_MAX, MAX_TAGS } from '../lib/limits.js';
 import { SectionLabel } from './FieldSection';
 
 // Shared tags section used by all entry types.

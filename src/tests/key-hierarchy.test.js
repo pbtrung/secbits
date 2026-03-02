@@ -8,7 +8,7 @@ import {
   encryptEntryKey,
   encryptUMK,
   generateEntryKey,
-} from '../crypto.js';
+} from '../lib/crypto.js';
 
 beforeAll(() => {
   globalThis.leancrypto = leancrypto;

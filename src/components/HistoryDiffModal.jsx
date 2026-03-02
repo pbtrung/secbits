@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import SpinnerBtn from './SpinnerBtn';
-import { formatExact } from '../entryUtils.js';
+import { formatExact } from '../lib/entryUtils.js';
 
 // LCS-based line diff. Returns [{type:'eq'|'add'|'del', v:string}].
 function computeLineDiff(a, b) {

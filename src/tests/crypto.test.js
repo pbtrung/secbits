@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import leancrypto from '../../leancrypto/leancrypto.js';
-import { bytesToB64, decryptBlobBytes, decryptEntry, encryptBytesToBlob, encryptEntry, generateEntryKey } from '../crypto.js';
+import { bytesToB64, decryptBlobBytes, decryptEntry, encryptBytesToBlob, encryptEntry, generateEntryKey } from '../lib/crypto.js';
 import { computeCommitHash } from '../lib/commitHash.js';
 import { BLOB_MAGIC, BLOB_SALT_LEN, BLOB_TAG_LEN } from '../lib/blob.js';
 
