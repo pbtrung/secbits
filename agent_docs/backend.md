@@ -329,7 +329,7 @@ The Worker communicates with rqlite using two endpoints:
 | `POST /db/query` | Read queries (SELECT) |
 | `POST /db/execute` | Write queries (INSERT, UPDATE, DELETE) |
 
-Every request to rqlite carries `Authorization: Basic <base64(username:password)>` using the `RQLITE_URL`, `RQLITE_USERNAME`, and `RQLITE_PASSWORD` Worker secrets.
+Every request to rqlite carries `Authorization: Basic <base64(username:password)>` using the `RQLITE_URL`, `NGINX_USER`, and `NGINX_PASSWORD` Worker secrets.
 
 Parameterized query format (array of `[sql, ...params]`):
 
@@ -369,8 +369,8 @@ rqlite response format for writes:
 |--------|---------|
 | `FIREBASE_PROJECT_ID` | Validates the `aud` claim in Firebase ID tokens |
 | `RQLITE_URL` | Base URL of the rqlite HTTP API |
-| `RQLITE_USERNAME` | rqlite Basic Auth username |
-| `RQLITE_PASSWORD` | rqlite Basic Auth password |
+| `NGINX_USER` | Basic Auth username for the rqlite/nginx endpoint |
+| `NGINX_PASSWORD` | Basic Auth password for the rqlite/nginx endpoint |
 
 ## Input Validation
 

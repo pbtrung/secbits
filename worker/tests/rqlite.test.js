@@ -3,8 +3,8 @@ import { execute, query } from '../src/rqlite.js';
 
 const ENV = {
   RQLITE_URL: 'http://rqlite.local',
-  RQLITE_USERNAME: 'u',
-  RQLITE_PASSWORD: 'p',
+  NGINX_USER: 'u',
+  NGINX_PASSWORD: 'p',
 };
 
 describe('rqlite client', () => {

@@ -155,7 +155,13 @@ async function handleEntries(request, env, deps, userId, segments) {
     requireZbase32Id(body.id, 'id');
     requireZbase32Id(body.history_id, 'history_id');
     requireBlobBase64(body.entry_key, 'entry_key', ENTRY_KEY_MIN_LEN);
-    requireBlobBase64(body.encrypted_data, 'encrypted_data', BLOB_MIN_LEN);
+    // own_public / peer_public store raw public key bytes; encrypted blob minimum
+    // length only applies to wrapped/encrypted key payloads.
+    if (body.type === 'own_public' || body.type === 'peer_public') {
+      requireBlobBase64(body.encrypted_data, 'encrypted_data', 1);
+    } else {
+      requireBlobBase64(body.encrypted_data, 'encrypted_data', BLOB_MIN_LEN);
+    }
     requireBlobBase64(body.encrypted_snapshot, 'encrypted_snapshot', BLOB_MIN_LEN);
 
     const exists = await getOwnedEntry(env, deps, userId, body.id);
@@ -301,7 +307,13 @@ async function handleKeys(request, env, deps, userId, segments) {
       throw new HttpError(400, 'peer_user_id only allowed for peer_public');
     }
 
-    requireBlobBase64(body.encrypted_data, 'encrypted_data', BLOB_MIN_LEN);
+    // own_public / peer_public store raw public key bytes and are not wrapped
+    // in SecBits blob format.
+    if (body.type === 'own_public' || body.type === 'peer_public') {
+      requireBlobBase64(body.encrypted_data, 'encrypted_data', 1);
+    } else {
+      requireBlobBase64(body.encrypted_data, 'encrypted_data', BLOB_MIN_LEN);
+    }
     const ts = nowIso();
     await deps.execute(
       env,
@@ -311,38 +323,38 @@ async function handleKeys(request, env, deps, userId, segments) {
     return { key_id: body.key_id, created_at: ts, _status: 201 };
   }
 
-    if (segments.length === 2) {
-      const keyId = segments[1];
-      requireZbase32Id(keyId, 'key_id');
+  if (segments.length === 2) {
+    const keyId = segments[1];
+    requireZbase32Id(keyId, 'key_id');
 
-      if (request.method === 'GET') {
+    if (request.method === 'GET') {
       const row = await getOwnedKey(env, deps, userId, keyId);
       if (!row) throw new HttpError(404, 'Key not found');
       return row;
     }
-      if (request.method === 'DELETE') {
-        const row = await getOwnedKey(env, deps, userId, keyId);
-        if (!row) throw new HttpError(404, 'Key not found');
-        await deps.execute(
-          env,
-          'DELETE FROM key_store WHERE key_id = ? AND user_id = ?',
-          [keyId, userId],
-        );
-        return { key_id: keyId };
-      }
-      if (request.method === 'PUT') {
-        const body = await parseJsonBody(request);
-        requireBlobBase64(body.encrypted_data, 'encrypted_data', BLOB_MIN_LEN);
-        const row = await getOwnedKey(env, deps, userId, keyId);
-        if (!row) throw new HttpError(404, 'Key not found');
-        await deps.execute(
-          env,
-          'UPDATE key_store SET encrypted_data = ? WHERE key_id = ? AND user_id = ?',
-          [body.encrypted_data, keyId, userId],
-        );
-        return { key_id: keyId };
-      }
+    if (request.method === 'DELETE') {
+      const row = await getOwnedKey(env, deps, userId, keyId);
+      if (!row) throw new HttpError(404, 'Key not found');
+      await deps.execute(
+        env,
+        'DELETE FROM key_store WHERE key_id = ? AND user_id = ?',
+        [keyId, userId],
+      );
+      return { key_id: keyId };
     }
+    if (request.method === 'PUT') {
+      const body = await parseJsonBody(request);
+      requireBlobBase64(body.encrypted_data, 'encrypted_data', BLOB_MIN_LEN);
+      const row = await getOwnedKey(env, deps, userId, keyId);
+      if (!row) throw new HttpError(404, 'Key not found');
+      await deps.execute(
+        env,
+        'UPDATE key_store SET encrypted_data = ? WHERE key_id = ? AND user_id = ?',
+        [body.encrypted_data, keyId, userId],
+      );
+      return { key_id: keyId };
+    }
+  }
 
   throw new HttpError(404, 'Not found');
 }

@@ -4,6 +4,7 @@ import { createFetchHandler } from '../src/index.js';
 const USER_ID = 'yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy';
 const GOOD_ID = '3rd65irghj1jkh68ybpcqq4jprhs5cip9rpaytwgb79tssdddugo';
 const BLOB_132 = btoa(String.fromCharCode(...new Uint8Array(132).fill(1)));
+const SHORT_PUBLIC = btoa(String.fromCharCode(...new Uint8Array(65).fill(7)));
 
 function makeHandler(overrides = {}) {
   const deps = {
@@ -68,6 +69,18 @@ describe('worker keys routes', () => {
       encrypted_data: BLOB_132,
     }), { FIREBASE_PROJECT_ID: 'proj' });
     expect(selfPeer.status).toBe(400);
+  });
+
+  it('POST /keys accepts short raw public key payload for own_public', async () => {
+    const { handler } = makeHandler();
+    const res = await handler(req('/keys', 'POST', {
+      key_id: GOOD_ID,
+      type: 'own_public',
+      encrypted_data: SHORT_PUBLIC,
+      peer_user_id: null,
+    }), { FIREBASE_PROJECT_ID: 'proj' });
+    const body = await res.json();
+    expect(res.status, JSON.stringify(body)).toBe(201);
   });
 
   it('GET /keys/:key_id returns full row and 404 for cross-user lookup', async () => {

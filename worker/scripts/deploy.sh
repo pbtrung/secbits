@@ -11,8 +11,8 @@ fi
 echo "Set required Worker secrets (if not already set):"
 echo "  wrangler secret put FIREBASE_PROJECT_ID"
 echo "  wrangler secret put RQLITE_URL"
-echo "  wrangler secret put RQLITE_USERNAME"
-echo "  wrangler secret put RQLITE_PASSWORD"
+echo "  wrangler secret put NGINX_USER"
+echo "  wrangler secret put NGINX_PASSWORD"
 echo
 
 echo "Ensure rqlite schema is applied using worker/schema.sql before deploy."

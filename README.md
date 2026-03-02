@@ -88,8 +88,8 @@ Set Worker secrets:
 cd worker
 wrangler secret put FIREBASE_PROJECT_ID
 wrangler secret put RQLITE_URL
-wrangler secret put RQLITE_USERNAME
-wrangler secret put RQLITE_PASSWORD
+wrangler secret put NGINX_USER
+wrangler secret put NGINX_PASSWORD
 wrangler deploy
 ```
 

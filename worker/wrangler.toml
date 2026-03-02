@@ -1,7 +1,12 @@
-name = "secbits-worker"
+name = "ygmy6zpfyjgp2csvcpmw3sks7zok2dntkjqoyvx669e6dxzcx1q"
 main = "src/index.js"
-compatibility_date = "2026-03-02"
+compatibility_date = "2026-02-26"
+preview_urls = false
 
-# Configure these in Cloudflare dashboard or via wrangler:
-# account_id = "<cloudflare-account-id>"
-# workers_dev = true
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 60
+  period = 60

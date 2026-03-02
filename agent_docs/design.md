@@ -34,7 +34,7 @@ Architectural decisions and their rationale.
 
 ## rqlite Credentials as Worker Secrets
 
-**Decision:** The rqlite HTTP endpoint URL, Basic Auth username, and Basic Auth password are stored as Cloudflare Worker secrets (`RQLITE_URL`, `RQLITE_USERNAME`, `RQLITE_PASSWORD`). The browser has no knowledge of these values.
+**Decision:** The rqlite HTTP endpoint URL, Basic Auth username, and Basic Auth password are stored as Cloudflare Worker secrets (`RQLITE_URL`, `NGINX_USER`, `NGINX_PASSWORD`). The browser has no knowledge of these values.
 
 **Why:** The browser communicates only with the Worker using Firebase ID tokens. Exposing rqlite credentials to the client would allow any user to query or mutate any row in the database directly, bypassing the Worker's auth enforcement and `user_id` scoping. Keeping credentials in Worker secrets means rqlite is only reachable through the Worker's auth-enforced API.
 

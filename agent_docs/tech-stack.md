@@ -63,8 +63,8 @@ secbits/
 |----------|------|---------|
 | `FIREBASE_PROJECT_ID` | Secret | Firebase token audience validation |
 | `RQLITE_URL` | Secret | rqlite HTTP API base URL |
-| `RQLITE_USERNAME` | Secret | rqlite Basic Auth username |
-| `RQLITE_PASSWORD` | Secret | rqlite Basic Auth password |
+| `NGINX_USER` | Secret | Basic Auth username for the rqlite/nginx endpoint |
+| `NGINX_PASSWORD` | Secret | Basic Auth password for the rqlite/nginx endpoint |
 
 ## Cloudflare Pages Build
 

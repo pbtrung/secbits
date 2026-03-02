@@ -13,7 +13,7 @@ async function postRqlite(env, endpoint, payload) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: basicAuth(env.RQLITE_USERNAME || '', env.RQLITE_PASSWORD || ''),
+      Authorization: basicAuth(env.NGINX_USER || '', env.NGINX_PASSWORD || ''),
     },
     body: JSON.stringify(payload),
   });

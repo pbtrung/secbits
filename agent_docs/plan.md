@@ -345,7 +345,7 @@ Worker's `GET /users/:user_id/public-key` route is already specified in backend.
 | `worker/wrangler.toml` | create from example | Worker name, account_id, routes; no R2 bindings |
 
 **Deployment sequence:**
-1. `wrangler secret put FIREBASE_PROJECT_ID / RQLITE_URL / RQLITE_USERNAME / RQLITE_PASSWORD`
+1. `wrangler secret put FIREBASE_PROJECT_ID / RQLITE_URL / NGINX_USER / NGINX_PASSWORD`
 2. Apply the schema bootstrap SQL (from `worker/schema.sql` or README setup) against rqlite.
 3. `wrangler deploy`
 
