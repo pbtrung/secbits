@@ -335,34 +335,19 @@ Worker's `GET /users/:user_id/public-key` route is already specified in backend.
 
 ## Milestone 8: Deployment
 
-**Goal.** Schema migration runner complete, CF Pages and Worker deployment documented and scripted, wrangler config finalized.
+**Goal.** CF Pages and Worker deployment configured and scripted, wrangler config finalized.
 
 ### Deliverables
 
 | File | Status | What it provides |
 |------|--------|-----------------|
-| `worker/migrations/0001_initial.sql` | create | `key_types`, `users`, `key_store`, `entries`, `entry_history`, 3 indexes |
-| `worker/migrations/0002_schema_version.sql` | create | `schema_version` table; inserts version 1 |
-| `worker/scripts/migrate.js` | create | Idempotent migration runner: reads current version, applies pending files in order, updates `schema_version`; exits non-zero on failure |
 | `worker/wrangler.toml` | create from example | Worker name, account_id, routes; no R2 bindings |
 
 **Deployment sequence:**
 1. `wrangler secret put FIREBASE_PROJECT_ID / RQLITE_URL / RQLITE_USERNAME / RQLITE_PASSWORD`
-2. `wrangler deploy` (Worker starts but returns 503 if schema is behind)
-3. `node worker/scripts/migrate.js` (advances `schema_version` to expected)
-4. Worker begins serving normally
+2. Apply `worker/migrations/0001_initial.sql` against rqlite to initialize schema.
+3. `wrangler deploy`
 
 **CF Pages:** build command `npm run build`, output directory `dist`, environment variable `VITE_WORKER_URL` = deployed Worker URL.
 
-**Worker startup check:** Worker reads `schema_version` on first request; if it does not match `EXPECTED_SCHEMA_VERSION`, returns `503 Schema version mismatch` until migration is run.
-
-### Tests
-
-**`worker/tests/migration.test.js`** (create, in-process SQLite via better-sqlite3)
-- Fresh database: `migrate.js` applies all migrations; `schema_version` = latest version number.
-- Re-run on already-migrated database: no-op, no errors, version unchanged.
-- All expected tables present after M1 migration: `key_types`, `users`, `key_store`, `entries`, `entry_history`.
-- `schema_version` table present after M2 migration; version = 1.
-- `key_types` seeded with exactly 5 rows.
-- FK from `key_store.type` to `key_types.type`: insert with unknown type fails.
-- Simulated partial failure mid-migration: re-run resumes from correct point.
+No automated tests; validated by a successful end-to-end deployment.

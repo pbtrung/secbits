@@ -77,9 +77,7 @@ cd worker && npx vitest run
 
 ### Milestone 8: Deployment
 
-| File | Covers |
-|------|--------|
-| `worker/tests/migration.test.js` | Full coverage: `migrate.js` applies all migrations in order; `schema_version` = latest; idempotent re-run; all tables and indexes present; `key_types` seeded with 5 rows; FK enforcement on `key_store.type`; simulated partial failure re-runs from correct point |
+No automated tests. Validated by a successful end-to-end deployment against a live rqlite instance and CF Pages.
 
 ## Critical Path Coverage
 
