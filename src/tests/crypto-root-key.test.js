@@ -21,8 +21,8 @@ describe('decodeRootMasterKey', () => {
     expect(result.length).toBe(300);
   });
 
-  it('rejects a 254-byte key with an "at least 256 bytes" error', () => {
-    expect(() => decodeRootMasterKey(makeB64(254))).toThrow('at least 256 bytes');
+  it('rejects a 255-byte key with an "at least 256 bytes" error', () => {
+    expect(() => decodeRootMasterKey(makeB64(255))).toThrow('at least 256 bytes');
   });
 
   it('rejects an invalid base64 string', () => {

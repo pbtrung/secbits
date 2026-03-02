@@ -1,20 +1,26 @@
-const MAGIC = new Uint8Array([0x53, 0x65, 0x63, 0x42, 0x69, 0x74, 0x73]); // "SecBits"
-const CURRENT_VERSION = new Uint8Array([0x01, 0x00]); // v1.0
-const MAGIC_LEN = MAGIC.length;       // 7
-const VERSION_LEN = CURRENT_VERSION.length; // 2
-const HEADER_LEN = MAGIC_LEN + VERSION_LEN; // 9
+import {
+  BLOB_MAGIC,
+  BLOB_SALT_LEN,
+  BLOB_TAG_LEN,
+  BLOB_VERSION,
+  buildBlob,
+  parseBlob,
+} from './lib/blob';
 
-const SALT_LEN = 64;
 const ENC_KEY_LEN = 64;
 const ENC_IV_LEN = 64;
-const TAG_LEN = 64;
-const HKDF_OUT_LEN = ENC_KEY_LEN + ENC_IV_LEN; // 128
+const HKDF_OUT_LEN = ENC_KEY_LEN + ENC_IV_LEN;
+const ENTRY_KEY_LEN = 64;
 
 function b64ToBytes(b64) {
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
+  try {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  } catch {
+    throw new Error('Invalid base64');
+  }
 }
 
 export function bytesToB64(bytes) {
@@ -31,16 +37,16 @@ function concat(...arrays) {
   const len = arrays.reduce((s, a) => s + a.length, 0);
   const out = new Uint8Array(len);
   let off = 0;
-  for (const a of arrays) {
-    out.set(a, off);
-    off += a.length;
+  for (const arr of arrays) {
+    out.set(arr, off);
+    off += arr.length;
   }
   return out;
 }
 
 let lcPromise = null;
-
 let lcScriptPromise = null;
+
 async function ensureLeancryptoScript() {
   if (typeof document === 'undefined') {
     if (typeof globalThis.leancrypto === 'function') return;
@@ -75,14 +81,27 @@ async function getLc() {
   if (!lcPromise) {
     lcPromise = ensureLeancryptoScript()
       .then(() => globalThis.leancrypto())
-      .then(lib => { lib._lc_init(); return lib; });
+      .then((lib) => {
+        lib._lc_init();
+        return lib;
+      });
   }
   return lcPromise;
 }
 
-function resolveHashPtr(lib, sym) { return lib.HEAPU32[sym >> 2]; }
-function writeBytes(lib, data)    { const p = lib._malloc(data.length); lib.HEAPU8.set(data, p); return p; }
-function readBytes(lib, ptr, len) { return lib.HEAPU8.slice(ptr, ptr + len); }
+function resolveHashPtr(lib, sym) {
+  return lib.HEAPU32[sym >> 2];
+}
+
+function writeBytes(lib, data) {
+  const ptr = lib._malloc(data.length);
+  lib.HEAPU8.set(data, ptr);
+  return ptr;
+}
+
+function readBytes(lib, ptr, len) {
+  return lib.HEAPU8.slice(ptr, ptr + len);
+}
 
 function hkdfSync(lib, keyBytes, salt) {
   const sha3_512_ptr = resolveHashPtr(lib, lib._lc_sha3_512);
@@ -109,7 +128,7 @@ function akEncrypt(lib, encKey, encIv, plainBytes, ad) {
   const ctxPtrPtr = lib._malloc(4);
   let ctx = 0;
   try {
-    const rc = lib._lc_ak_alloc_taglen(sha3_512_ptr, TAG_LEN, ctxPtrPtr);
+    const rc = lib._lc_ak_alloc_taglen(sha3_512_ptr, BLOB_TAG_LEN, ctxPtrPtr);
     if (rc !== 0) throw new Error(`lc_ak_alloc_taglen failed: rc=${rc}`);
     ctx = lib.HEAP32[ctxPtrPtr >> 2];
   } finally {
@@ -120,18 +139,19 @@ function akEncrypt(lib, encKey, encIv, plainBytes, ad) {
   const ivPtr = writeBytes(lib, encIv);
   const ptPtr = writeBytes(lib, plainBytes);
   const ctPtr = lib._malloc(plainBytes.length);
-  const tagPtr = lib._malloc(TAG_LEN);
-  const adPtr = ad && ad.length > 0 ? writeBytes(lib, ad) : 0;
+  const tagPtr = lib._malloc(BLOB_TAG_LEN);
+  const adPtr = ad.length > 0 ? writeBytes(lib, ad) : 0;
   try {
     let rc = lib._lc_aead_setkey(ctx, keyPtr, encKey.length, ivPtr, encIv.length);
     if (rc !== 0) throw new Error(`lc_aead_setkey failed: rc=${rc}`);
 
-    rc = lib._lc_aead_encrypt(ctx, ptPtr, ctPtr, plainBytes.length, adPtr, ad ? ad.length : 0, tagPtr, TAG_LEN);
+    rc = lib._lc_aead_encrypt(ctx, ptPtr, ctPtr, plainBytes.length, adPtr, ad.length, tagPtr, BLOB_TAG_LEN);
     if (rc !== 0) throw new Error(`lc_aead_encrypt failed: rc=${rc}`);
 
-    const ciphertext = readBytes(lib, ctPtr, plainBytes.length);
-    const tag = readBytes(lib, tagPtr, TAG_LEN);
-    return { ciphertext, tag };
+    return {
+      ciphertext: readBytes(lib, ctPtr, plainBytes.length),
+      tag: readBytes(lib, tagPtr, BLOB_TAG_LEN),
+    };
   } finally {
     lib._free(keyPtr);
     lib._free(ivPtr);
@@ -148,7 +168,7 @@ function akDecrypt(lib, encKey, encIv, ciphertext, tag, ad) {
   const ctxPtrPtr = lib._malloc(4);
   let ctx = 0;
   try {
-    const rc = lib._lc_ak_alloc_taglen(sha3_512_ptr, TAG_LEN, ctxPtrPtr);
+    const rc = lib._lc_ak_alloc_taglen(sha3_512_ptr, BLOB_TAG_LEN, ctxPtrPtr);
     if (rc !== 0) throw new Error(`lc_ak_alloc_taglen failed: rc=${rc}`);
     ctx = lib.HEAP32[ctxPtrPtr >> 2];
   } finally {
@@ -160,12 +180,12 @@ function akDecrypt(lib, encKey, encIv, ciphertext, tag, ad) {
   const ctPtr = writeBytes(lib, ciphertext);
   const ptPtr = lib._malloc(ciphertext.length);
   const tagPtr = writeBytes(lib, tag);
-  const adPtr = ad && ad.length > 0 ? writeBytes(lib, ad) : 0;
+  const adPtr = ad.length > 0 ? writeBytes(lib, ad) : 0;
   try {
     let rc = lib._lc_aead_setkey(ctx, keyPtr, encKey.length, ivPtr, encIv.length);
     if (rc !== 0) throw new Error(`lc_aead_setkey failed: rc=${rc}`);
 
-    rc = lib._lc_aead_decrypt(ctx, ctPtr, ptPtr, ciphertext.length, adPtr, ad ? ad.length : 0, tagPtr, TAG_LEN);
+    rc = lib._lc_aead_decrypt(ctx, ctPtr, ptPtr, ciphertext.length, adPtr, ad.length, tagPtr, BLOB_TAG_LEN);
     if (rc !== 0) throw new Error('Invalid encrypted value: authentication failed');
 
     return readBytes(lib, ptPtr, ciphertext.length);
@@ -192,31 +212,87 @@ export function decodeRootMasterKey(rootMasterKeyB64) {
   return bytes;
 }
 
-export async function encryptBytesToBlob(keyBytes, plainBytes) {
-  const lib = await getLc();
-  const salt = getRandomBytes(SALT_LEN);
-  const { encKey, encIv } = hkdfSync(lib, keyBytes, salt);
-  const ad = concat(MAGIC, CURRENT_VERSION, salt);
-  const { ciphertext, tag } = akEncrypt(lib, encKey, encIv, plainBytes, ad);
-  return concat(MAGIC, CURRENT_VERSION, salt, ciphertext, tag);
+export function generateEntryKey() {
+  return getRandomBytes(ENTRY_KEY_LEN);
 }
 
-export async function decryptBlobBytes(keyBytes, blob) {
-  if (blob.length < HEADER_LEN + SALT_LEN + TAG_LEN) {
-    throw new Error('Invalid encrypted value');
+export async function encryptBlob(keyBytes, plainBytes) {
+  if (!(keyBytes instanceof Uint8Array) || !(plainBytes instanceof Uint8Array)) {
+    throw new Error('encryptBlob expects byte arrays');
   }
-  for (let i = 0; i < MAGIC_LEN; i++) {
-    if (blob[i] !== MAGIC[i]) throw new Error('Invalid encrypted value');
-  }
+  const lib = await getLc();
+  const salt = getRandomBytes(BLOB_SALT_LEN);
+  const { encKey, encIv } = hkdfSync(lib, keyBytes, salt);
+  const ad = concat(BLOB_MAGIC, BLOB_VERSION, salt);
+  const { ciphertext, tag } = akEncrypt(lib, encKey, encIv, plainBytes, ad);
+  return buildBlob({ salt, ciphertext, tag });
+}
 
-  const version = blob.slice(MAGIC_LEN, HEADER_LEN);
-  const salt = blob.slice(HEADER_LEN, HEADER_LEN + SALT_LEN);
-  const ciphertext = blob.slice(HEADER_LEN + SALT_LEN, blob.length - TAG_LEN);
-  const tag = blob.slice(blob.length - TAG_LEN);
-  const ad = concat(MAGIC, version, salt);
-
+export async function decryptBlob(keyBytes, blobBytes) {
+  const { salt, ciphertext, tag, ad } = parseBlob(blobBytes);
   const lib = await getLc();
   const { encKey, encIv } = hkdfSync(lib, keyBytes, salt);
   return akDecrypt(lib, encKey, encIv, ciphertext, tag, ad);
 }
 
+// Backward-compatible aliases used by existing app code.
+export async function encryptBytesToBlob(keyBytes, plainBytes) {
+  return encryptBlob(keyBytes, plainBytes);
+}
+
+export async function decryptBlobBytes(keyBytes, blobBytes) {
+  return decryptBlob(keyBytes, blobBytes);
+}
+
+export async function encryptUMK(rawUmkBytes, rootMasterKeyBytes) {
+  return encryptBlob(rootMasterKeyBytes, rawUmkBytes);
+}
+
+export async function decryptUMK(umkBlobBytes, rootMasterKeyBytes) {
+  const raw = await decryptBlob(rootMasterKeyBytes, umkBlobBytes);
+  if (raw.length !== ENTRY_KEY_LEN) throw new Error('Invalid UMK');
+  return raw;
+}
+
+export async function encryptEntryKey(rawEntryKeyBytes, umkBytes) {
+  return encryptBlob(umkBytes, rawEntryKeyBytes);
+}
+
+export async function decryptEntryKey(entryKeyBlobBytes, umkBytes) {
+  const raw = await decryptBlob(umkBytes, entryKeyBlobBytes);
+  if (raw.length !== ENTRY_KEY_LEN) throw new Error('Invalid entry key');
+  return raw;
+}
+
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+
+let brotliPromise = null;
+async function getBrotli() {
+  if (!brotliPromise) {
+    brotliPromise = import('brotli-wasm').then((m) => m.default || m);
+  }
+  return brotliPromise;
+}
+
+export async function compressJson(value) {
+  const brotli = await getBrotli();
+  const json = textEncoder.encode(JSON.stringify(value));
+  return brotli.compress(json);
+}
+
+export async function decompressJson(bytes) {
+  const brotli = await getBrotli();
+  const plain = brotli.decompress(bytes);
+  return JSON.parse(textDecoder.decode(plain));
+}
+
+export async function encryptEntry(entry, entryKeyBytes) {
+  const compressed = await compressJson(entry);
+  return encryptBlob(entryKeyBytes, compressed);
+}
+
+export async function decryptEntry(entryBlobBytes, entryKeyBytes) {
+  const compressed = await decryptBlob(entryKeyBytes, entryBlobBytes);
+  return decompressJson(compressed);
+}

@@ -8,7 +8,7 @@ const { performance } = require('perf_hooks');
 const { randomBytes, randomInt, createHash } = require('crypto');
 
 // Make leancrypto available in Node exactly like src/crypto.js expects.
-globalThis.leancrypto = require('./leancrypto/leancrypto.js');
+globalThis.leancrypto = require('../../leancrypto/leancrypto.js');
 
 const LIMITS = {
   TITLE_MAX: 200,
@@ -28,7 +28,7 @@ const LIMITS = {
 };
 
 const ENTRY_COUNT = 500;
-const WORDS_FILE = path.resolve(__dirname, 'data/english-words.txt');
+const WORDS_FILE = path.resolve(__dirname, 'english-words.txt');
 const FETCH_MAX_RETRIES = 5;
 const FETCH_BASE_BACKOFF_MS = 400;
 

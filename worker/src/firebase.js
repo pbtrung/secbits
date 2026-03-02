@@ -1,3 +1,6 @@
+import { sha3_256 } from '@noble/hashes/sha3.js';
+import { zbase32Encode } from './zbase32';
+
 const CERTS_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
 
 let certCache = {
@@ -11,7 +14,7 @@ function parseMaxAge(cacheControl) {
 }
 
 function b64urlToBytes(value) {
-  const b64 = value.replace(/-/g, '+').replace(/_/g, '/');
+  const b64 = String(value).replace(/-/g, '+').replace(/_/g, '/');
   const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
   const binary = atob(padded);
   const out = new Uint8Array(binary.length);
@@ -54,6 +57,11 @@ async function loadGoogleCerts() {
   return keys;
 }
 
+export function deriveUserId(uid) {
+  const digest = sha3_256(new TextEncoder().encode(String(uid)));
+  return zbase32Encode(digest);
+}
+
 export async function verifyFirebaseToken(idToken, projectId) {
   const parts = String(idToken || '').split('.');
   if (parts.length !== 3) throw new Error('Invalid bearer token');
@@ -90,4 +98,8 @@ export async function verifyFirebaseToken(idToken, projectId) {
   if (!payload.sub || typeof payload.sub !== 'string') throw new Error('Invalid token subject');
 
   return payload;
+}
+
+export function __resetCertCacheForTests() {
+  certCache = { expiresAt: 0, keys: new Map() };
 }
