@@ -34,9 +34,9 @@ Comparison of the three candidate AEAD constructions:
 | Standardization | NIST FIPS 197 | IETF RFC 8439 | NIST LWC (Ascon-128) |
 | WebCrypto API | Yes (native) | No | No |
 
-**AES-256-GCM.** NIST-standard and the fastest option when AES-NI hardware is present. In WebAssembly without SIMD AES acceleration it is significantly slower than software-friendly ciphers. It is available via the browser's native WebCrypto API, which would eliminate the WASM dependency. However, the 96-bit nonce creates a collision risk when generating nonces randomly — with 2^48 blobs the probability of a repeated nonce under the same key reaches 2^-32 (birthday bound). Per-blob HKDF derivation eliminates this risk in practice, but it adds a mandatory pre-processing step. Most critically, the 128-bit Poly1305-derived tag yields only 64 bits of post-quantum forgery resistance. At 128-bit key size, AES provides only 64-bit post-quantum key security under Grover.
+**AES-256-GCM.** NIST-standard and the fastest option when AES-NI hardware is present. In WebAssembly without SIMD AES acceleration it is significantly slower than software-friendly ciphers. It is available via the browser's native WebCrypto API, which would eliminate the WASM dependency. However, the 96-bit nonce creates a collision risk when generating nonces randomly — with 2^48 blobs the probability of a repeated nonce under the same key reaches 2^-32 (birthday bound). Per-blob HKDF derivation eliminates this risk in practice, but it adds a mandatory pre-processing step. Most critically, the 128-bit authentication tag yields only 64 bits of post-quantum forgery resistance. At 128-bit key size, AES provides only 64-bit post-quantum key security under Grover.
 
-**XChaCha20-Poly1305.** Designed for software-friendly environments. Constant-time on all platforms, no lookup tables, and faster than AES in WASM. The 192-bit extended nonce is large enough for random generation without collision concern. It is the cipher used by TLS 1.3, WireGuard, and libsodium, with extensive cryptanalysis. The 128-bit Poly1305 tag provides 64-bit post-quantum forgery resistance — the same limitation as AES-256-GCM. The 256-bit key yields 128-bit post-quantum key security.
+**XChaCha20-Poly1305.** Designed for software-friendly environments. Constant-time on all platforms, no lookup tables, and faster than AES in WASM. The 192-bit extended nonce is large enough for random generation without collision concern. It is widely deployed in WireGuard and libsodium; TLS 1.3 standardizes ChaCha20-Poly1305 (not XChaCha20-Poly1305). The 128-bit Poly1305 tag provides 64-bit post-quantum forgery resistance — the same limitation as AES-256-GCM. The 256-bit key yields 128-bit post-quantum key security.
 
 **Ascon-Keccak-512 (leancrypto).** All parameters are 512 bits: key, nonce, and tag. Under Grover's algorithm, the 512-bit key retains 256-bit post-quantum security; the 512-bit tag retains 256-bit post-quantum forgery resistance — double the margin of either alternative. The Keccak-f[1600] permutation (the SHA-3 core) is extensively analyzed independently. The Ascon mode won the NIST Lightweight Cryptography competition. However, the specific combination — Ascon mode over Keccak rather than Ascon's native permutation, at 512-bit width — is unique to leancrypto and has not received the same level of independent analysis as the standard constructions. Performance in WASM is moderate; it is slower than ChaCha20 for small payloads due to Keccak's higher per-operation overhead, but acceptable for vault-sized data (kilobytes to hundreds of kilobytes). The 512-bit tag adds 48 bytes of fixed overhead per blob compared to a 128-bit tag.
 
@@ -183,7 +183,7 @@ The same pipeline applies to every blob type. The IKM passed to HKDF varies by b
 The commit hash is computed in the browser over the plaintext snapshot JSON before encryption:
 
 ```
-commitHash = z-base-32(SHA3-256(snapshotJson))  -- 52 characters
+commitHash = hex(SHA-256(snapshotJson)).slice(0, 32)  -- 32 hex chars (128-bit truncation)
 ```
 
 It is embedded inside the `encrypted_snapshot` blob as a field of the snapshot JSON. The `entry_history` table stores no plaintext commit hash column. After decrypting a snapshot the client can verify the hash by recomputing it over the decrypted JSON.
@@ -194,7 +194,7 @@ It is embedded inside the `encrypted_snapshot` blob as a field of the snapshot J
 - **Full blob integrity**: magic, version, salt, and ciphertext are all covered by the AEAD tag via additional data. Any single-bit modification anywhere in the blob causes authentication failure; no plaintext is returned.
 - **Wrong key detection**: decryption with an incorrect root master key fails at the AEAD tag check.
 - **No IV reuse**: fresh salt per encryption makes identical-plaintext encryptions produce different ciphertext.
-- **Compression safety**: compression before encryption; compressed size is not observable outside the AEAD envelope.
+- **Compression safety**: compression is performed before encryption; plaintext remains hidden, but ciphertext length still reveals coarse size metadata.
 - **Fast-fail on wrong format**: magic byte check rejects non-vault blobs before any crypto work begins.
 
 ## Key Rotation

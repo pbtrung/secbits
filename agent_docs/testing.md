@@ -24,17 +24,17 @@ npx vitest          # watch mode
 1. **Crypto round-trip**: entry JSON -> compress -> encrypt -> decrypt -> decompress -> parse JSON produces identical output.
 2. **Tamper detection**: any modification to ciphertext, AEAD tag, salt, or magic bytes causes decryption failure before returning plaintext.
 3. **Wrong key rejection**: decryption with an incorrect root master key throws.
-4. **First login empty state**: `GET /entries` with a vault_id that has no rows returns an empty array.
-5. **Input validation**: invalid `vault_id`, `type`, or malformed base64 `encrypted_data` are rejected by the Worker with 400.
+4. **First login empty state**: `GET /entries` for a newly authenticated user with no rows returns an empty array.
+5. **Input validation**: invalid `id`/`key_id`/`history_id`, invalid `type`, or malformed base64 `encrypted_data` are rejected by the Worker with 400.
 6. **Firebase token enforcement**: requests without a valid Bearer token receive 401.
 7. **Trash lifecycle**: delete sets `deleted_at`; restore clears it; purge removes entry and all history rows.
 8. **History cap**: after 20 commits, inserting a 21st deletes the oldest commit row.
-9. **UUID IDs**: new entries and history commits are created with `crypto.randomUUID()`.
+9. **ID format**: new entries and history commits use valid 52-character z-base-32 IDs.
 10. **Commit hash**: SHA-256 of plaintext JSON, truncated to 32 hex characters, matches after decrypt.
 
 ## Regression Priorities
 
-- Login fetches entries via `GET /entries?vault_id=...`.
+- Login fetches entries via authenticated `GET /entries`.
 - Save creates entry via `POST /entries` or updates via `PUT /entries/:id`.
 - Each save appends a history commit row.
 - Decryption with wrong root master key fails at the AEAD tag check.

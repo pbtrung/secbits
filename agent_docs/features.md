@@ -12,7 +12,7 @@
 
 ## Entry Types
 
-When adding a new entry the user first selects one of three types. The type is stored on the entry as a `type` field (`"login"`, `"note"`, `"card"`) and controls which fields are shown in the editor and detail view. The type is fixed at creation and cannot be changed afterward. It is stored in plaintext in the `entries` table (for Worker-side metadata) and also included inside the encrypted blob.
+When adding a new entry the user first selects one of three types. The type is stored on the entry as a `type` field (`"login"`, `"note"`, `"card"`) and controls which fields are shown in the editor and detail view. The type is fixed at creation and cannot be changed afterward. It is stored only inside the encrypted blob and is not persisted as a plaintext DB column.
 
 **UI — type selection:** clicking the `+` button in the entry list opens a dropdown menu with three items (Login, Secure Note, Credit Card). Selecting an item creates a new entry of that type and immediately opens it in edit mode.
 
@@ -69,7 +69,7 @@ Configurable password generator. Options: length, uppercase, lowercase, digits, 
 
 Symbol set (30 chars): `!@#$%^&*()_+-=[]{}|;:,.<>?/~`'`
 
-`"` and `\` are excluded — both require escaping in JSON and would corrupt vault export.
+`"` and `\` are excluded to avoid escaping-heavy passwords and reduce copy/paste friction in some UIs.
 
 ## Search and Filter
 
@@ -112,7 +112,7 @@ UI behavior:
 | Page | Feature |
 |------|---------|
 | Export | Download decrypted vault as JSON |
-| Security | Rotate root master key (generates new key, re-encrypts all entry and history blobs) |
+| Security | Rotate root master key (re-encrypts UMK blob; entry/history blobs are unchanged) |
 | About | Vault stats: entry count, field coverage, version history metrics, top tags, largest entries |
 
 ## Authentication

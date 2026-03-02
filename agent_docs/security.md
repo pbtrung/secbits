@@ -2,7 +2,7 @@
 
 ## Threat Model
 
-**Trust anchor: the config file.** The config JSON holds the root master key, Firebase credentials, and vault_id. Protecting the config file is the primary security obligation. An attacker who obtains the config file and can query rqlite (via the Worker) can decrypt all vault entries offline.
+**Trust anchor: the config file.** The config JSON holds the root master key and Firebase credentials. Protecting the config file is the primary security obligation. An attacker who obtains the config file and can query rqlite (via the Worker) can decrypt all vault entries offline.
 
 **The Worker and rqlite are untrusted.** They store and relay ciphertext only. A fully compromised Worker or rqlite instance reveals no plaintext without the root master key.
 
@@ -22,7 +22,7 @@
 
 **Firebase token enforcement.** The Worker verifies the RS256 signature, expiry, and audience of every Firebase ID token on every request. Expired or forged tokens are rejected before any rqlite operation.
 
-**vault_id scoping.** All rqlite queries are scoped to the `vault_id` from the client config. A client without the config cannot determine which rows belong to a given vault. The Worker verifies the Firebase token before using the client-supplied `vault_id` as a query filter. `vault_id` is sanitized to reject `..` and `\`.
+**User scoping.** All database queries are scoped to Worker-derived `user_id` from the verified Firebase UID. No client-supplied namespace identifier is trusted for authorization.
 
 **rqlite credential isolation.** The rqlite URL and Basic Auth credentials are stored exclusively as Worker secrets. They are never sent to the browser or included in any API response. Only the Worker can communicate with rqlite.
 
@@ -37,8 +37,8 @@ Decrypted entry data lives in the JS heap for the duration of the session. A suc
 - Keep `secbits-config.json` off shared machines and out of version control.
 - The `root_master_key` field must be at least 256 bytes when base64-decoded. Use the Security settings page to generate a cryptographically random key.
 - After rotating the root master key, update the config file immediately. The old key stops working as soon as all entry blobs are re-encrypted and written to rqlite.
-- The `vault_id` field must be a cryptographically random string of at least 16 bytes. Treat it with the same sensitivity as the root master key.
+- No client-supplied namespace identifier is required in config; authorization scope is derived from Firebase identity at the Worker.
 
 ## Root Master Key Rotation
 
-Rotation re-encrypts every entry blob and every history commit blob with a new key and fresh salts. If the browser is closed or the tab is killed mid-rotation, some blobs may be encrypted with the old key and some with the new key. The rotation operation should be retried until all blobs are re-encrypted. The old key remains valid for any blobs that have not yet been re-encrypted.
+Rotation of the root master key re-encrypts UMK blob(s) with the new root key. Entry data and history blobs remain unchanged because they are encrypted with per-entry keys wrapped by the UMK.

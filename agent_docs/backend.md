@@ -111,7 +111,7 @@ root_master_key (config)
 
 `entries.entry_key` is a 64-byte random key generated at entry creation, AEAD-encrypted with the UMK and stored as a blob. Rotating the UMK requires only re-encrypting all `entry_key` blobs; `encrypted_data` and `encrypted_snapshot` blobs are unaffected.
 
-All AEAD blobs — `key_store.encrypted_data`, `entries.entry_key`, `entries.encrypted_data`, `entry_history.encrypted_snapshot` — use the format `magic(7) || version(2) || salt(64) || ciphertext(var) || tag(64)`. The Worker stores and returns them without decrypting them.
+All AEAD blobs — `key_store.encrypted_data`, `entries.entry_key`, `entries.encrypted_data`, `entry_history.encrypted_snapshot` — use the format `magic(2) || version(2) || salt(64) || ciphertext(var) || tag(64)`. The Worker stores and returns them without decrypting them.
 
 In the rqlite HTTP API, BLOB columns are passed and received as base64-encoded strings within JSON payloads. The Worker base64-encodes blobs before sending them to rqlite and base64-decodes them on retrieval. The Worker's API responses to the browser carry BLOB fields as base64 strings.
 

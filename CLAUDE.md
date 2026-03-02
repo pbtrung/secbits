@@ -32,7 +32,7 @@ Login:
 1. App authenticates with Firebase using email and password from config.
 2. App sends Firebase ID token to Worker.
 3. Worker verifies token and resolves user identity.
-4. Worker queries rqlite for all entries scoped to the config vault_id.
+4. Worker derives `user_id` from Firebase UID and queries only that user's rows.
 5. App decrypts each entry blob and loads the vault.
 
 Save (create or update):

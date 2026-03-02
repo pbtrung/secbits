@@ -17,8 +17,8 @@
 | Testing | Vitest |
 
 ID generation:
-- Entry IDs use browser-native `crypto.randomUUID()`.
-- History commit IDs use browser-native `crypto.randomUUID()`.
+- Entry IDs use z-base-32 encoding of random 256-bit values.
+- History commit IDs use z-base-32 encoding of random 256-bit values.
 
 ## Project Structure
 

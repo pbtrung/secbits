@@ -40,7 +40,7 @@ Each entry and each key record is independently encrypted. The Worker derives a 
 - **Trash**: soft delete with restore and permanent delete.
 - **Search and filter**: full-text search across titles and usernames; tag sidebar.
 - **Export**: download decrypted vault as JSON.
-- **Key rotation**: re-encrypt all entries with a new root master key.
+- **Key rotation**: rotate the root master key by re-encrypting the UMK blob; entry/history blobs remain unchanged.
 - **In-memory session**: keying material lives only in the JS heap; cleared on reload or logout.
 
 ## Setup
@@ -111,7 +111,7 @@ Save as `secbits-config.json` and keep it private — it is the trust anchor for
 }
 ```
 
-The `root_master_key` is the sole secret used to derive all encryption keys. The user identity is derived automatically from the Firebase UID at the Worker; no `vault_id` is needed in the config.
+The `root_master_key` is the sole secret used to derive all encryption keys. The user identity is derived automatically from the Firebase UID at the Worker.
 
 ## Build and Run
 
