@@ -1,6 +1,14 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import leancrypto from '../../leancrypto/leancrypto.js';
-import { bytesToB64, decryptBlobBytes, decryptEntry, encryptBytesToBlob, encryptEntry, generateEntryKey } from '../lib/crypto.js';
+import {
+  bytesToB64,
+  decryptBlobBytes,
+  decryptEntry,
+  encryptBytesToBlob,
+  encryptEntry,
+  generateEntryKey,
+  generateMlkem1024X448KeyPair,
+} from '../lib/crypto.js';
 import { computeCommitHash } from '../lib/commitHash.js';
 import { BLOB_MAGIC, BLOB_SALT_LEN, BLOB_TAG_LEN } from '../lib/blob.js';
 
@@ -13,6 +21,27 @@ const TAG_LEN = BLOB_TAG_LEN;
 
 beforeAll(() => {
   globalThis.leancrypto = leancrypto;
+});
+
+describe('generateMlkem1024X448KeyPair', () => {
+  it('returns key sizes that match leancrypto mlkem1024+x448 parameters', async () => {
+    const lib = await leancrypto();
+    lib._lc_init();
+
+    const pkSizeFn = lib._lc_ml_kem_x448_pk_size || lib._lc_kyber_x448_pk_size;
+    const skSizeFn = lib._lc_ml_kem_x448_sk_size || lib._lc_kyber_x448_sk_size;
+    expect(typeof pkSizeFn).toBe('function');
+    expect(typeof skSizeFn).toBe('function');
+
+    const expectedPkLen = pkSizeFn(1);
+    const expectedSkLen = skSizeFn(1);
+    expect(expectedPkLen).toBeGreaterThan(0);
+    expect(expectedSkLen).toBeGreaterThan(0);
+
+    const { publicKeyRaw, privateKeyRaw } = await generateMlkem1024X448KeyPair();
+    expect(publicKeyRaw.length).toBe(expectedPkLen);
+    expect(privateKeyRaw.length).toBe(expectedSkLen);
+  });
 });
 
 describe('encryptBytesToBlob / decryptBlobBytes', () => {

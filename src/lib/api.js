@@ -8,6 +8,7 @@ import {
   encryptEntryKey,
   encryptUMK,
   generateEntryKey,
+  generateMlkem1024X448KeyPair,
   bytesToB64,
 } from './crypto';
 import { computeCommitHash } from './commitHash';
@@ -334,21 +335,15 @@ async function bootstrapUMKIfNeeded() {
     umkKeyRecord = full;
   }
 
-  // On first login, generate and upload the ECDH P-256 key pair.
+  // On first login, generate and upload an mlkem1024+x448 key pair.
   // own_public stores the raw public key bytes (unencrypted).
-  // own_private stores the PKCS8 private key bytes encrypted with the UMK.
+  // own_private stores the raw private key bytes encrypted with the UMK.
   const hasOwnPublic = keys.some((k) => k.type === 'own_public');
   if (!hasOwnPublic) {
     const currentUMK = ensureUMK();
-    const kp = await crypto.subtle.generateKey(
-      { name: 'ECDH', namedCurve: 'P-256' },
-      true,
-      ['deriveBits'],
-    );
-    const pubRaw = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));
-    const privPkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', kp.privateKey));
-    const encPriv = await encryptBlob(currentUMK, privPkcs8);
-    await addKey({ key_id: randomId(), type: 'own_public', label: null, encrypted_data: bytesToB64(pubRaw), peer_user_id: null });
+    const { publicKeyRaw, privateKeyRaw } = await generateMlkem1024X448KeyPair();
+    const encPriv = await encryptBlob(currentUMK, privateKeyRaw);
+    await addKey({ key_id: randomId(), type: 'own_public', label: null, encrypted_data: bytesToB64(publicKeyRaw), peer_user_id: null });
     await addKey({ key_id: randomId(), type: 'own_private', label: null, encrypted_data: bytesToB64(encPriv), peer_user_id: null });
   }
 }
@@ -548,16 +543,10 @@ export async function regenerateOwnKeyPair() {
     await deleteKey(key.key_id);
   }
 
-  const kp = await crypto.subtle.generateKey(
-    { name: 'ECDH', namedCurve: 'P-256' },
-    true,
-    ['deriveBits'],
-  );
-  const pubRaw = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));
-  const privPkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', kp.privateKey));
-  const encPriv = await encryptBlob(currentUMK, privPkcs8);
+  const { publicKeyRaw, privateKeyRaw } = await generateMlkem1024X448KeyPair();
+  const encPriv = await encryptBlob(currentUMK, privateKeyRaw);
 
-  await addKey({ key_id: randomId(), type: 'own_public', label: null, encrypted_data: bytesToB64(pubRaw), peer_user_id: null });
+  await addKey({ key_id: randomId(), type: 'own_public', label: null, encrypted_data: bytesToB64(publicKeyRaw), peer_user_id: null });
   await addKey({ key_id: randomId(), type: 'own_private', label: null, encrypted_data: bytesToB64(encPriv), peer_user_id: null });
 }
 

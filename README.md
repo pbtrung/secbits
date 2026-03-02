@@ -13,6 +13,7 @@ An end-to-end encrypted password manager. All encryption and decryption runs in 
 | Database | rqlite (SQLite over HTTP) |
 | AEAD cipher | Ascon-Keccak-512 via leancrypto WASM |
 | Key derivation | HKDF-SHA3-512 via leancrypto WASM |
+| Sharing keypair | MLKEM1024+X448 via leancrypto WASM |
 | Compression | Brotli via brotli-wasm |
 | TOTP | RFC 6238, HMAC-SHA1 |
 | Testing | Vitest |
@@ -33,6 +34,7 @@ Each entry and each key record is independently encrypted. The Worker derives a 
 - **Multi-user**: each Firebase account has an isolated set of entries and keys.
 - **Key store**: per-user store for the user master key, emergency access keys, and asymmetric key pairs.
 - **Entry sharing**: users can store each other's public keys and use them to encrypt shared entries.
+- **Hybrid sharing keys**: `own_public` / `own_private` use leancrypto `mlkem1024+x448` (legacy symbol-compatible with `kyber_1024_x448` in older bundles).
 - **Entry types**: Login, Secure Note, Credit Card.
 - **TOTP**: live RFC 6238 codes with 30-second countdown.
 - **Password generator**: configurable length and character classes.
@@ -93,6 +95,8 @@ wrangler secret put NGINX_PASSWORD
 wrangler deploy
 ```
 
+`NGINX_USER` and `NGINX_PASSWORD` are the Basic Auth credentials for the nginx proxy in front of the rqlite endpoint.
+
 ### 4. Cloudflare Pages
 
 Connect the repository to Cloudflare Pages. Set the build command to `npm run build` and the output directory to `dist`. Add the environment variable `VITE_WORKER_URL` set to the deployed Worker URL.
@@ -139,3 +143,7 @@ wrangler dev
 ## Documentation
 
 See `agent_docs/` for architecture and implementation details.
+
+## Notes
+
+- `mlkem1024+x448` rollout is a forward-only update in this codebase. No backward-compatible key migration path is implemented.

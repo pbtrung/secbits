@@ -11,6 +11,7 @@ const ENC_KEY_LEN = 64;
 const ENC_IV_LEN = 64;
 const HKDF_OUT_LEN = ENC_KEY_LEN + ENC_IV_LEN;
 const ENTRY_KEY_LEN = 64;
+const KEM_LEVEL_1024_CANDIDATES = [1, 1024];
 
 function b64ToBytes(b64) {
   try {
@@ -218,6 +219,42 @@ export function decodeRootMasterKey(rootMasterKeyB64) {
 
 export function generateEntryKey() {
   return getRandomBytes(ENTRY_KEY_LEN);
+}
+
+function resolveKemSizes(lib) {
+  const pkSizeFn = lib._lc_ml_kem_x448_pk_size || lib._lc_kyber_x448_pk_size;
+  const skSizeFn = lib._lc_ml_kem_x448_sk_size || lib._lc_kyber_x448_sk_size;
+  if (typeof pkSizeFn !== 'function' || typeof skSizeFn !== 'function') {
+    throw new Error('leancrypto missing mlkem1024+x448 size APIs');
+  }
+  for (const level of KEM_LEVEL_1024_CANDIDATES) {
+    const pkLen = pkSizeFn(level);
+    const skLen = skSizeFn(level);
+    if (pkLen > 0 && skLen > 0) return { pkLen, skLen };
+  }
+  throw new Error('leancrypto missing mlkem1024+x448 parameter set');
+}
+
+export async function generateMlkem1024X448KeyPair() {
+  const lib = await getLc();
+  const keypairFn = lib._lc_ml_kem_1024_x448_keypair || lib._lc_kyber_1024_x448_keypair;
+  if (typeof keypairFn !== 'function') {
+    throw new Error('leancrypto missing mlkem1024+x448 keypair API');
+  }
+  const { pkLen, skLen } = resolveKemSizes(lib);
+  const pkPtr = lib._malloc(pkLen);
+  const skPtr = lib._malloc(skLen);
+  try {
+    const rc = keypairFn(pkPtr, skPtr);
+    if (rc !== 0) throw new Error(`mlkem1024+x448 keypair failed: rc=${rc}`);
+    return {
+      publicKeyRaw: readBytes(lib, pkPtr, pkLen),
+      privateKeyRaw: readBytes(lib, skPtr, skLen),
+    };
+  } finally {
+    lib._free(pkPtr);
+    lib._free(skPtr);
+  }
 }
 
 export async function encryptBlob(keyBytes, plainBytes) {

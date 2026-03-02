@@ -83,9 +83,9 @@ CREATE INDEX IF NOT EXISTS idx_history_entry   ON entry_history(entry_id);
 |------|-------|--------------------------|
 | `umk` | one per user | user master key bytes, encrypted with root_master_key (HKDF + AEAD) |
 | `emergency` | multiple | emergency access key bytes, independently encrypted |
-| `own_public` | one per user | raw public key bytes (unencrypted) |
-| `own_private` | one per user | private key bytes encrypted with the UMK |
-| `peer_public` | one per sharing partner | raw public key bytes from another user (unencrypted); `peer_user_id` identifies the source user |
+| `own_public` | one per user | raw `mlkem1024+x448` public key bytes (unencrypted) |
+| `own_private` | one per user | raw `mlkem1024+x448` private key bytes encrypted with the UMK |
+| `peer_public` | one per sharing partner | raw peer `mlkem1024+x448` public key bytes (unencrypted); `peer_user_id` identifies the source user |
 
 `encrypted_data` is NULL only for `own_public` and `peer_public` rows when the public key is stored separately, but the preferred layout is to store all byte payloads in `encrypted_data` regardless of whether they are encrypted.
 
@@ -316,7 +316,7 @@ Response `200`:
 }
 ```
 
-`public_key` contains the raw public key bytes base64-encoded. Public keys are not encrypted; the field is named `public_key` rather than `encrypted_data` to make this explicit.
+`public_key` contains the raw `mlkem1024+x448` public key bytes base64-encoded. Public keys are not encrypted; the field is named `public_key` rather than `encrypted_data` to make this explicit.
 
 Response `404` if the user has no `own_public` key record.
 

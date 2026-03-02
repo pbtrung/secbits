@@ -666,6 +666,37 @@ function testSphincs(lib) {
   }
 }
 
+function testMlkem1024X448(lib) {
+  const pkSizeFn = lib._lc_ml_kem_x448_pk_size || lib._lc_kyber_x448_pk_size;
+  const skSizeFn = lib._lc_ml_kem_x448_sk_size || lib._lc_kyber_x448_sk_size;
+  const keypairFn = lib._lc_ml_kem_1024_x448_keypair || lib._lc_kyber_1024_x448_keypair;
+  if (typeof pkSizeFn !== "function" || typeof skSizeFn !== "function" || typeof keypairFn !== "function") {
+    throw new Error("mlkem1024+x448 APIs are unavailable in this leancrypto build");
+  }
+
+  const mlkem1024 = 1;
+  const pkLen = pkSizeFn(mlkem1024);
+  const skLen = skSizeFn(mlkem1024);
+  if (!pkLen || !skLen) throw new Error(`mlkem1024+x448 invalid size: pk=${pkLen} sk=${skLen}`);
+
+  const pkPtr = lib._malloc(pkLen);
+  const skPtr = lib._malloc(skLen);
+  try {
+    const rc = keypairFn(pkPtr, skPtr);
+    assertRc("mlkem1024+x448 keypair", rc);
+
+    const pk = readBytes(lib, pkPtr, pkLen);
+    const sk = readBytes(lib, skPtr, skLen);
+    if (!pk.some((b) => b !== 0)) throw new Error("mlkem1024+x448 public key is all zeros");
+    if (!sk.some((b) => b !== 0)) throw new Error("mlkem1024+x448 private key is all zeros");
+
+    console.log("PASS mlkem1024+x448 keypair");
+  } finally {
+    lib._free(pkPtr);
+    lib._free(skPtr);
+  }
+}
+
 async function main() {
   const lib = await leancrypto();
   assertRc("lc_init", lib._lc_init());
@@ -676,6 +707,7 @@ async function main() {
   testHkdf(lib);
   testHkdfSha3_512(lib);
   testSphincs(lib);
+  testMlkem1024X448(lib);
 
   console.log("All leancrypto WASM vector tests passed");
 }

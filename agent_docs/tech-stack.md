@@ -12,6 +12,7 @@
 | Database | rqlite (SQLite over HTTP, Basic Auth) |
 | AEAD cipher | Ascon-Keccak-512 via leancrypto WASM |
 | Key derivation | HKDF-SHA3-512 via leancrypto WASM |
+| Sharing keypair | MLKEM1024+X448 via leancrypto WASM |
 | Compression | Brotli via brotli-wasm |
 | TOTP | RFC 6238, HMAC-SHA1, implemented in `src/totp.js` |
 | Testing | Vitest |

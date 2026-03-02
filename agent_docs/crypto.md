@@ -54,6 +54,16 @@ root_master_key (config)
 
 key_store blobs for `emergency` and `own_private` types follow the same HKDF+AEAD pipeline with the appropriate parent key as IKM.
 
+## Sharing Key Material
+
+`own_public` / `own_private` use leancrypto hybrid `mlkem1024+x448` key generation.
+
+- `own_public`: raw hybrid public key bytes, stored unencrypted in `key_store.encrypted_data`.
+- `own_private`: raw hybrid private key bytes, encrypted as a standard key blob under the UMK before storage.
+
+Runtime compatibility note:
+- Current bundled leancrypto exports these APIs under legacy `kyber_1024_x448` symbol names. The app resolves either `mlkem` or legacy `kyber` symbols at runtime.
+
 ## Key Derivation
 
 Per-blob key derivation via **HKDF-SHA3-512**:

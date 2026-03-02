@@ -1,6 +1,6 @@
 # leancrypto WASM
 
-leancrypto v1.6.0 compiled to WebAssembly via Emscripten. Used for Ascon-Keccak-512 AEAD and HKDF-SHA3-512.
+leancrypto v1.6.0 compiled to WebAssembly via Emscripten. Used for Ascon-Keccak-512 AEAD, HKDF-SHA3-512, and hybrid sharing key generation (`mlkem1024+x448`).
 
 ## Directory layout (`leancrypto/`)
 
@@ -60,6 +60,7 @@ Environment overrides:
 
 - Hash symbols like `lib._lc_sha3_256` / `lib._lc_sha3_512` may be pointer-to-pointer in this WASM build. For AEAD alloc APIs, pass the dereferenced pointer: `lib.HEAPU32[lib._lc_sha3_256 >> 2]`.
 - In this WASI build, AEAD authentication failure maps to `-9` (`EBADMSG` here), not Linux `-74`.
+- This bundle exposes `mlkem1024+x448` with legacy symbol names (`_lc_kyber_1024_x448_keypair`, `_lc_kyber_x448_pk_size`, `_lc_kyber_x448_sk_size`). Application code accepts either legacy `kyber` names or newer `mlkem` names when present.
 
 ---
 
@@ -161,6 +162,22 @@ Decryption returns `0` on success, `-9` (`EBADMSG`) on authentication failure.
 lib._lc_hkdf(lib._lc_sha3_512, ikmPtr, ikmLen,
              saltPtr, saltLen, 0, 0, okmPtr, okmLen);
 ```
+
+---
+
+### Hybrid Keypair — MLKEM1024+X448
+
+Current bundle symbol set:
+
+```c
+// int lc_kyber_1024_x448_keypair(uint8_t *pk, uint8_t *sk)
+// size_t lc_kyber_x448_pk_size(uint32_t level)
+// size_t lc_kyber_x448_sk_size(uint32_t level)
+```
+
+For `level=1` (1024):
+- public key size: 1624 bytes
+- private key size: 3224 bytes
 
 ---
 

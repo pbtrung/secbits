@@ -20,10 +20,10 @@ cd worker && npx vitest run
 
 | File | Covers |
 |------|--------|
-| `src/tests/leancrypto.test.js` | Raw HKDF-SHA3-512 KAT vectors; Ascon-Keccak-512 AEAD encrypt/decrypt; tamper detection at ciphertext, tag, and AD; wrong key rejection; empty plaintext |
+| `src/tests/leancrypto.test.js` | Raw HKDF-SHA3-512 KAT vectors; Ascon-Keccak-512 AEAD encrypt/decrypt; tamper detection at ciphertext, tag, and AD; wrong key rejection; empty plaintext; `mlkem1024+x448` keypair API availability + size sanity |
 | `src/tests/zbase32.test.js` | Encode/decode round-trip for 256-bit input; known vector; non-alphabet character rejection; wrong-length rejection |
 | `src/tests/blob.test.js` | Build/parse round-trip; magic mismatch fast-fail; blob shorter than 132 bytes rejected; version extraction; AD = 68 bytes |
-| `src/tests/crypto.test.js` | `encryptBlob` / `decryptBlob` round-trip; any single-byte modification causes throw |
+| `src/tests/crypto.test.js` | `encryptBlob` / `decryptBlob` round-trip; any single-byte modification causes throw; `generateMlkem1024X448KeyPair` output size matches leancrypto parameter sizes |
 
 ### Milestone 2: Key Hierarchy
 
@@ -96,6 +96,8 @@ No automated tests. Validated by a successful end-to-end deployment against a li
 8. Full 3-level hierarchy: root_master_key → UMK → entry_key → entry data — all levels encrypt, wrap, and unwrap correctly.
 9. RMK rotation re-encrypts only the UMK blob; all entry_key and encrypted_data blobs are identical before and after.
 10. UMK rotation re-encrypts all entry_key blobs; all encrypted_data and encrypted_snapshot blobs are identical before and after.
+
+Sharing-key coverage note: bootstrap and regeneration paths use leancrypto `mlkem1024+x448` key generation (legacy `kyber_1024_x448` symbols accepted).
 
 ### Worker auth and scoping
 

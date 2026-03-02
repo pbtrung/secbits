@@ -44,6 +44,12 @@ Architectural decisions and their rationale.
 
 **Why:** Public keys are by definition non-secret. Applying an encryption envelope to them would waste space and add complexity without any security benefit, since any party can hold and distribute a public key freely. Using the same `encrypted_data` column for storage simplifies the schema while the route contract and documentation make it explicit that the bytes are unencrypted for these two key types.
 
+## Sharing Key Primitive: MLKEM1024+X448
+
+**Decision:** Client-generated sharing key material (`own_public` / `own_private`) uses leancrypto's hybrid `mlkem1024+x448` primitive. Runtime code accepts leancrypto's legacy `kyber_1024_x448` symbol names for compatibility with existing WASM exports.
+
+**Why:** The hybrid construction combines post-quantum KEM hardness (ML-KEM-1024 class) with X448 ECDH hardness, providing dual-assumption security for cross-user sharing workflows. Using leancrypto for both symmetric and sharing-key primitives keeps cryptographic implementation centralized in one audited WASM bundle and avoids mixing WebCrypto curve-specific key formats with leancrypto-native KEM formats.
+
 ## Ascon-Keccak-512 AEAD
 
 **Decision:** All encryption uses leancrypto's Ascon-Keccak-512 AEAD with 512-bit key, IV, and tag.
