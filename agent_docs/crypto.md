@@ -16,6 +16,32 @@ All parameters are 512 bits (64 bytes):
 
 512-bit parameters provide 256-bit post-quantum security margin against Grover's algorithm.
 
+## Cipher Selection
+
+Comparison of the three candidate AEAD constructions:
+
+| Property | AES-256-GCM | XChaCha20-Poly1305 | Ascon-Keccak-512 |
+|----------|-------------|-------------------|-----------------|
+| Key size | 256 bits | 256 bits | 512 bits |
+| Nonce size | 96 bits | 192 bits | 512 bits |
+| Tag size | 128 bits | 128 bits | 512 bits |
+| Classical key security | 256 bits | 256 bits | 512 bits |
+| PQ key security (Grover) | 128 bits | 128 bits | 256 bits |
+| PQ tag security | 64 bits | 64 bits | 256 bits |
+| WASM performance | Slow (no AES-NI) | Fast | Moderate |
+| Nonce collision risk | Yes (96-bit) | No | No |
+| Independent analysis | Extensive | Extensive | Limited (this variant) |
+| Standardization | NIST FIPS 197 | IETF RFC 8439 | NIST LWC (Ascon-128) |
+| WebCrypto API | Yes (native) | No | No |
+
+**AES-256-GCM.** NIST-standard and the fastest option when AES-NI hardware is present. In WebAssembly without SIMD AES acceleration it is significantly slower than software-friendly ciphers. It is available via the browser's native WebCrypto API, which would eliminate the WASM dependency. However, the 96-bit nonce creates a collision risk when generating nonces randomly — with 2^48 blobs the probability of a repeated nonce under the same key reaches 2^-32 (birthday bound). Per-blob HKDF derivation eliminates this risk in practice, but it adds a mandatory pre-processing step. Most critically, the 128-bit Poly1305-derived tag yields only 64 bits of post-quantum forgery resistance. At 128-bit key size, AES provides only 64-bit post-quantum key security under Grover.
+
+**XChaCha20-Poly1305.** Designed for software-friendly environments. Constant-time on all platforms, no lookup tables, and faster than AES in WASM. The 192-bit extended nonce is large enough for random generation without collision concern. It is the cipher used by TLS 1.3, WireGuard, and libsodium, with extensive cryptanalysis. The 128-bit Poly1305 tag provides 64-bit post-quantum forgery resistance — the same limitation as AES-256-GCM. The 256-bit key yields 128-bit post-quantum key security.
+
+**Ascon-Keccak-512 (leancrypto).** All parameters are 512 bits: key, nonce, and tag. Under Grover's algorithm, the 512-bit key retains 256-bit post-quantum security; the 512-bit tag retains 256-bit post-quantum forgery resistance — double the margin of either alternative. The Keccak-f[1600] permutation (the SHA-3 core) is extensively analyzed independently. The Ascon mode won the NIST Lightweight Cryptography competition. However, the specific combination — Ascon mode over Keccak rather than Ascon's native permutation, at 512-bit width — is unique to leancrypto and has not received the same level of independent analysis as the standard constructions. Performance in WASM is moderate; it is slower than ChaCha20 for small payloads due to Keccak's higher per-operation overhead, but acceptable for vault-sized data (kilobytes to hundreds of kilobytes). The 512-bit tag adds 48 bytes of fixed overhead per blob compared to a 128-bit tag.
+
+**Selection.** Ascon-Keccak-512 is chosen to achieve a uniform 256-bit post-quantum security margin across key, nonce, and tag. AES-256-GCM and XChaCha20-Poly1305 both cap post-quantum tag security at 64 bits, which is insufficient for long-term post-quantum protection of vault data. The performance and auditability trade-offs are acceptable: vault payloads are small, the leancrypto WASM bundle is already bundled, and the Keccak permutation and Ascon mode are each individually well-studied. The reduced independent analysis of the specific variant is a known residual risk.
+
 ## Key Hierarchy
 
 ```
@@ -88,6 +114,40 @@ Any single-bit modification to the magic, version, salt, ciphertext, or tag caus
 ### Magic Bytes
 
 `SB` encoded as UTF-8: `53 42`. Allows immediate format identification in hex dumps and fast-fail rejection of blobs that are not SecBits encrypted objects before any crypto work is attempted.
+
+## Versioning Strategy
+
+Every blob carries its own version field. The decoder reads `version[0]` (major) and dispatches to the appropriate decode path before any crypto work begins. Old and new blob versions can coexist in rqlite indefinitely; no coordinated migration is required at write time.
+
+### What each version component signals
+
+**Minor bump** (`0x01 0x00` → `0x01 0x01`): additive, backward-compatible change. Examples:
+- New optional fields added to the plaintext JSON payload inside the ciphertext.
+- Change to Brotli compression parameters.
+- A decoder for v1.0 that encounters a v1.1 blob can still decode it correctly by ignoring unknown fields.
+
+**Major bump** (`0x01 0x00` → `0x02 0x00`): breaking change. A v1.x decoder must refuse a v2.x blob rather than attempt to decode it. Examples:
+- Different cipher or KDF (e.g., migration to a post-quantum algorithm after NIST standardization).
+- Different blob layout (field sizes, field ordering, removal of a field).
+- Different magic bytes.
+- Different salt or tag sizes.
+
+### Migration
+
+When a new format version is deployed, existing blobs remain valid at their original version. The client re-encrypts a blob to the current version only when it writes it (lazy migration on update). An explicit re-encrypt-all operation can migrate the entire vault eagerly: for each entry, decrypt with the old version decoder and re-encrypt with the current version encoder.
+
+The Worker is version-agnostic — it stores and forwards blobs without inspecting the version field. Version awareness lives entirely in the client.
+
+### Current version
+
+v1.0 (`0x01 0x00`): magic `SB`, Ascon-Keccak-512 AEAD, HKDF-SHA3-512, 64-byte salt, 64-byte tag, 2+2+64 header.
+
+### Schema and API versioning
+
+Blob versioning covers the cryptographic layer. Two additional versioning concerns are handled separately:
+
+- **rqlite schema**: additive changes (new columns, new tables) are applied directly. Breaking changes require a migration script. A `meta` table can record the current schema version if needed.
+- **Worker API**: breaking API changes are deployed under a new URL prefix (e.g., `/v2/entries`) so old clients continue to work against the v1 routes until migrated.
 
 ## Blob Storage
 
