@@ -50,7 +50,8 @@ Config JSON is required at app startup. Key fields:
 - `password`
 - `firebase_api_key`
 - `root_master_key`
-- `vault_id` (stable random string; scopes all entries in rqlite)
+
+User identity is derived at the Worker from the Firebase UID: `user_id = z-base-32(SHA3-256(firebase_uid))`.
 
 ## Agent Docs
 

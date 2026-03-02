@@ -22,14 +22,17 @@ An end-to-end encrypted password manager. All encryption and decryption runs in 
 ```
 Browser (CF Pages) -> Firebase Auth   (ID token)
                    -> CF Worker       (token verify + rqlite API)
-                   -> rqlite          (encrypted entry rows)
+                   -> rqlite          (encrypted entry and key rows)
 ```
 
-Each entry is independently encrypted. The Worker mediates all database access using credentials it holds as secrets. The browser never communicates with rqlite directly and never sees the rqlite credentials.
+Each entry and each key record is independently encrypted. The Worker derives a stable `user_id` from the verified Firebase UID and uses it to scope all database queries. The browser never communicates with rqlite directly and never sees the rqlite credentials.
 
 ## Features
 
 - **End-to-end encryption**: plaintext never leaves the browser; ciphertext stored in rqlite.
+- **Multi-user**: each Firebase account has an isolated set of entries and keys.
+- **Key store**: per-user store for the user master key, emergency access keys, and asymmetric key pairs.
+- **Entry sharing**: users can store each other's public keys and use them to encrypt shared entries.
 - **Entry types**: Login, Secure Note, Credit Card.
 - **TOTP**: live RFC 6238 codes with 30-second countdown.
 - **Password generator**: configurable length and character classes.
@@ -60,10 +63,13 @@ curl -u "<username>:<password>" \
      -X POST "http://<rqlite-host>/db/execute" \
      -H "Content-Type: application/json" \
      -d '[
-  ["CREATE TABLE IF NOT EXISTS entries (id TEXT PRIMARY KEY, vault_id TEXT NOT NULL, type TEXT NOT NULL, encrypted_data TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT)"],
-  ["CREATE TABLE IF NOT EXISTS entry_history (id TEXT PRIMARY KEY, entry_id TEXT NOT NULL, commit_hash TEXT NOT NULL, encrypted_snapshot TEXT NOT NULL, created_at TEXT NOT NULL)"],
-  ["CREATE INDEX IF NOT EXISTS idx_entries_vault ON entries(vault_id)"],
-  ["CREATE INDEX IF NOT EXISTS idx_history_entry ON entry_history(entry_id)"]
+  ["CREATE TABLE IF NOT EXISTS users (user_id TEXT PRIMARY KEY, created_at TEXT NOT NULL)"],
+  ["CREATE TABLE IF NOT EXISTS key_store (key_id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(user_id), type TEXT NOT NULL, label TEXT, encrypted_data BLOB, peer_user_id TEXT, created_at TEXT NOT NULL)"],
+  ["CREATE TABLE IF NOT EXISTS entries (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(user_id), type TEXT NOT NULL, encrypted_data BLOB NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT)"],
+  ["CREATE TABLE IF NOT EXISTS entry_history (id TEXT PRIMARY KEY, entry_id TEXT NOT NULL REFERENCES entries(id), commit_hash TEXT NOT NULL, encrypted_snapshot BLOB NOT NULL, created_at TEXT NOT NULL)"],
+  ["CREATE INDEX IF NOT EXISTS idx_key_store_user ON key_store(user_id)"],
+  ["CREATE INDEX IF NOT EXISTS idx_entries_user   ON entries(user_id)"],
+  ["CREATE INDEX IF NOT EXISTS idx_history_entry  ON entry_history(entry_id)"]
 ]'
 ```
 
@@ -99,12 +105,11 @@ Save as `secbits-config.json` and keep it private — it is the trust anchor for
   "email": "you@example.com",
   "password": "your-firebase-password",
   "firebase_api_key": "<firebase-web-api-key>",
-  "root_master_key": "<base64-encoded key, >= 256 bytes decoded>",
-  "vault_id": "<random string, e.g. openssl rand -base64 32>"
+  "root_master_key": "<base64-encoded key, >= 256 bytes decoded>"
 }
 ```
 
-`vault_id` is a stable random string that namespaces all your entries in rqlite. Generate it once with a CSPRNG and keep it in the config.
+The `root_master_key` is the sole secret used to derive all encryption keys. The user identity is derived automatically from the Firebase UID at the Worker; no `vault_id` is needed in the config.
 
 ## Build and Run
 
@@ -125,7 +130,7 @@ wrangler dev
 
 1. Upload config JSON in the app.
 2. App signs in through Firebase.
-3. App fetches encrypted entries from rqlite via the Worker and decrypts them.
+3. App fetches encrypted entries and keys from rqlite via the Worker and decrypts them.
 4. Creating or updating an entry encrypts it in the browser and writes the ciphertext to rqlite via the Worker.
 5. Deleting an entry moves it to Trash. Trash entries can be restored or permanently deleted from the Trash view.
 
