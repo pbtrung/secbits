@@ -326,13 +326,30 @@ async function bootstrapUMKIfNeeded() {
     });
     umkKeyRecord = { key_id: created.key_id, type: 'umk', encrypted_data: bytesToB64(encryptedUmk) };
     umkBytes = rawUmk;
-    return;
+  } else {
+    const full = await getKey(umkMeta.key_id);
+    const decrypted = await decryptUMK(b64ToBytes(full.encrypted_data), rootKey);
+    umkBytes = decrypted;
+    umkKeyRecord = full;
   }
 
-  const full = await getKey(umkMeta.key_id);
-  const decrypted = await decryptUMK(b64ToBytes(full.encrypted_data), rootKey);
-  umkBytes = decrypted;
-  umkKeyRecord = full;
+  // On first login, generate and upload the ECDH P-256 key pair.
+  // own_public stores the raw public key bytes (unencrypted).
+  // own_private stores the PKCS8 private key bytes encrypted with the UMK.
+  const hasOwnPublic = keys.some((k) => k.type === 'own_public');
+  if (!hasOwnPublic) {
+    const currentUMK = ensureUMK();
+    const kp = await crypto.subtle.generateKey(
+      { name: 'ECDH', namedCurve: 'P-256' },
+      true,
+      ['deriveBits'],
+    );
+    const pubRaw = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));
+    const privPkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', kp.privateKey));
+    const encPriv = await encryptEntryKey(privPkcs8, currentUMK);
+    await addKey({ key_id: randomId(), type: 'own_public', label: null, encrypted_data: bytesToB64(pubRaw), peer_user_id: null });
+    await addKey({ key_id: randomId(), type: 'own_private', label: null, encrypted_data: bytesToB64(encPriv), peer_user_id: null });
+  }
 }
 
 export function setRootMasterKey(keyBytes) {
@@ -667,4 +684,5 @@ export function getVaultStats() {
 
 export const __historyFormatTestOnly = {
   normalizeEntryShape,
+  decodeHistorySnapshots,
 };

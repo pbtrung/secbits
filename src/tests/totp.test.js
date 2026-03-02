@@ -24,6 +24,18 @@ describe('generateTOTPForCounter', () => {
     expect(generateTOTPForCounter(`${SECRET_BASE32}!`, 1)).toBeNull();
     expect(generateTOTPForCounter('NOT-BASE32*', 1)).toBeNull();
   });
+
+  it('different secrets produce different codes for the same counter', () => {
+    const other = 'JBSWY3DPEHPK3PXP'; // "Hello!" in base32
+    expect(generateTOTPForCounter(SECRET_BASE32, 1)).not.toBe(generateTOTPForCounter(other, 1));
+  });
+
+  it('adjacent 30-second windows (consecutive counters) differ', () => {
+    const counter = 37037036;
+    expect(generateTOTPForCounter(SECRET_BASE32, counter)).not.toBe(
+      generateTOTPForCounter(SECRET_BASE32, counter + 1),
+    );
+  });
 });
 
 describe('base32Decode', () => {

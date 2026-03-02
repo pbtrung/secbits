@@ -35,10 +35,23 @@ export const ENTRY_TYPE_META = Object.fromEntries(
   ENTRY_TYPES.map(({ type, icon, label }) => [type, { icon, label }])
 );
 
-export async function buildSnapshotPayload(entry) {
-  const snapshot = { ...entry };
-  delete snapshot.commit_hash;
-  const commitHash = await computeCommitHash(snapshot);
-  return { ...snapshot, commit_hash: commitHash };
+/**
+ * Filter live entries by tag and/or search query.
+ * trashed entries are excluded — callers should not pass trashed entries.
+ */
+export function filterEntries(entries, { selectedTag = null, searchQuery = '' } = {}) {
+  let result = entries;
+  if (selectedTag) {
+    result = result.filter((e) => e.tags.includes(selectedTag));
+  }
+  if (searchQuery.trim()) {
+    const q = searchQuery.toLowerCase();
+    result = result.filter(
+      (e) =>
+        e.title.toLowerCase().includes(q) ||
+        e.username.toLowerCase().includes(q) ||
+        e.urls.some((u) => u.toLowerCase().includes(q)),
+    );
+  }
+  return result;
 }
-import { computeCommitHash } from './commitHash';

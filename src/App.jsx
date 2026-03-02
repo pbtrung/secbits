@@ -17,6 +17,7 @@ import {
   restoreDeletedEntryVersion,
   permanentlyDeleteUserEntry,
 } from './lib/api';
+import { filterEntries } from './lib/entryUtils';
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -143,20 +144,8 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
   }, [entries]);
 
   const filteredEntries = useMemo(() => {
-    let result = trashMode ? trashEntries : entries;
-    if (!trashMode && selectedTag) {
-      result = result.filter((e) => e.tags.includes(selectedTag));
-    }
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (e) =>
-          e.title.toLowerCase().includes(q) ||
-          e.username.toLowerCase().includes(q) ||
-          e.urls.some((u) => u.toLowerCase().includes(q))
-      );
-    }
-    return result;
+    if (trashMode) return trashEntries;
+    return filterEntries(entries, { selectedTag, searchQuery });
   }, [entries, trashEntries, trashMode, selectedTag, searchQuery]);
 
   const selectedEntry = (trashMode ? trashEntries : entries).find((e) => e.id === selectedEntryId) || null;
