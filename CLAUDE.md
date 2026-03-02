@@ -62,4 +62,5 @@ User identity is derived at the Worker from the Firebase UID: `user_id = z-base-
 - `agent_docs/features.md` - feature surface
 - `agent_docs/tech-stack.md` - technologies and project layout
 - `agent_docs/testing.md` - testing strategy
+- `agent_docs/plan.md` - 6-milestone implementation plan
 - `agent_docs/leancrypto.md` - leancrypto WASM build and JS API reference
