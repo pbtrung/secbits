@@ -16,6 +16,7 @@
 #include <stdint.h>
 #include <sys/types.h>
 #include <unistd.h> /* getentropy() via emscripten sysroot */
+#include "lc_memcpy_secure.h"
 
 ssize_t get_full_entropy(uint8_t *buffer, size_t bufferlen)
 {
@@ -46,4 +47,9 @@ int seeded_rng_noise_init(void)
 {
 	/* No noise source to initialize in WASM */
 	return 0;
+}
+
+void seeded_rng_status(char *buf, size_t len)
+{
+	lc_memcpy_secure(buf, len, "Emscripten getentropy\n\0", 22);
 }
