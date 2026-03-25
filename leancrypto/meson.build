@@ -34,7 +34,7 @@
 # Version Change Definition
 ################################################################################
 project('leancrypto', 'c',
-	version: '1.6.0',
+	version: '1.7.0',
 	default_options: [
 		'warning_level=3',
 		'optimization=3',
@@ -120,9 +120,6 @@ endif
 
 if get_option('debug')
 	add_global_arguments(['-DLC_DEBUG'], language: 'c')
-endif
-if get_option('dilithium_debug').enabled()
-	add_global_arguments(['-DLC_DILITHIUM_DEBUG'], language: 'c')
 endif
 if get_option('kyber_debug').enabled()
 	add_global_arguments(['-DLC_KYBER_DEBUG'], language: 'c')
@@ -278,28 +275,45 @@ if get_option('aes_gcm').enabled()
 	add_global_arguments(['-DLC_AES_GCM'], language: 'c')
 endif
 
+drng_present = 0
 if get_option('chacha20_drng').enabled()
 	add_global_arguments(['-DLC_DRNG_CC20'], language: 'c')
+	drng_present = 1
 endif
 if get_option('kmac_drng').enabled()
 	add_global_arguments(['-DLC_DRNG_KMAC'], language: 'c')
+	drng_present = 1
 endif
 if get_option('cshake_drng').enabled()
 	add_global_arguments(['-DLC_DRNG_CSHAKE'], language: 'c')
+	drng_present = 1
 endif
 if (get_option('xdrbg').enabled() and get_option('ascon').enabled())
 	add_global_arguments(['-DLC_DRNG_XDRBG128'], language: 'c')
+	drng_present = 1
 endif
 if (get_option('xdrbg').enabled() and get_option('sha3').enabled())
 	add_global_arguments(['-DLC_DRNG_XDRBG256'], language: 'c')
 	add_global_arguments(['-DLC_DRNG_XDRBG512'], language: 'c')
+	drng_present = 1
 endif
 if get_option('drbg_hash').enabled()
 	add_global_arguments(['-DLC_DRNG_HASH_DRBG'], language: 'c')
+	drng_present = 1
 endif
 if get_option('drbg_hmac').enabled()
 	add_global_arguments(['-DLC_DRNG_HMAC_DRBG'], language: 'c')
+	drng_present = 1
 endif
+if get_option('drbg_ctr').enabled()
+	add_global_arguments(['-DLC_DRNG_CTR_DRBG'], language: 'c')
+	drng_present = 1
+endif
+
+if drng_present == 1
+	add_global_arguments(['-DLC_DRNG_PRESENT'], language: 'c')
+endif
+
 if get_option('hkdf').enabled()
 	add_global_arguments(['-DLC_HKDF'], language: 'c')
 endif
@@ -398,7 +412,11 @@ if (get_option('drbg_hmac').enabled() and
 endif
 
 if get_option('drbg_hash').enabled() and get_option('sha2-512').disabled()
-	error('HMAC DRBG requires SHA2-512')
+	error('Hash DRBG requires SHA2-512')
+endif
+
+if get_option('drbg_ctr').enabled() and get_option('aes_ctr').disabled()
+	error('CTR DRBG requires AES-CTR')
 endif
 
 if get_option('hmac').enabled()
@@ -522,6 +540,21 @@ if get_option('pkcs7_parser').disabled() and get_option('pkcs7_generator').enabl
 	error('PKCS#7 / CMS generator support requires PKCS#7 / CMS parser support')
 endif
 
+if get_option('pkcs8_parser').disabled() and get_option('pkcs8_generator').enabled()
+	error('PKCS#8 generator support requires PKCS#8 parser support')
+endif
+
+if get_option('apps').enabled()
+	if (get_option('sbsigntools').enabled() and
+	    get_option('pkcs7_generator').disabled())
+		error('sbsign tool requires PKCS#7 generator support')
+	endif
+	if (get_option('sbsigntools').enabled() and
+	    get_option('sha2-512').disabled())
+		error('sbsign tool requires SHA-512 support')
+	endif
+endif
+
 if (get_option('chacha20poly1305').enabled() and
     get_option('chacha20').disabled())
 	error('ChaCha20 Poly 1305 requires the presence of ChaCha20')
@@ -543,6 +576,7 @@ include_dirs = include_directories([
 			'drng/api',
 			'drng/src',
 			'hash/api',
+			'hash/src',
 			'hmac/api',
 			'hqc/api',
 			'ml-kem/api',
