@@ -6,7 +6,7 @@ SB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Configurable via environment
 EMCC_BIN="${EMCC_BIN:-/usr/lib/emscripten/emcc}"
-LC_VERSION="${LC_VERSION:-v1.6.0}"
+LC_VERSION="${LC_VERSION:-v1.7.0}"
 LC_SRC="${LC_SRC:-/tmp/leancrypto-wasm-build}"
 OUT_JS="${OUT_JS:-$SB_DIR/leancrypto.js}"
 OUT_WASM="${OUT_WASM:-$SB_DIR/leancrypto.wasm}"
