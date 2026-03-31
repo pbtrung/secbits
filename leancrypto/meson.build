@@ -34,7 +34,7 @@
 # Version Change Definition
 ################################################################################
 project('leancrypto', 'c',
-	version: '1.7.0',
+	version: '1.7.1',
 	default_options: [
 		'warning_level=3',
 		'optimization=3',

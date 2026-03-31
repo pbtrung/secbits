@@ -6,7 +6,7 @@ SB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Configurable via environment
 EMCC_BIN="${EMCC_BIN:-/usr/lib/emscripten/emcc}"
-LC_VERSION="${LC_VERSION:-v1.7.0}"
+LC_VERSION="${LC_VERSION:-v1.7.1}"
 LC_SRC="${LC_SRC:-/tmp/leancrypto-wasm-build}"
 OUT_JS="${OUT_JS:-$SB_DIR/leancrypto.js}"
 OUT_WASM="${OUT_WASM:-$SB_DIR/leancrypto.wasm}"
@@ -36,8 +36,8 @@ fi
 
 # 2 — Patch source tree with secbits-specific files
 echo "==> Patching source tree"
-cp "$SB_DIR/meson.build"       "$LC_SRC/meson.build"
-cp "$SB_DIR/wasm-cross.ini"    "$LC_SRC/wasm-cross.ini"
+cp "$SB_DIR/meson.build" "$LC_SRC/meson.build"
+cp "$SB_DIR/wasm-cross.ini" "$LC_SRC/wasm-cross.ini"
 cp "$SB_DIR/seeded_rng_wasm.c" "$LC_SRC/drng/src/seeded_rng_wasm.c"
 
 # 3 — Configure with meson + build static library
