@@ -30,4 +30,4 @@ See docs/data_model.md.
 
 ## Crypto
 
-TODO, see docs/crypto.md once written. Intent: every field beyond row id and ownership link is end to end encrypted client side.
+See docs/crypto.md: Ascon-Keccak-512 AEAD via leancrypto WASM, HKDF-SHA3-512 key derivation, a three level key hierarchy rooted at `root_master_key`. Every field beyond row id and ownership link is end to end encrypted client side.

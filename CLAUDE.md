@@ -51,9 +51,10 @@ Config JSON is required at app startup. Key fields:
 - `password`
 - `root_master_key`
 
-## Agent Docs
+## Docs
 
 - `docs/architecture.md` - architectural decisions
 - `docs/tech_stack.md` - technologies and project layout
 - `docs/data_model.md` - InstantDB entities, links, permission rules
-- TODO: `docs/crypto.md`, `docs/security.md`, `docs/features.md`, `docs/testing.md`
+- `docs/crypto.md` - cipher spec, key hierarchy, blob format v1.0
+- TODO: `docs/security.md`, `docs/features.md`, `docs/testing.md`
