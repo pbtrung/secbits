@@ -22,7 +22,7 @@ What is actually decided for this rebuild so far. Anything not listed here is un
 ## Backup
 
 - Local: on demand export of the full, decrypted vault as plain, unencrypted JSON, downloaded to the user's machine. No encryption involved; this is a deliberate, unprotected escape hatch, see docs/security.md for the risk it creates.
-- Cloud: on demand export of the same vault content, Brotli compressed and AEAD encrypted under a dedicated `backupKey`, uploaded directly from the client to Cloudflare R2 and to a configured S3 compatible endpoint (see docs/crypto.md, Cloud Backup). No server proxy.
+- Cloud: on demand export of the same vault content, Brotli compressed and AEAD encrypted under a dedicated `backupKey`, uploaded directly from the client to Cloudflare R2 and to every configured S3 compatible destination, one or more (see docs/crypto.md, Cloud Backup). No server proxy; each destination is uploaded independently, so one failing does not block the others.
 - Retention of past cloud backup objects is not yet decided.
 
 ## Key management

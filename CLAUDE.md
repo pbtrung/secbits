@@ -44,7 +44,7 @@ Maintenance (client side, on load/save):
 
 Backup (on demand):
 1. Local: App decrypts every entry and lets the user download the full vault as plain, unencrypted JSON. No encryption pipeline involved.
-2. Cloud: App assembles the same plain JSON, Brotli compresses it, AEAD encrypts it under `backupKey` (fresh salt, current format version), and uploads it directly from the client to Cloudflare R2 and to a configured S3 compatible endpoint using access keys from config. No server proxy.
+2. Cloud: App assembles the same plain JSON, Brotli compresses it, AEAD encrypts it under `backupKey` (fresh salt, current format version), and uploads it directly from the client to Cloudflare R2 and to each configured S3 compatible endpoint using access keys from config. No server proxy. Each destination is uploaded independently; a failure at one does not block or roll back the others.
 
 ## Config Contract
 
@@ -55,7 +55,7 @@ Config JSON is required at app startup. Key fields:
 - `password`
 - `root_master_key`
 - `r2_config`: account id, bucket, access key id, secret access key
-- `s3_config`: endpoint, region, bucket, access key id, secret access key
+- `s3_config`: array of `{ endpoint, region, bucket, access key id, secret access key }`, one entry per S3 compatible destination
 
 ## Docs
 

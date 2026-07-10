@@ -32,7 +32,8 @@ No code exists yet; this describes the intended strategy.
 
 - Local export produces valid, complete JSON that round trips back into the same in memory vault state; no field is silently dropped.
 - Cloud backup blob: Brotli compress, AEAD encrypt under `backupKey`, and decrypt round trips to the original vault JSON, same as any other blob type.
-- Cloud backup upload is exercised against a real R2 or S3 compatible test bucket, not mocked, since SigV4 signing and CORS are both real failure points for a client direct upload; there is no server to fall back on if either is wrong.
+- Cloud backup upload is exercised against real test buckets, R2 and each configured S3 compatible destination, not mocked, since SigV4 signing and CORS are both real failure points for a client direct upload; there is no server to fall back on if either is wrong.
+- With more than one `s3_config` entry, a failure uploading to one destination must not block or roll back uploads to the others, and the reported result must be per destination, not a single combined success or failure.
 
 ## Permission rules
 
