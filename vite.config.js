@@ -62,6 +62,14 @@ export default defineConfig(({ mode }) => ({
     include: [
       'src/**/*.test.{js,ts}',
     ],
+    // leancrypto's own C diagnostic trace (e.g. "Error -9 at
+    // ../aead/src/ascon.c:lc_ascon_dec_final:368") is expected, verbose
+    // noise from tests that deliberately trigger a decrypt failure (wrong
+    // key/tampered blob); it's not a real error, so it's filtered here
+    // rather than left cluttering test output.
+    onConsoleLog(log) {
+      if (/^Error -?\d+ at .*\.c:/.test(log)) return false;
+    },
     alias: {
       '/leancrypto/leancrypto.js': path.resolve(__dirname, 'leancrypto/leancrypto.js'),
       'brotli-wasm': path.resolve(__dirname, 'node_modules/brotli-wasm/index.node.js'),
