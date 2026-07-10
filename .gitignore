@@ -12,9 +12,7 @@ dist-ssr/
 coverage/
 
 # Local config and secrets, see README.md and CLAUDE.md, Config Contract
-config.json
-config.local.json
-*.secrets.json
+*.json
 .env
 .env.*
 !.env.example
