@@ -132,7 +132,7 @@ function AppSetup({ onReady }) {
             <pre className="bg-light rounded p-2 small mb-0" style={{ fontSize: '0.75rem' }}>
 {`{
   "instant_app_id": "<instantdb-app-id>",
-  "instant_client_name": "<client-name-registered-with-instantdb>",
+  "instant_client_name": "<instantdb-client-name>",
   "firebase_api_key": "<firebase-web-api-key>",
   "email": "<email>",
   "password": "<password>",
