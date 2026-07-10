@@ -85,7 +85,9 @@ async function requireAuthId() {
 // --- init / session ---------------------------------------------------------
 
 export function initDb(instantAppId) {
-  db = init({ appId: instantAppId, schema });
+  // InstantDB shows its own floating dev tool icon (bottom-right on
+  // localhost) unless explicitly disabled.
+  db = init({ appId: instantAppId, schema, devtool: false });
   return db;
 }
 
