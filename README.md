@@ -35,11 +35,12 @@ Prerequisites: Node.js, a Firebase project with email and password authenticatio
    npx instant-cli@latest push perms
    ```
 4. For cloud backup, create a Cloudflare R2 bucket and, optionally, a bucket on any S3 compatible provider, and enable CORS on each for the app's origin (see docs/tech_stack.md).
-5. Provide a config JSON with the fields listed in CLAUDE.md, Config Contract: `instant_app_id`, `firebase_api_key`, `email`, `password`, `root_master_key`, `username`, and, if using cloud backup, `r2_config` and `s3_config`. The exact delivery mechanism for this config, environment variable, uploaded file, or something else, is not yet decided.
+5. Prepare a config JSON with the fields listed in CLAUDE.md, Config Contract: `instant_app_id`, `instant_client_name`, `firebase_api_key`, `email`, `password`, `root_master_key`, `username`, and, if using cloud backup, `r2_config` and `s3_config`. You provide this by dragging the file onto the setup screen, or clicking it to browse, when the app first loads; nothing is baked into the build.
 
    ```json
    {
      "instant_app_id": "00000000-0000-0000-0000-000000000000",
+     "instant_client_name": "firebase",
      "firebase_api_key": "AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
      "email": "you@example.com",
      "password": "REPLACE_WITH_FIREBASE_PASSWORD",
@@ -75,12 +76,32 @@ Prerequisites: Node.js, a Firebase project with email and password authenticatio
 ## Usage
 
 - Local development: `npm run dev` starts the Vite dev server against your real Firebase and InstantDB projects; there is no local emulator for either (see docs/tech_stack.md).
-- Deployment: build and deploy the frontend to Cloudflare Pages; there is nothing else to deploy, no server component exists.
 - Login is automatic on startup using the email and password from config, no interactive step.
 - Add, edit, tag, and search entries; every save keeps a history entry automatically.
 - Trash and restore entries; trashed entries are purged automatically after the retention window.
 - Back up the vault on demand, locally as plain JSON, or to configured cloud storage, encrypted.
 - Rotate the root master key, the per user master key, or the backup key from settings if you suspect a compromise (see docs/security.md, Recovery).
+
+## Build
+
+```bash
+npm run build
+```
+
+Produces the static production bundle in `dist/`, including the leancrypto WASM files copied alongside it. Deploy `dist/` to Cloudflare Pages; there is nothing else to deploy, no server component exists. `npm run preview` serves that build locally to sanity check it before deploying.
+
+## Testing
+
+```bash
+npm test
+```
+
+Runs the Vitest suite: the crypto and blob pipeline (round trips, tamper detection, wrong key rejection), the key hierarchy including `backupKey` rotation, commit hash computation, TOTP, entry search/filtering, config validation, and the raw leancrypto WASM vector tests. All of this runs with zero live services, no Firebase or InstantDB project needed.
+
+Not covered by `npm test`, and not mockable, per docs/testing.md:
+- `instant.perms.ts` needs a real InstantDB app and the two-user test matrix in docs/testing.md, Permission rules, run by hand. In particular, the `newData.ref('owner.id') == data.ref('owner.id')` ownership pinning rule is an unverified best-effort guess at InstantDB's rule syntax for comparing links, not a confirmed one.
+- `db.js`'s InstantDB-facing functions (queries, transactions, auth) need a real Firebase and InstantDB project to exercise end to end.
+- Cloud backup upload needs real R2 and S3 compatible buckets with CORS configured.
 
 ## Docs
 
