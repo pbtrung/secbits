@@ -34,7 +34,8 @@
 # Version Change Definition
 ################################################################################
 project('leancrypto', 'c',
-	version: '1.7.2',
+	version: '1.8.0',
+	meson_version: '>=0.56.0',
 	default_options: [
 		'warning_level=3',
 		'optimization=3',
@@ -560,6 +561,34 @@ if (get_option('chacha20poly1305').enabled() and
 	error('ChaCha20 Poly 1305 requires the presence of ChaCha20')
 endif
 
+if (dilithium_enabled and
+    get_option('dilithium_keygen').disabled() and
+    get_option('dilithium_siggen').disabled() and
+    get_option('dilithium_sigver').disabled())
+	error('ML-DSA is enabled, but key gen, sig gen and sig ver are disabled')
+endif
+
+dilithium_all_enabled = false
+if (get_option('dilithium_keygen').enabled() and
+    get_option('dilithium_siggen').enabled() and
+    get_option('dilithium_sigver').enabled())
+	dilithium_all_enabled = true
+endif
+
+if (sphincs_enabled and
+    get_option('sphincs_keygen').disabled() and
+    get_option('sphincs_siggen').disabled() and
+    get_option('sphincs_sigver').disabled())
+	error('SLH-DSA is enabled, but key gen, sig gen and sig ver are disabled')
+endif
+
+sphincs_all_enabled = false
+if (get_option('sphincs_keygen').enabled() and
+    get_option('sphincs_siggen').enabled() and
+    get_option('sphincs_sigver').enabled())
+	sphincs_all_enabled = true
+endif
+
 ################################################################################
 # Project-specific defines
 ################################################################################
@@ -701,14 +730,17 @@ leancrypto_raw_static_lib = static_library('leancrypto-raw',
 	install: true
 	)
 
-leancrypto_static_lib = static_library('leancrypto',
+leancrypto_static_lib_gen = static_library('leancrypto',
 	[src_wrapper],
 	include_directories: [include_dirs, include_internal_dirs],
 	dependencies: [leancrypto_link],
 	link_whole: [leancrypto_raw_static_lib],
 	install: true
 	)
-leancrypto_lib = leancrypto_static_lib
+leancrypto_static_lib = declare_dependency(
+	link_with: leancrypto_static_lib_gen,
+	)
+leancrypto_lib = leancrypto_static_lib_gen
 
 leancrypto_static_lib_fips = static_library('leancrypto-fips',
 	[src_fips_wrapper],
@@ -719,14 +751,18 @@ leancrypto_static_lib_fips = static_library('leancrypto-fips',
 	)
 leancrypto_lib_fips = leancrypto_static_lib_fips
 
-pkgconfig.generate(leancrypto_lib_fips,
-		   description: 'PQC-resistant cryptographic library with FIPS 140 compliance (WASM)')
+if get_option('efi').disabled()
+	pkgconfig.generate(leancrypto_lib_fips,
+			   description: 'PQC-resistant cryptographic library with FIPS 140 compliance (WASM)')
+endif
 
 leancrypto_fips = declare_dependency(link_with: leancrypto_lib_fips,
 				     include_directories: include_dirs)
 
-pkgconfig.generate(leancrypto_lib,
-		   description: 'PQC-resistant cryptographic library (WASM)')
+if get_option('efi').disabled()
+	pkgconfig.generate(leancrypto_lib,
+			   description: 'PQC-resistant cryptographic library (WASM)')
+endif
 
 leancrypto = declare_dependency(link_with: leancrypto_lib,
 				include_directories: include_dirs)
