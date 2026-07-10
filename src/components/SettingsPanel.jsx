@@ -181,19 +181,19 @@ function AboutPage() {
 
           {stats.top5.length > 0 && (<>
             <StatsHeading>Top {stats.top5.length} largest entries</StatsHeading>
-            <table className="table table-sm">
+            <table className="table table-sm" style={{ tableLayout: 'fixed', width: '100%' }}>
               <thead>
                 <tr>
-                  <th className="text-muted fw-normal">Title</th>
-                  <th className="text-muted fw-normal">Username</th>
+                  <th className="text-muted fw-normal" style={{ width: '30%' }}>Title</th>
+                  <th className="text-muted fw-normal" style={{ width: '30%' }}>Username</th>
                   <th className="text-muted fw-normal">Size</th>
                 </tr>
               </thead>
               <tbody>
                 {stats.top5.map((e, i) => (
                   <tr key={i}>
-                    <td className="fw-semibold">{e.title ?? <span className="text-muted fst-italic">—</span>}</td>
-                    <td className="text-muted small">{e.username || <span className="fst-italic">—</span>}</td>
+                    <td className="fw-semibold text-truncate">{e.title ?? <span className="text-muted fst-italic">—</span>}</td>
+                    <td className="text-muted small text-truncate">{e.username || <span className="fst-italic">—</span>}</td>
                     <td className="fw-semibold">{e.bytes.toLocaleString()} B</td>
                   </tr>
                 ))}
