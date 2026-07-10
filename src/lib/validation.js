@@ -38,9 +38,8 @@ function validateS3DestinationConfig(c, label) {
   return errors;
 }
 
-export function validateConfig(config) {
+function validateRequiredFields(c) {
   const errors = [];
-  const c = config && typeof config === 'object' ? config : {};
   if (!String(c.instant_app_id || '').trim()) errors.push('InstantDB app ID is required');
   if (!String(c.instant_client_name || '').trim()) errors.push('InstantDB client name is required');
   if (!String(c.email || '').trim()) errors.push('Email is required');
@@ -50,37 +49,45 @@ export function validateConfig(config) {
   if (!validateRootMasterKey(c.root_master_key || '')) {
     errors.push('Root master key must be base64 and at least 256 bytes decoded');
   }
+  return errors;
+}
 
-  if (c.r2_config !== undefined) {
-    const r2 = c.r2_config && typeof c.r2_config === 'object' ? c.r2_config : {};
-    if (!String(r2.account_id || '').trim()) errors.push('R2 account ID is required');
-    if (!String(r2.bucket || '').trim()) errors.push('R2 bucket is required');
-    if (!String(r2.access_key_id || '').trim()) errors.push('R2 access key ID is required');
-    if (!String(r2.secret_access_key || '').trim()) errors.push('R2 secret access key is required');
-  }
+function validateR2Config(c) {
+  if (c.r2_config === undefined) return [];
+  const errors = [];
+  const r2 = c.r2_config && typeof c.r2_config === 'object' ? c.r2_config : {};
+  if (!String(r2.account_id || '').trim()) errors.push('R2 account ID is required');
+  if (!String(r2.bucket || '').trim()) errors.push('R2 bucket is required');
+  if (!String(r2.access_key_id || '').trim()) errors.push('R2 access key ID is required');
+  if (!String(r2.secret_access_key || '').trim()) errors.push('R2 secret access key is required');
+  return errors;
+}
 
-  if (c.s3_config !== undefined) {
-    if (!Array.isArray(c.s3_config)) {
-      errors.push('S3 destinations must be a list');
-    } else {
-      c.s3_config.forEach((entry, i) => {
-        const entryErrors = validateS3DestinationConfig(
-          entry && typeof entry === 'object' ? entry : {},
-          `S3 destination ${i + 1}`,
-        );
-        errors.push(...entryErrors);
-      });
-    }
-  }
+function validateS3Configs(c) {
+  if (c.s3_config === undefined) return [];
+  if (!Array.isArray(c.s3_config)) return ['S3 destinations must be a list'];
+  return c.s3_config.flatMap((entry, i) => validateS3DestinationConfig(
+    entry && typeof entry === 'object' ? entry : {},
+    `S3 destination ${i + 1}`,
+  ));
+}
 
-  // Same format requirement as root_master_key (base64, >=256 bytes); only
-  // required when a cloud destination is actually configured, since it's
-  // otherwise unused.
+// Same format requirement as root_master_key (base64, >=256 bytes); only
+// required when a cloud destination is actually configured, since it's
+// otherwise unused.
+function validateBackupMasterKeyRequirement(c) {
   const wantsCloudBackup = c.r2_config !== undefined
     || (Array.isArray(c.s3_config) && c.s3_config.length > 0);
-  if (wantsCloudBackup && !validateRootMasterKey(c.backup_master_key || '')) {
-    errors.push('Backup master key must be base64 and at least 256 bytes decoded');
-  }
+  if (!wantsCloudBackup || validateRootMasterKey(c.backup_master_key || '')) return [];
+  return ['Backup master key must be base64 and at least 256 bytes decoded'];
+}
 
-  return errors;
+export function validateConfig(config) {
+  const c = config && typeof config === 'object' ? config : {};
+  return [
+    ...validateRequiredFields(c),
+    ...validateR2Config(c),
+    ...validateS3Configs(c),
+    ...validateBackupMasterKeyRequirement(c),
+  ];
 }

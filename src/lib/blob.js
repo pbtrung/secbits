@@ -34,15 +34,19 @@ export function buildBlob({ version = BLOB_VERSION, salt, ciphertext, tag }) {
   return concat(ad, ciphertext, tag);
 }
 
-export function parseBlob(blobBytes) {
-  if (!(blobBytes instanceof Uint8Array) || blobBytes.length < BLOB_MIN_LEN) {
-    throw new Error('Invalid encrypted value');
-  }
+function verifyBlobMagic(blobBytes) {
   for (let i = 0; i < BLOB_MAGIC.length; i++) {
     if (blobBytes[i] !== BLOB_MAGIC[i]) {
       throw new Error('Invalid encrypted value');
     }
   }
+}
+
+export function parseBlob(blobBytes) {
+  if (!(blobBytes instanceof Uint8Array) || blobBytes.length < BLOB_MIN_LEN) {
+    throw new Error('Invalid encrypted value');
+  }
+  verifyBlobMagic(blobBytes);
 
   const versionStart = BLOB_MAGIC.length;
   const saltStart = versionStart + BLOB_VERSION.length;

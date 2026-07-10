@@ -16,30 +16,41 @@ import {
   CARD_HOLDER_MAX, CARD_NUMBER_MAX, CARD_EXPIRY_MAX, CARD_CVV_MAX,
 } from '../lib/limits.js';
 
-function hasDraftChanges(draft, entry, tagCurrentInput) {
-  const normalizeText = (value) => (typeof value === 'string' ? value : '');
-  const normalizeArray = (value) => (Array.isArray(value) ? value : []);
-  const currentTagText = tagCurrentInput.trim().toLowerCase();
-  const draftTags = normalizeArray(draft?.tags);
-  const tagsNow = (currentTagText && !draftTags.includes(currentTagText))
-    ? [...draftTags, currentTagText]
-    : draftTags;
-  const tagsOrig = normalizeArray(entry?.tags);
+const SCALAR_DRAFT_FIELDS = ['title', 'username', 'password', 'notes', 'cardholderName', 'cardNumber', 'cardExpiry', 'cardCvv'];
+const ARRAY_DRAFT_FIELDS = ['urls', 'totpSecrets', 'customFields'];
 
-  return (
-    normalizeText(draft?.title) !== normalizeText(entry?.title) ||
-    normalizeText(draft?.username) !== normalizeText(entry?.username) ||
-    normalizeText(draft?.password) !== normalizeText(entry?.password) ||
-    normalizeText(draft?.notes) !== normalizeText(entry?.notes) ||
-    normalizeText(draft?.cardholderName) !== normalizeText(entry?.cardholderName) ||
-    normalizeText(draft?.cardNumber) !== normalizeText(entry?.cardNumber) ||
-    normalizeText(draft?.cardExpiry) !== normalizeText(entry?.cardExpiry) ||
-    normalizeText(draft?.cardCvv) !== normalizeText(entry?.cardCvv) ||
-    JSON.stringify(normalizeArray(draft?.urls)) !== JSON.stringify(normalizeArray(entry?.urls)) ||
-    JSON.stringify(normalizeArray(draft?.totpSecrets)) !== JSON.stringify(normalizeArray(entry?.totpSecrets)) ||
-    JSON.stringify(normalizeArray(draft?.customFields)) !== JSON.stringify(normalizeArray(entry?.customFields)) ||
-    [...tagsNow].sort().join(',') !== [...tagsOrig].sort().join(',')
+function scalarDraftFieldsChanged(draft, entry) {
+  const normalizeText = (value) => (typeof value === 'string' ? value : '');
+  return SCALAR_DRAFT_FIELDS.some((f) => normalizeText(draft?.[f]) !== normalizeText(entry?.[f]));
+}
+
+function arrayDraftFieldsChanged(draft, entry) {
+  const normalizeArray = (value) => (Array.isArray(value) ? value : []);
+  return ARRAY_DRAFT_FIELDS.some(
+    (f) => JSON.stringify(normalizeArray(draft?.[f])) !== JSON.stringify(normalizeArray(entry?.[f])),
   );
+}
+
+// Shared by draftTagsChanged and EntryDetail's handleSave: the tag input
+// box can hold an uncommitted tag the user typed but didn't press
+// Enter/comma on yet, which still counts as part of the tag set on save.
+function commitPendingTag(tags, tagCurrentInput) {
+  const current = tagCurrentInput.trim().toLowerCase();
+  if (current && !tags.includes(current)) return [...tags, current];
+  return tags;
+}
+
+function draftTagsChanged(draft, entry, tagCurrentInput) {
+  const normalizeArray = (value) => (Array.isArray(value) ? value : []);
+  const tagsNow = commitPendingTag(normalizeArray(draft?.tags), tagCurrentInput);
+  const tagsOrig = normalizeArray(entry?.tags);
+  return [...tagsNow].sort().join(',') !== [...tagsOrig].sort().join(',');
+}
+
+function hasDraftChanges(draft, entry, tagCurrentInput) {
+  return scalarDraftFieldsChanged(draft, entry)
+    || arrayDraftFieldsChanged(draft, entry)
+    || draftTagsChanged(draft, entry, tagCurrentInput);
 }
 
 function normalizeEntryForDraft(entry) {
@@ -276,19 +287,11 @@ function EntryDetail({
   const handleSave = () => {
     const freshUrlErrors = collectIndexedErrors(draft.urls, getUrlError);
     const freshTotpErrors = collectIndexedErrors(draft.totpSecrets, getTotpError);
-
     setUrlErrors(freshUrlErrors);
     setTotpErrors(freshTotpErrors);
+    if (Object.keys(freshUrlErrors).length > 0 || Object.keys(freshTotpErrors).length > 0) return;
 
-    if (Object.keys(freshUrlErrors).length > 0 || Object.keys(freshTotpErrors).length > 0) {
-      return;
-    }
-
-    const finalTags = [...(draft.tags || [])];
-    const current = tagCurrentInput.trim().toLowerCase();
-    if (current && !finalTags.includes(current)) {
-      finalTags.push(current);
-    }
+    const finalTags = commitPendingTag(draft.tags || [], tagCurrentInput);
     onSave({ ...draft, tags: finalTags, urls: draft.urls.filter((u) => u.trim()) });
   };
 

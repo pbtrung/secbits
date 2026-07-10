@@ -42,6 +42,15 @@ async function uploadToS3(s3DestinationConfig, key, bodyBytes) {
   );
 }
 
+async function reportUpload(destination, uploadFn) {
+  try {
+    await uploadFn();
+    return { destination, ok: true };
+  } catch (err) {
+    return { destination, ok: false, error: err?.message || String(err) };
+  }
+}
+
 // Every destination is uploaded and reported independently: a failure at one
 // must never block or roll back the others (see docs/crypto.md, Cloud
 // Backup and docs/testing.md).
@@ -49,22 +58,12 @@ export async function uploadAllBackupDestinations({ r2_config, s3_config }, body
   const results = [];
 
   if (r2_config) {
-    try {
-      await uploadToR2(r2_config, key, bodyBytes);
-      results.push({ destination: 'r2', ok: true });
-    } catch (err) {
-      results.push({ destination: 'r2', ok: false, error: err?.message || String(err) });
-    }
+    results.push(await reportUpload('r2', () => uploadToR2(r2_config, key, bodyBytes)));
   }
 
   for (const [i, s3Dest] of (s3_config || []).entries()) {
     const label = `s3[${i}] ${s3Dest.endpoint || ''}`;
-    try {
-      await uploadToS3(s3Dest, key, bodyBytes);
-      results.push({ destination: label, ok: true });
-    } catch (err) {
-      results.push({ destination: label, ok: false, error: err?.message || String(err) });
-    }
+    results.push(await reportUpload(label, () => uploadToS3(s3Dest, key, bodyBytes)));
   }
 
   return results;

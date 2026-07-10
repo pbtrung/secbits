@@ -3,6 +3,25 @@ import { initDb, signIn, ensureKeyStore, setUsername, setBackupDestinations, set
 import { decodeRootMasterKey, decodeBackupMasterKey } from '../crypto';
 import { validateConfig } from '../lib/validation';
 
+async function unlockVault(rootMasterKeyBytes, json, setStatus) {
+  setStatus('Authenticating...');
+  await signIn({
+    email: json.email,
+    password: json.password,
+    firebaseApiKey: json.firebase_api_key,
+    instantClientName: json.instant_client_name,
+  });
+
+  setStatus('Unlocking vault...');
+  await ensureKeyStore(rootMasterKeyBytes);
+}
+
+function applyConfigExtras(json) {
+  setUsername(json.username);
+  setBackupDestinations({ r2_config: json.r2_config, s3_config: json.s3_config });
+  setBackupMasterKey(json.backup_master_key ? decodeBackupMasterKey(json.backup_master_key) : null);
+}
+
 function AppSetup({ onReady }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -18,25 +37,26 @@ function AppSetup({ onReady }) {
     if (errors.length > 0) throw new Error(errors.join('; '));
 
     const rootMasterKeyBytes = decodeRootMasterKey(json.root_master_key);
-
     initDb(json.instant_app_id);
 
-    setStatus('Authenticating...');
-    await signIn({
-      email: json.email,
-      password: json.password,
-      firebaseApiKey: json.firebase_api_key,
-      instantClientName: json.instant_client_name,
-    });
+    await unlockVault(rootMasterKeyBytes, json, setStatus);
+    applyConfigExtras(json);
 
-    setStatus('Unlocking vault...');
-    await ensureKeyStore(rootMasterKeyBytes);
-
-    setUsername(json.username);
-    setBackupDestinations({ r2_config: json.r2_config, s3_config: json.s3_config });
-    setBackupMasterKey(json.backup_master_key ? decodeBackupMasterKey(json.backup_master_key) : null);
     const userId = await getUserId();
     return { userId, username: json.username };
+  };
+
+  const handleFileLoaded = async (text) => {
+    setLoading(true);
+    try {
+      const { userId, username } = await processConfigText(text);
+      setStatus('Loading entries...');
+      await onReady(userId, username);
+    } catch (connErr) {
+      clearSession();
+      setError(connErr.message || 'Invalid configuration');
+      setLoading(false);
+    }
   };
 
   const processFile = (file) => {
@@ -47,19 +67,7 @@ function AppSetup({ onReady }) {
       return;
     }
     const reader = new FileReader();
-    reader.onload = async (e) => {
-      const text = e.target.result;
-      setLoading(true);
-      try {
-        const { userId, username } = await processConfigText(text);
-        setStatus('Loading entries...');
-        await onReady(userId, username);
-      } catch (connErr) {
-        clearSession();
-        setError(connErr.message || 'Invalid configuration');
-        setLoading(false);
-      }
-    };
+    reader.onload = (e) => handleFileLoaded(e.target.result);
     reader.readAsText(file);
   };
 
@@ -139,7 +147,7 @@ function AppSetup({ onReady }) {
   "password": "<password>",
   "username": "<display-name>",
   "root_master_key": "<base64, >=256 bytes>",
-  "backup_master_key": "<base64, >=256 bytes, required for cloud backup>",
+  "backup_master_key": "<base64, >=256 bytes>",
   "r2_config": { "...": "optional, see README" },
   "s3_config": [{ "...": "optional, see README" }]
 }`}

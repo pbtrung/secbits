@@ -90,25 +90,22 @@ export function initDb(instantAppId) {
   return db;
 }
 
-export async function signIn({ email, password, firebaseApiKey, instantClientName }) {
+async function firebaseSignIn(email, password, firebaseApiKey) {
   const { initializeApp, getApps } = await import('firebase/app');
   const { getAuth, signInWithEmailAndPassword } = await import('firebase/auth');
-
   const app = getApps().length ? getApps()[0] : initializeApp({ apiKey: firebaseApiKey });
-  const firebaseAuth = getAuth(app);
-  const credential = await signInWithEmailAndPassword(firebaseAuth, email, password);
-  const idToken = await credential.user.getIdToken();
-  await db.auth.signInWithIdToken({ idToken, clientName: instantClientName });
+  return signInWithEmailAndPassword(getAuth(app), email, password);
+}
 
-  // db.getAuth() reads back from a persisted store, not directly from the
-  // in-memory state signInWithIdToken() just updated, so there is a real
-  // window right after sign-in where it can return nothing yet. Wait for
-  // *some* auth to exist before trusting it elsewhere. Do not require its
-  // `email` to match: that field is optional on $users and may not be
-  // reliably populated even when the session is genuinely correct, so
-  // treating a missing/mismatched email as failure risks a false negative
-  // on a session that is actually fine; only warn on that, don't throw.
-  const expectedEmail = credential.user.email;
+// db.getAuth() reads back from a persisted store, not directly from the
+// in-memory state signInWithIdToken() just updated, so there is a real
+// window right after sign-in where it can return nothing yet. Wait for
+// *some* auth to exist before trusting it elsewhere. Do not require its
+// `email` to match: that field is optional on $users and may not be
+// reliably populated even when the session is genuinely correct, so
+// treating a missing/mismatched email as failure risks a false negative
+// on a session that is actually fine; only warn on that, don't throw.
+async function waitForSettledAuth(expectedEmail) {
   let auth = await db.getAuth();
   for (let attempt = 0; !auth && attempt < 10; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -120,6 +117,13 @@ export async function signIn({ email, password, firebaseApiKey, instantClientNam
   if (auth.email && auth.email !== expectedEmail) {
     console.warn(`InstantDB auth settled to ${auth.email}, expected ${expectedEmail}; possible stale session.`);
   }
+}
+
+export async function signIn({ email, password, firebaseApiKey, instantClientName }) {
+  const credential = await firebaseSignIn(email, password, firebaseApiKey);
+  const idToken = await credential.user.getIdToken();
+  await db.auth.signInWithIdToken({ idToken, clientName: instantClientName });
+  await waitForSettledAuth(credential.user.email);
 }
 
 export async function getUserId() {
@@ -182,10 +186,7 @@ async function queryOwnKeyStoreRows(authId) {
   return users[0]?.keyStore || [];
 }
 
-export async function ensureKeyStore(rmkBytes) {
-  rootMasterKeyBytes = rmkBytes;
-  const authId = await requireAuthId();
-
+async function findOwnKeyStoreRow(authId) {
   let rows = await queryOwnKeyStoreRows(authId);
 
   if (rows.length === 0) {
@@ -200,14 +201,10 @@ export async function ensureKeyStore(rmkBytes) {
       'Multiple key store rows found for this account. Refusing to guess which is correct.',
     );
   }
+  return rows[0] || null;
+}
 
-  if (rows.length === 1) {
-    const row = rows[0];
-    umkBytes = await decryptUMK(b64ToBytes(row.umkBlob), rootMasterKeyBytes);
-    keyStoreId = row.id;
-    return;
-  }
-
+async function createKeyStoreRow() {
   const newUmk = generateUMK();
   const umkBlobBytes = await encryptUMK(newUmk, rootMasterKeyBytes);
   const newId = id();
@@ -219,8 +216,23 @@ export async function ensureKeyStore(rmkBytes) {
       .link({ owner: ownerId }),
   ]);
 
-  umkBytes = newUmk;
-  keyStoreId = newId;
+  return { umk: newUmk, keyStoreId: newId };
+}
+
+export async function ensureKeyStore(rmkBytes) {
+  rootMasterKeyBytes = rmkBytes;
+  const authId = await requireAuthId();
+  const row = await findOwnKeyStoreRow(authId);
+
+  if (row) {
+    umkBytes = await decryptUMK(b64ToBytes(row.umkBlob), rootMasterKeyBytes);
+    keyStoreId = row.id;
+    return;
+  }
+
+  const created = await createKeyStoreRow();
+  umkBytes = created.umk;
+  keyStoreId = created.keyStoreId;
 }
 
 // --- internal: entry key + history maintenance helpers -----------------------
@@ -254,6 +266,44 @@ async function purgeTrashRetention(trashEntries) {
   for (const e of expired) entryKeyCache.delete(e.id);
 }
 
+async function fetchEntryHistoryRows(entryId) {
+  return (await db.queryOnce({
+    entryHistory: { $: { where: { 'entry.id': entryId } } },
+  })).data.entryHistory || [];
+}
+
+// Shared by fetchUserEntries and saveEntrySnapshot: decrypt every history
+// row's snapshot and sort newest first, ready for buildCommitList.
+async function decryptHistoryRows(historyRows, rawEntryKey) {
+  const rawSnapshots = await Promise.all(
+    historyRows.map(async (h) => ({
+      id: h.id,
+      ...(await decryptEntry(b64ToBytes(h.encryptedSnapshot), rawEntryKey)),
+    })),
+  );
+  rawSnapshots.sort((a, b) => (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0));
+  return rawSnapshots;
+}
+
+// Rebuild history the same way fetchUserEntries does, rather than omitting
+// it: every saveEntrySnapshot caller (create/update/restore) returns this
+// result straight to the UI, which replaces its in-memory entry with it.
+// Without this, `history` silently disappeared from the entry after every
+// single save, not just restore, since nothing here ever included it.
+async function rebuildEntryHistory(entryId, rawEntryKey) {
+  const historyRows = await fetchEntryHistoryRows(entryId);
+  const rawSnapshots = await decryptHistoryRows(historyRows, rawEntryKey);
+  return buildCommitList(rawSnapshots);
+}
+
+async function buildEntriesTxChunk(entryId, rawEntryKey, blob, { isCreate, ownerId }) {
+  if (!isCreate) return db.tx.entries[entryId].update({ encryptedData: blob });
+  const entryKeyBlob = bytesToB64(await encryptEntryKey(rawEntryKey, umkBytes));
+  return db.tx.entries[entryId]
+    .update({ entryKey: entryKeyBlob, encryptedData: blob })
+    .link({ owner: ownerId });
+}
+
 async function saveEntrySnapshot(entryId, rawEntryKey, snapshotWithoutHash, { isCreate, ownerId } = {}) {
   // Defense in depth: every caller already strips `history` from its input,
   // but this is the one choke point all saves funnel through, so a future
@@ -267,34 +317,14 @@ async function saveEntrySnapshot(entryId, rawEntryKey, snapshotWithoutHash, { is
   // identical content under a second random salt.
   const blob = bytesToB64(await encryptEntry(withHash, rawEntryKey));
   const historyId = id();
-
-  const entriesChunk = isCreate
-    ? db.tx.entries[entryId]
-        .update({ entryKey: bytesToB64(await encryptEntryKey(rawEntryKey, umkBytes)), encryptedData: blob })
-        .link({ owner: ownerId })
-    : db.tx.entries[entryId].update({ encryptedData: blob });
+  const entriesChunk = await buildEntriesTxChunk(entryId, rawEntryKey, blob, { isCreate, ownerId });
 
   await db.transact([
     entriesChunk,
     db.tx.entryHistory[historyId].update({ encryptedSnapshot: blob }).link({ entry: entryId }),
   ]);
 
-  // Rebuild history the same way fetchUserEntries does, rather than
-  // omitting it: every caller (create/update/restore) returns this result
-  // straight to the UI, which replaces its in-memory entry with it. Without
-  // this, `history` silently disappeared from the entry after every single
-  // save, not just restore, since nothing here ever included it.
-  const historyRows = (await db.queryOnce({
-    entryHistory: { $: { where: { 'entry.id': entryId } } },
-  })).data.entryHistory || [];
-  const rawSnapshots = await Promise.all(
-    historyRows.map(async (h) => ({
-      id: h.id,
-      ...(await decryptEntry(b64ToBytes(h.encryptedSnapshot), rawEntryKey)),
-    })),
-  );
-  rawSnapshots.sort((a, b) => (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0));
-  const history = buildCommitList(rawSnapshots);
+  const history = await rebuildEntryHistory(entryId, rawEntryKey);
 
   // id must come after the spread, not before: withHash can carry its own
   // stale `id` (e.g. the UI's local-<uuid> draft id, copied in via
@@ -308,15 +338,29 @@ async function saveEntrySnapshot(entryId, rawEntryKey, snapshotWithoutHash, { is
 
 // --- vault read ---------------------------------------------------------------
 
+// Shared by fetchUserEntries and rotateUserMasterKey: same $users-first,
+// follow-the-link approach as queryOwnKeyStoreRows (see its comment for why).
+async function queryOwnUserRow(authId, entriesSubquery = {}) {
+  const users = (await db.queryOnce({
+    $users: { $: { where: { id: authId } }, entries: entriesSubquery },
+  })).data.$users || [];
+  return users[0] || null;
+}
+
+async function hydrateEntryRow(row) {
+  const rawEntryKey = await getOrDecryptEntryKey(row);
+  const decoded = await decryptEntry(b64ToBytes(row.encryptedData), rawEntryKey);
+  const historyRows = row.entryHistory || [];
+  const rawSnapshots = await decryptHistoryRows(historyRows, rawEntryKey);
+  const history = buildCommitList(rawSnapshots);
+  await pruneHistoryForEntry(row.id, rawEntryKey, historyRows);
+  return { id: row.id, ...decoded, history };
+}
+
 export async function fetchUserEntries() {
   assertUnlocked();
   const authId = await requireAuthId();
-
-  // Same $users-first, follow-the-link approach as queryOwnKeyStoreRows.
-  const users = (await db.queryOnce({
-    $users: { $: { where: { id: authId } }, entries: { entryHistory: {} } },
-  })).data.$users || [];
-  const rows = users[0]?.entries || [];
+  const rows = (await queryOwnUserRow(authId, { entryHistory: {} }))?.entries || [];
 
   const entries = [];
   const trash = [];
@@ -324,24 +368,9 @@ export async function fetchUserEntries() {
 
   for (const row of rows) {
     try {
-      const rawEntryKey = await getOrDecryptEntryKey(row);
-      const decoded = await decryptEntry(b64ToBytes(row.encryptedData), rawEntryKey);
-      const historyRows = row.entryHistory || [];
-
-      const rawSnapshots = await Promise.all(
-        historyRows.map(async (h) => ({
-          id: h.id,
-          ...(await decryptEntry(b64ToBytes(h.encryptedSnapshot), rawEntryKey)),
-        })),
-      );
-      rawSnapshots.sort((a, b) => (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0));
-      const history = buildCommitList(rawSnapshots);
-
-      const hydrated = { id: row.id, ...decoded, history };
-      if (decoded.deletedAt) trash.push(hydrated);
+      const hydrated = await hydrateEntryRow(row);
+      if (hydrated.deletedAt) trash.push(hydrated);
       else entries.push(hydrated);
-
-      await pruneHistoryForEntry(row.id, rawEntryKey, historyRows);
     } catch {
       // A single row failing to decrypt (wrong key, corrupted blob, planted
       // row) must not take down the whole vault load.
@@ -454,22 +483,23 @@ export async function rotateRootMasterKey(newRootMasterKeyBytes) {
   rootMasterKeyBytes = newRootMasterKeyBytes;
 }
 
-export async function rotateUserMasterKey() {
-  assertUnlocked();
-  const authId = await requireAuthId();
-  const usersForRotation = (await db.queryOnce({
-    $users: { $: { where: { id: authId } }, entries: {} },
-  })).data.$users || [];
-  const rows = usersForRotation[0]?.entries || [];
-  const newUmk = generateUMK();
-
-  const rewrappedEntryKeys = await Promise.all(
+async function rewrapEntryKeysUnderNewUmk(rows, newUmk) {
+  return Promise.all(
     rows.map(async (row) => {
       const rawEntryKey = await getOrDecryptEntryKey(row);
       const newEntryKeyBlob = await encryptEntryKey(rawEntryKey, newUmk);
       return { rowId: row.id, blob: bytesToB64(newEntryKeyBlob) };
     }),
   );
+}
+
+export async function rotateUserMasterKey() {
+  assertUnlocked();
+  const authId = await requireAuthId();
+  const rows = (await queryOwnUserRow(authId))?.entries || [];
+  const newUmk = generateUMK();
+
+  const rewrappedEntryKeys = await rewrapEntryKeysUnderNewUmk(rows, newUmk);
   const newUmkBlob = await encryptUMK(newUmk, rootMasterKeyBytes);
 
   // Single atomic transaction: every entryKey rewrap plus the new keyStore

@@ -17,25 +17,33 @@ export function base32Decode(str) {
   return bytes;
 }
 
+function counterToBytes(counter) {
+  const counterBytes = new Uint8Array(8);
+  let tmp = counter;
+  for (let i = 7; i >= 0; i--) {
+    counterBytes[i] = tmp & 0xff;
+    tmp = Math.floor(tmp / 256);
+  }
+  return counterBytes;
+}
+
+function hotpTruncate(mac) {
+  const offset = mac[mac.length - 1] & 0x0f;
+  const code =
+    ((mac[offset] & 0x7f) << 24) |
+    ((mac[offset + 1] & 0xff) << 16) |
+    ((mac[offset + 2] & 0xff) << 8) |
+    (mac[offset + 3] & 0xff);
+  return String(code % 1000000).padStart(6, '0');
+}
+
 export function generateTOTPForCounter(secret, counter) {
   try {
     const key = base32Decode(secret);
     if (!Number.isFinite(counter) || counter < 0) return null;
     if (!key || key.length === 0) return null;
-    const counterBytes = new Uint8Array(8);
-    let tmp = counter;
-    for (let i = 7; i >= 0; i--) {
-      counterBytes[i] = tmp & 0xff;
-      tmp = Math.floor(tmp / 256);
-    }
-    const mac = hmac(sha1, key, counterBytes);
-    const offset = mac[mac.length - 1] & 0x0f;
-    const code =
-      ((mac[offset] & 0x7f) << 24) |
-      ((mac[offset + 1] & 0xff) << 16) |
-      ((mac[offset + 2] & 0xff) << 8) |
-      (mac[offset + 3] & 0xff);
-    return String(code % 1000000).padStart(6, '0');
+    const mac = hmac(sha1, key, counterToBytes(counter));
+    return hotpTruncate(mac);
   } catch {
     return null;
   }

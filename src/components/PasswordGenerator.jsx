@@ -1,33 +1,25 @@
 import { useState, useEffect, useCallback } from 'react';
 
-function evaluateStrength(password) {
-  if (!password) return { entropy: 0, label: '', colorClass: '' };
-
+function estimatePasswordEntropy(password) {
   let poolSize = 0;
   if (/[a-z]/.test(password)) poolSize += 26;
   if (/[A-Z]/.test(password)) poolSize += 26;
   if (/[0-9]/.test(password)) poolSize += 10;
   if (/[^a-zA-Z0-9]/.test(password)) poolSize += 30;
+  return password.length * Math.log2(poolSize || 1);
+}
 
-  if (poolSize === 0) poolSize = 1;
-  const entropy = password.length * Math.log2(poolSize);
+function strengthLabelFor(entropy) {
+  if (entropy < 36) return { label: 'Weak', colorClass: 'bg-danger' };
+  if (entropy < 60) return { label: 'Fair', colorClass: 'bg-warning' };
+  if (entropy < 80) return { label: 'Good', colorClass: 'bg-info' };
+  return { label: 'Strong', colorClass: 'bg-success' };
+}
 
-  let label, colorClass;
-  if (entropy < 36) {
-    label = 'Weak';
-    colorClass = 'bg-danger';
-  } else if (entropy < 60) {
-    label = 'Fair';
-    colorClass = 'bg-warning';
-  } else if (entropy < 80) {
-    label = 'Good';
-    colorClass = 'bg-info';
-  } else {
-    label = 'Strong';
-    colorClass = 'bg-success';
-  }
-
-  return { entropy, label, colorClass };
+function evaluateStrength(password) {
+  if (!password) return { entropy: 0, label: '', colorClass: '' };
+  const entropy = estimatePasswordEntropy(password);
+  return { entropy, ...strengthLabelFor(entropy) };
 }
 
 export function PasswordStrengthBar({ password }) {

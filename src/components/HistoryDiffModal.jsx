@@ -2,23 +2,22 @@ import { useEffect, useState } from 'react';
 import SpinnerBtn from './SpinnerBtn';
 import { formatExact } from '../lib/entryUtils.js';
 
-// LCS-based line diff. Returns [{type:'eq'|'add'|'del', v:string}].
-function computeLineDiff(a, b) {
-  const as = String(a ?? '').split('\n');
-  const bs = String(b ?? '').split('\n');
-  const m = as.length;
-  const n = bs.length;
-  const dp = Array.from({ length: m + 1 }, () => new Int32Array(n + 1));
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
+function buildLcsTable(as, bs) {
+  const dp = Array.from({ length: as.length + 1 }, () => new Int32Array(bs.length + 1));
+  for (let i = 1; i <= as.length; i++) {
+    for (let j = 1; j <= bs.length; j++) {
       dp[i][j] = as[i - 1] === bs[j - 1]
         ? dp[i - 1][j - 1] + 1
         : Math.max(dp[i - 1][j], dp[i][j - 1]);
     }
   }
+  return dp;
+}
+
+function backtrackLcs(as, bs, dp) {
   const out = [];
-  let i = m;
-  let j = n;
+  let i = as.length;
+  let j = bs.length;
   while (i > 0 || j > 0) {
     if (i > 0 && j > 0 && as[i - 1] === bs[j - 1]) {
       out.unshift({ type: 'eq', v: as[i - 1] });
@@ -35,19 +34,31 @@ function computeLineDiff(a, b) {
   return out;
 }
 
+// LCS-based line diff. Returns [{type:'eq'|'add'|'del', v:string}].
+function computeLineDiff(a, b) {
+  const as = String(a ?? '').split('\n');
+  const bs = String(b ?? '').split('\n');
+  return backtrackLcs(as, bs, buildLcsTable(as, bs));
+}
+
 // Collapse runs of unchanged lines that are more than CTX lines from any change.
 // Inserts {type:'hunk', skip:N} markers in their place.
 const CTX = 3;
 const MAX_DIFF_LINES = 1000;
-function withContext(lines) {
+
+function markNearChangeLines(lines) {
   const near = new Uint8Array(lines.length);
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].type !== 'eq') {
-      for (let j = Math.max(0, i - CTX); j <= Math.min(lines.length - 1, i + CTX); j++) {
-        near[j] = 1;
-      }
+    if (lines[i].type === 'eq') continue;
+    for (let j = Math.max(0, i - CTX); j <= Math.min(lines.length - 1, i + CTX); j++) {
+      near[j] = 1;
     }
   }
+  return near;
+}
+
+function withContext(lines) {
+  const near = markNearChangeLines(lines);
   const out = [];
   let skip = 0;
   for (let i = 0; i < lines.length; i++) {
@@ -69,70 +80,78 @@ const DIFF_FIELD_ORDER = ['title', 'username', 'password', 'notes', 'urls', 'tot
 const SCALAR_FIELDS = new Set(['title', 'username', 'password']);
 const ARRAY_STR_FIELDS = new Set(['urls', 'totpSecrets', 'tags']);
 
+function buildNotesDiffLines(oldVal, newVal, isInit) {
+  const oldLines = String(oldVal ?? '').split('\n');
+  const newLines = String(newVal ?? '').split('\n');
+  if (oldLines.length > MAX_DIFF_LINES || newLines.length > MAX_DIFF_LINES) {
+    return [{ type: 'large' }];
+  }
+  const raw = computeLineDiff(oldVal ?? '', newVal ?? '');
+  return isInit ? raw : withContext(raw);
+}
+
+function buildScalarDiffLines(oldVal, newVal) {
+  const lines = [];
+  if (oldVal) lines.push({ type: 'del', v: String(oldVal) });
+  if (newVal) lines.push({ type: 'add', v: String(newVal) });
+  return lines;
+}
+
+function buildArrayStrDiffLines(oldVal, newVal) {
+  const a = Array.isArray(oldVal) ? oldVal : [];
+  const b = Array.isArray(newVal) ? newVal : [];
+  return [
+    ...a.filter((x) => !b.includes(x)).map((x) => ({ type: 'del', v: x })),
+    ...b.filter((x) => !a.includes(x)).map((x) => ({ type: 'add', v: x })),
+  ];
+}
+
+function buildCustomFieldsDiffLines(oldVal, newVal) {
+  const a = Array.isArray(oldVal) ? oldVal : [];
+  const b = Array.isArray(newVal) ? newVal : [];
+  const lines = [];
+  for (const of_ of a) {
+    const nf = b.find((f) => f.label === of_.label);
+    if (!nf) {
+      lines.push({ type: 'del', v: `[${of_.label}] ${of_.value}` });
+    } else if (nf.value !== of_.value) {
+      lines.push({ type: 'del', v: `[${of_.label}] ${of_.value}` });
+      lines.push({ type: 'add', v: `[${nf.label}] ${nf.value}` });
+    }
+  }
+  for (const nf of b) {
+    if (!a.find((f) => f.label === nf.label)) {
+      lines.push({ type: 'add', v: `[${nf.label}] ${nf.value}` });
+    }
+  }
+  return lines;
+}
+
+function buildFieldDiffLines(field, oldVal, newVal, isInit) {
+  if (field === 'notes') return buildNotesDiffLines(oldVal, newVal, isInit);
+  if (SCALAR_FIELDS.has(field)) return buildScalarDiffLines(oldVal, newVal);
+  if (ARRAY_STR_FIELDS.has(field)) return buildArrayStrDiffLines(oldVal, newVal);
+  if (field === 'customFields') return buildCustomFieldsDiffLines(oldVal, newVal);
+  return [];
+}
+
+function diffFieldList(toSnap, changedFields, isInit) {
+  if (!isInit) return changedFields?.length ? changedFields : [];
+  return DIFF_FIELD_ORDER.filter((f) => {
+    const v = toSnap?.[f];
+    return Array.isArray(v) ? v.length > 0 : Boolean(v && String(v).trim());
+  });
+}
+
 // Build per-field diff sections for CommitDiff.
 // fromSnap=null means initial commit: show all non-empty fields as added.
 function buildDiffSections(fromSnap, toSnap, changedFields) {
   const isInit = !fromSnap;
-  const fields = isInit
-    ? DIFF_FIELD_ORDER.filter((f) => {
-      const v = toSnap?.[f];
-      return Array.isArray(v) ? v.length > 0 : Boolean(v && String(v).trim());
-    })
-    : (changedFields?.length ? changedFields : []);
+  const fields = diffFieldList(toSnap, changedFields, isInit);
 
   return fields.flatMap((field) => {
-    const oldVal = fromSnap?.[field];
-    const newVal = toSnap?.[field];
-
-    if (field === 'notes') {
-      const oldLines = String(oldVal ?? '').split('\n');
-      const newLines = String(newVal ?? '').split('\n');
-      if (oldLines.length > MAX_DIFF_LINES || newLines.length > MAX_DIFF_LINES) {
-        return [{ field, lines: [{ type: 'large' }] }];
-      }
-      const raw = computeLineDiff(oldVal ?? '', newVal ?? '');
-      return [{ field, lines: isInit ? raw : withContext(raw) }];
-    }
-
-    if (SCALAR_FIELDS.has(field)) {
-      const lines = [];
-      if (oldVal) lines.push({ type: 'del', v: String(oldVal) });
-      if (newVal) lines.push({ type: 'add', v: String(newVal) });
-      return lines.length ? [{ field, lines }] : [];
-    }
-
-    if (ARRAY_STR_FIELDS.has(field)) {
-      const a = Array.isArray(oldVal) ? oldVal : [];
-      const b = Array.isArray(newVal) ? newVal : [];
-      const lines = [
-        ...a.filter((x) => !b.includes(x)).map((x) => ({ type: 'del', v: x })),
-        ...b.filter((x) => !a.includes(x)).map((x) => ({ type: 'add', v: x })),
-      ];
-      return lines.length ? [{ field, lines }] : [];
-    }
-
-    if (field === 'customFields') {
-      const a = Array.isArray(oldVal) ? oldVal : [];
-      const b = Array.isArray(newVal) ? newVal : [];
-      const lines = [];
-      for (const of_ of a) {
-        const nf = b.find((f) => f.label === of_.label);
-        if (!nf) {
-          lines.push({ type: 'del', v: `[${of_.label}] ${of_.value}` });
-        } else if (nf.value !== of_.value) {
-          lines.push({ type: 'del', v: `[${of_.label}] ${of_.value}` });
-          lines.push({ type: 'add', v: `[${nf.label}] ${nf.value}` });
-        }
-      }
-      for (const nf of b) {
-        if (!a.find((f) => f.label === nf.label)) {
-          lines.push({ type: 'add', v: `[${nf.label}] ${nf.value}` });
-        }
-      }
-      return lines.length ? [{ field, lines }] : [];
-    }
-
-    return [];
+    const lines = buildFieldDiffLines(field, fromSnap?.[field], toSnap?.[field], isInit);
+    return lines.length ? [{ field, lines }] : [];
   });
 }
 

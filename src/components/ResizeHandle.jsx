@@ -1,5 +1,25 @@
 import { useCallback, useRef, useState } from 'react';
 
+function setColumnDragCursor(active) {
+  document.body.style.cursor = active ? 'col-resize' : '';
+  document.body.style.userSelect = active ? 'none' : '';
+}
+
+function attachDragListeners(startXRef, onResize, onDragEnd) {
+  const onMouseMove = (e) => {
+    const delta = e.clientX - startXRef.current;
+    startXRef.current = e.clientX;
+    onResize(delta);
+  };
+  const onMouseUp = () => {
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+    onDragEnd();
+  };
+  document.addEventListener('mousemove', onMouseMove);
+  document.addEventListener('mouseup', onMouseUp);
+}
+
 function ResizeHandle({ onResize }) {
   const [dragging, setDragging] = useState(false);
   const startX = useRef(0);
@@ -8,25 +28,11 @@ function ResizeHandle({ onResize }) {
     e.preventDefault();
     startX.current = e.clientX;
     setDragging(true);
-
-    const onMouseMove = (e) => {
-      const delta = e.clientX - startX.current;
-      startX.current = e.clientX;
-      onResize(delta);
-    };
-
-    const onMouseUp = () => {
+    setColumnDragCursor(true);
+    attachDragListeners(startX, onResize, () => {
       setDragging(false);
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
+      setColumnDragCursor(false);
+    });
   }, [onResize]);
 
   return (

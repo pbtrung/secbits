@@ -64,6 +64,38 @@ function App() {
 
 const isLocalEntryId = (id) => String(id).startsWith('local-');
 
+function buildBlankEntry(type, selectedTag) {
+  return {
+    id: `local-${crypto.randomUUID()}`,
+    _isNew: true,
+    type,
+    title: '',
+    username: '',
+    password: '',
+    urls: [''],
+    totpSecrets: [],
+    customFields: [],
+    notes: '',
+    tags: selectedTag ? [selectedTag] : [],
+    ...(type === 'card' ? { cardholderName: '', cardNumber: '', cardExpiry: '', cardCvv: '' } : {}),
+  };
+}
+
+function persistEntryUpdate(updated, wasNew) {
+  return wasNew ? createUserEntry(updated) : updateUserEntry(updated.id, updated);
+}
+
+// isLocalEntryId(editingId) means the draft was never saved: discarding it
+// only needs confirmation if it's actually been touched (dirtyRef). An
+// already-saved entry being edited always goes through the normal
+// unsaved-changes confirmation instead.
+function canDiscardEdit(editingId, isDirty, confirmUnsavedChanges) {
+  if (isLocalEntryId(editingId)) {
+    return !isDirty || window.confirm('Discard this new entry?');
+  }
+  return confirmUnsavedChanges();
+}
+
 function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncError, onLogout }) {
   const RESIZE_HANDLE_WIDTH = 5;
   const [entries, setEntries] = useState(initialEntries || []);
@@ -173,20 +205,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
     if (trashMode) return;
     if (!confirmUnsavedChanges()) return;
     prevSelectedIdRef.current = selectedEntryIdRef.current;
-    const newEntry = {
-      id: `local-${crypto.randomUUID()}`,
-      _isNew: true,
-      type,
-      title: '',
-      username: '',
-      password: '',
-      urls: [''],
-      totpSecrets: [],
-      customFields: [],
-      notes: '',
-      tags: selectedTag ? [selectedTag] : [],
-      ...(type === 'card' ? { cardholderName: '', cardNumber: '', cardExpiry: '', cardCvv: '' } : {}),
-    };
+    const newEntry = buildBlankEntry(type, selectedTag);
     setEntries((prev) => [newEntry, ...prev]);
     setSelectedEntryId(newEntry.id);
     setEditingId(newEntry.id);
@@ -200,14 +219,9 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
     const wasNew = isLocalEntryId(updated.id) || updated._isNew;
 
     try {
-      if (wasNew) {
-        const created = await createUserEntry(updated);
-        setEntries((prev) => prev.map((e) => (e.id === updated.id ? created : e)));
-        setSelectedEntryId(created.id);
-      } else {
-        const persisted = await updateUserEntry(updated.id, updated);
-        setEntries((prev) => prev.map((e) => (e.id === updated.id ? persisted : e)));
-      }
+      const saved = await persistEntryUpdate(updated, wasNew);
+      setEntries((prev) => prev.map((e) => (e.id === updated.id ? saved : e)));
+      if (wasNew) setSelectedEntryId(saved.id);
       setEditingId(null);
     } catch (err) {
       setSyncError(err?.message || 'Failed to save entry.');
@@ -231,15 +245,21 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
     }
   }, []);
 
+  // Shared by handleRestoreDeletedVersion/handleRestoreDeletedEntry: both
+  // move a just-restored entry out of the trash list and into the live one.
+  const restoreEntryFromTrash = useCallback((entryId, restored) => {
+    setTrashEntries((prev) => prev.filter((e) => e.id !== entryId));
+    setEntries((prev) => [restored, ...prev.filter((e) => e.id !== restored.id)]);
+    setTrashMode(false);
+    setSelectedEntryId(restored.id);
+  }, []);
+
   const handleRestoreDeletedVersion = useCallback(async (entryId, commitHash) => {
     setSyncError('');
     setSaving(true);
     try {
       const restored = normalizeEntry(await restoreDeletedEntryVersion(entryId, commitHash));
-      setTrashEntries((prev) => prev.filter((e) => e.id !== entryId));
-      setEntries((prev) => [restored, ...prev.filter((e) => e.id !== restored.id)]);
-      setTrashMode(false);
-      setSelectedEntryId(restored.id);
+      restoreEntryFromTrash(entryId, restored);
       return true;
     } catch (err) {
       setSyncError(err?.message || 'Failed to restore deleted entry version.');
@@ -247,17 +267,14 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
     } finally {
       setSaving(false);
     }
-  }, []);
+  }, [restoreEntryFromTrash]);
 
   const handleRestoreDeletedEntry = useCallback(async (entryId) => {
     setSyncError('');
     setSaving(true);
     try {
       const restored = normalizeEntry(await restoreDeletedUserEntry(entryId));
-      setTrashEntries((prev) => prev.filter((e) => e.id !== entryId));
-      setEntries((prev) => [restored, ...prev.filter((e) => e.id !== restored.id)]);
-      setTrashMode(false);
-      setSelectedEntryId(restored.id);
+      restoreEntryFromTrash(entryId, restored);
       setEditingId(null);
       if (isMobile) setMobileView('detail');
       return true;
@@ -267,23 +284,31 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
     } finally {
       setSaving(false);
     }
-  }, [isMobile]);
+  }, [isMobile, restoreEntryFromTrash]);
+
+  // Removes an entry from wherever it currently lives: permanently from
+  // trash, soft-deleted into trash from the live list, or (for an unsaved
+  // local draft) just discarded outright.
+  const removeEntryByMode = useCallback(async (id) => {
+    if (trashMode) {
+      await permanentlyDeleteUserEntry(id);
+      setTrashEntries((prev) => prev.filter((e) => e.id !== id));
+      return;
+    }
+    if (!isLocalEntryId(id)) {
+      const trashed = await deleteUserEntry(id);
+      setEntries((prev) => prev.filter((e) => e.id !== id));
+      setTrashEntries((prev) => [trashed, ...prev.filter((e) => e.id !== trashed.id)]);
+      return;
+    }
+    setEntries((prev) => prev.filter((e) => e.id !== id));
+  }, [trashMode]);
 
   const handleDelete = useCallback(async (id) => {
     setSyncError('');
     setDeleting(true);
-
     try {
-      if (trashMode) {
-        await permanentlyDeleteUserEntry(id);
-        setTrashEntries((prev) => prev.filter((e) => e.id !== id));
-      } else if (!isLocalEntryId(id)) {
-        const trashed = await deleteUserEntry(id);
-        setEntries((prev) => prev.filter((e) => e.id !== id));
-        setTrashEntries((prev) => [trashed, ...prev.filter((e) => e.id !== trashed.id)]);
-      } else {
-        setEntries((prev) => prev.filter((e) => e.id !== id));
-      }
+      await removeEntryByMode(id);
       setSelectedEntryId((prev) => (prev === id ? null : prev));
       setEditingId(null);
       if (isMobile) setMobileView('entries');
@@ -292,7 +317,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
     } finally {
       setDeleting(false);
     }
-  }, [isMobile, trashMode]);
+  }, [isMobile, removeEntryByMode]);
 
   const handleEdit = useCallback((id) => {
     if (trashMode) return;
@@ -318,13 +343,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
   }, []);
 
   const handleCancelEdit = useCallback(() => {
-    if (isLocalEntryId(editingId)) {
-      if (dirtyRef.current && !window.confirm('Discard this new entry?')) {
-        return;
-      }
-    } else if (!confirmUnsavedChanges()) {
-      return;
-    }
+    if (!canDiscardEdit(editingId, dirtyRef.current, confirmUnsavedChanges)) return;
 
     if (editingId && isLocalEntryId(editingId)) {
       const restoreId = prevSelectedIdRef.current ?? null;

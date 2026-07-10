@@ -47,30 +47,31 @@ function concat(...arrays) {
 let lcPromise = null;
 let lcScriptPromise = null;
 
+function loadLeancryptoScript() {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-leancrypto="1"]');
+    if (existing) {
+      existing.addEventListener('load', () => resolve(), { once: true });
+      existing.addEventListener('error', () => reject(new Error('Failed to load leancrypto script')), { once: true });
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = '/leancrypto/leancrypto.js';
+    script.async = true;
+    script.dataset.leancrypto = '1';
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Failed to load leancrypto script'));
+    document.head.appendChild(script);
+  });
+}
+
 async function ensureLeancryptoScript() {
+  if (typeof globalThis.leancrypto === 'function') return;
   if (typeof document === 'undefined') {
-    if (typeof globalThis.leancrypto === 'function') return;
     throw new Error('leancrypto global loader not available');
   }
-  if (typeof globalThis.leancrypto === 'function') return;
-  if (!lcScriptPromise) {
-    lcScriptPromise = new Promise((resolve, reject) => {
-      const existing = document.querySelector('script[data-leancrypto="1"]');
-      if (existing) {
-        existing.addEventListener('load', () => resolve(), { once: true });
-        existing.addEventListener('error', () => reject(new Error('Failed to load leancrypto script')), { once: true });
-        return;
-      }
-
-      const script = document.createElement('script');
-      script.src = '/leancrypto/leancrypto.js';
-      script.async = true;
-      script.dataset.leancrypto = '1';
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error('Failed to load leancrypto script'));
-      document.head.appendChild(script);
-    });
-  }
+  lcScriptPromise ??= loadLeancryptoScript();
   await lcScriptPromise;
   if (typeof globalThis.leancrypto !== 'function') {
     throw new Error('leancrypto global loader not available');
@@ -107,19 +108,20 @@ function toHex(bytes) {
   return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+function deriveHkdfKeyIv(lib, hashPtr, ikmPtr, ikmLen, saltPtr, saltLen, okmPtr) {
+  const rc = lib._lc_hkdf(hashPtr, ikmPtr, ikmLen, saltPtr, saltLen, 0, 0, okmPtr, HKDF_OUT_LEN);
+  if (rc !== 0) throw new Error(`hkdf failed: rc=${rc}`);
+  const okm = readBytes(lib, okmPtr, HKDF_OUT_LEN);
+  return { encKey: okm.slice(0, ENC_KEY_LEN), encIv: okm.slice(ENC_KEY_LEN) };
+}
+
 function hkdfSync(lib, keyBytes, salt) {
-  const sha3_512_ptr = resolveHashPtr(lib, lib._lc_sha3_512);
+  const hashPtr = resolveHashPtr(lib, lib._lc_sha3_512);
   const ikmPtr = writeBytes(lib, keyBytes);
   const saltPtr = writeBytes(lib, salt);
   const okmPtr = lib._malloc(HKDF_OUT_LEN);
   try {
-    const rc = lib._lc_hkdf(sha3_512_ptr, ikmPtr, keyBytes.length, saltPtr, salt.length, 0, 0, okmPtr, HKDF_OUT_LEN);
-    if (rc !== 0) throw new Error(`hkdf failed: rc=${rc}`);
-    const okm = readBytes(lib, okmPtr, HKDF_OUT_LEN);
-    return {
-      encKey: okm.slice(0, ENC_KEY_LEN),
-      encIv: okm.slice(ENC_KEY_LEN),
-    };
+    return deriveHkdfKeyIv(lib, hashPtr, ikmPtr, keyBytes.length, saltPtr, salt.length, okmPtr);
   } finally {
     lib._free(ikmPtr);
     lib._free(saltPtr);
@@ -127,18 +129,35 @@ function hkdfSync(lib, keyBytes, salt) {
   }
 }
 
-function akEncrypt(lib, encKey, encIv, plainBytes, ad) {
+// Shared by akEncrypt/akDecrypt: both need an AEAD context sized for the
+// same tag length, allocated the same way.
+function allocAeadCtx(lib) {
   const sha3_512_ptr = resolveHashPtr(lib, lib._lc_sha3_512);
   const ctxPtrPtr = lib._malloc(4);
-  let ctx = 0;
   try {
     const rc = lib._lc_ak_alloc_taglen(sha3_512_ptr, BLOB_TAG_LEN, ctxPtrPtr);
     if (rc !== 0) throw new Error(`lc_ak_alloc_taglen failed: rc=${rc}`);
-    ctx = lib.HEAP32[ctxPtrPtr >> 2];
+    return lib.HEAP32[ctxPtrPtr >> 2];
   } finally {
     lib._free(ctxPtrPtr);
   }
+}
 
+function runAeadEncrypt(lib, ctx, ptrs, keyLen, ivLen, ptLen, adLen) {
+  let rc = lib._lc_aead_setkey(ctx, ptrs.keyPtr, keyLen, ptrs.ivPtr, ivLen);
+  if (rc !== 0) throw new Error(`lc_aead_setkey failed: rc=${rc}`);
+
+  rc = lib._lc_aead_encrypt(ctx, ptrs.ptPtr, ptrs.ctPtr, ptLen, ptrs.adPtr, adLen, ptrs.tagPtr, BLOB_TAG_LEN);
+  if (rc !== 0) throw new Error(`lc_aead_encrypt failed: rc=${rc}`);
+
+  return {
+    ciphertext: readBytes(lib, ptrs.ctPtr, ptLen),
+    tag: readBytes(lib, ptrs.tagPtr, BLOB_TAG_LEN),
+  };
+}
+
+function akEncrypt(lib, encKey, encIv, plainBytes, ad) {
+  const ctx = allocAeadCtx(lib);
   const keyPtr = writeBytes(lib, encKey);
   const ivPtr = writeBytes(lib, encIv);
   const ptPtr = writeBytes(lib, plainBytes);
@@ -146,16 +165,7 @@ function akEncrypt(lib, encKey, encIv, plainBytes, ad) {
   const tagPtr = lib._malloc(BLOB_TAG_LEN);
   const adPtr = ad.length > 0 ? writeBytes(lib, ad) : 0;
   try {
-    let rc = lib._lc_aead_setkey(ctx, keyPtr, encKey.length, ivPtr, encIv.length);
-    if (rc !== 0) throw new Error(`lc_aead_setkey failed: rc=${rc}`);
-
-    rc = lib._lc_aead_encrypt(ctx, ptPtr, ctPtr, plainBytes.length, adPtr, ad.length, tagPtr, BLOB_TAG_LEN);
-    if (rc !== 0) throw new Error(`lc_aead_encrypt failed: rc=${rc}`);
-
-    return {
-      ciphertext: readBytes(lib, ctPtr, plainBytes.length),
-      tag: readBytes(lib, tagPtr, BLOB_TAG_LEN),
-    };
+    return runAeadEncrypt(lib, ctx, { keyPtr, ivPtr, ptPtr, ctPtr, tagPtr, adPtr }, encKey.length, encIv.length, plainBytes.length, ad.length);
   } finally {
     lib._free(keyPtr);
     lib._free(ivPtr);
@@ -167,18 +177,18 @@ function akEncrypt(lib, encKey, encIv, plainBytes, ad) {
   }
 }
 
-function akDecrypt(lib, encKey, encIv, ciphertext, tag, ad) {
-  const sha3_512_ptr = resolveHashPtr(lib, lib._lc_sha3_512);
-  const ctxPtrPtr = lib._malloc(4);
-  let ctx = 0;
-  try {
-    const rc = lib._lc_ak_alloc_taglen(sha3_512_ptr, BLOB_TAG_LEN, ctxPtrPtr);
-    if (rc !== 0) throw new Error(`lc_ak_alloc_taglen failed: rc=${rc}`);
-    ctx = lib.HEAP32[ctxPtrPtr >> 2];
-  } finally {
-    lib._free(ctxPtrPtr);
-  }
+function runAeadDecrypt(lib, ctx, ptrs, keyLen, ivLen, ctLen, adLen) {
+  let rc = lib._lc_aead_setkey(ctx, ptrs.keyPtr, keyLen, ptrs.ivPtr, ivLen);
+  if (rc !== 0) throw new Error(`lc_aead_setkey failed: rc=${rc}`);
 
+  rc = lib._lc_aead_decrypt(ctx, ptrs.ctPtr, ptrs.ptPtr, ctLen, ptrs.adPtr, adLen, ptrs.tagPtr, BLOB_TAG_LEN);
+  if (rc !== 0) throw new Error('Invalid encrypted value: authentication failed');
+
+  return readBytes(lib, ptrs.ptPtr, ctLen);
+}
+
+function akDecrypt(lib, encKey, encIv, ciphertext, tag, ad) {
+  const ctx = allocAeadCtx(lib);
   const keyPtr = writeBytes(lib, encKey);
   const ivPtr = writeBytes(lib, encIv);
   const ctPtr = writeBytes(lib, ciphertext);
@@ -186,13 +196,7 @@ function akDecrypt(lib, encKey, encIv, ciphertext, tag, ad) {
   const tagPtr = writeBytes(lib, tag);
   const adPtr = ad.length > 0 ? writeBytes(lib, ad) : 0;
   try {
-    let rc = lib._lc_aead_setkey(ctx, keyPtr, encKey.length, ivPtr, encIv.length);
-    if (rc !== 0) throw new Error(`lc_aead_setkey failed: rc=${rc}`);
-
-    rc = lib._lc_aead_decrypt(ctx, ctPtr, ptPtr, ciphertext.length, adPtr, ad.length, tagPtr, BLOB_TAG_LEN);
-    if (rc !== 0) throw new Error('Invalid encrypted value: authentication failed');
-
-    return readBytes(lib, ptPtr, ciphertext.length);
+    return runAeadDecrypt(lib, ctx, { keyPtr, ivPtr, ctPtr, ptPtr, tagPtr, adPtr }, encKey.length, encIv.length, ciphertext.length, ad.length);
   } finally {
     lib._free(keyPtr);
     lib._free(ivPtr);
@@ -309,11 +313,7 @@ export async function decryptEntry(entryBlobBytes, entryKeyBytes) {
   return decompressJson(compressed);
 }
 
-export async function sha3_256Hex(inputBytes) {
-  if (!(inputBytes instanceof Uint8Array)) {
-    throw new Error('sha3_256Hex expects byte array');
-  }
-  const lib = await getLc();
+function runSha3_256Hex(lib, inputBytes) {
   const hashPtr = resolveHashPtr(lib, lib._lc_sha3_256);
   const inPtr = writeBytes(lib, inputBytes);
   const outLen = 32;
@@ -326,4 +326,12 @@ export async function sha3_256Hex(inputBytes) {
     lib._free(inPtr);
     lib._free(outPtr);
   }
+}
+
+export async function sha3_256Hex(inputBytes) {
+  if (!(inputBytes instanceof Uint8Array)) {
+    throw new Error('sha3_256Hex expects byte array');
+  }
+  const lib = await getLc();
+  return runSha3_256Hex(lib, inputBytes);
 }

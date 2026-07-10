@@ -5,6 +5,17 @@ import { buildCloudBackupBlob } from '../lib/backup';
 import { uploadAllBackupDestinations } from '../lib/s3';
 import KeyRotation from './KeyRotation';
 
+function downloadJsonFile(obj, filename) {
+  const json = JSON.stringify(obj, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function formatBytes(bytes) {
   if (bytes === 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB'];
@@ -45,6 +56,70 @@ function StatsTable({ rows, className = 'table table-sm mb-3' }) {
   );
 }
 
+function accumulateFieldCoverage(stats, entry) {
+  if (entry.password) stats.withPassword++;
+  if (entry.username) stats.withUsername++;
+  if (entry.notes) stats.withNotes++;
+  if (entry.urls?.length) { stats.withUrls++; stats.totalUrls += entry.urls.length; }
+  if (entry.totpSecrets?.length) { stats.withTotp++; stats.totalTotp += entry.totpSecrets.length; }
+  if (entry.customFields?.length) { stats.withCustomFields++; stats.totalCustomFields += entry.customFields.length; }
+  if (entry.tags?.length) {
+    stats.withTags++;
+    entry.tags.forEach((t) => stats.tagCounts.set(t, (stats.tagCounts.get(t) ?? 0) + 1));
+  }
+}
+
+function accumulateCommitStats(stats, entry) {
+  const commitCount = entry.history?.length ?? 1;
+  stats.totalCommits += commitCount;
+  if (commitCount > stats.maxCommits) stats.maxCommits = commitCount;
+  if (commitCount === 1) stats.neverEdited++;
+}
+
+function accumulateOneEntry(stats, entry) {
+  const entryBytes = new TextEncoder().encode(JSON.stringify(entry)).length;
+  stats.totalBytes += entryBytes;
+  accumulateFieldCoverage(stats, entry);
+  accumulateCommitStats(stats, entry);
+  stats.entryList.push({ bytes: entryBytes, title: entry.title || null, username: entry.username || null });
+}
+
+function accumulateEntryStats(entries) {
+  const stats = {
+    totalBytes: 0, withPassword: 0, withUsername: 0, withNotes: 0,
+    withUrls: 0, totalUrls: 0, withTotp: 0, totalTotp: 0,
+    withCustomFields: 0, totalCustomFields: 0, withTags: 0,
+    totalCommits: 0, maxCommits: 0, neverEdited: 0,
+    tagCounts: new Map(), entryList: [],
+  };
+  for (const entry of entries) accumulateOneEntry(stats, entry);
+  stats.entryList.sort((a, b) => b.bytes - a.bytes);
+  return stats;
+}
+
+function topTagsFrom(tagCounts) {
+  return [...tagCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([tag, count]) => ({ tag, count }));
+}
+
+function buildAboutStats(entries, trash) {
+  const vaultStats = getVaultStats(entries, trash);
+  const { totalBytes, totalCommits, tagCounts, entryList, ...counts } = accumulateEntryStats(entries);
+  const count = vaultStats.entryCount;
+  return {
+    count,
+    trashCount: vaultStats.trashCount,
+    entriesJsonSize: totalBytes,
+    avgBytes: count ? Math.round(totalBytes / count) : 0,
+    ...counts,
+    avgCommits: count ? (totalCommits / count).toFixed(1) : '—',
+    topTags: topTagsFrom(tagCounts),
+    top5: entryList.slice(0, 5),
+  };
+}
+
 function AboutPage() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -53,66 +128,7 @@ function AboutPage() {
     const load = async () => {
       try {
         const { entries, trash } = await fetchUserEntries();
-        const vaultStats = getVaultStats(entries, trash);
-
-        let totalBytes = 0;
-        let withPassword = 0, withUsername = 0, withNotes = 0;
-        let withUrls = 0, totalUrls = 0;
-        let withTotp = 0, totalTotp = 0;
-        let withCustomFields = 0, totalCustomFields = 0;
-        let withTags = 0;
-        let totalCommits = 0, maxCommits = 0, neverEdited = 0;
-        const tagCounts = new Map();
-        const entryList = [];
-
-        for (const entry of entries) {
-          const entryBytes = new TextEncoder().encode(JSON.stringify(entry)).length;
-          totalBytes += entryBytes;
-
-          if (entry.password) withPassword++;
-          if (entry.username) withUsername++;
-          if (entry.notes) withNotes++;
-          if (entry.urls?.length) { withUrls++; totalUrls += entry.urls.length; }
-          if (entry.totpSecrets?.length) { withTotp++; totalTotp += entry.totpSecrets.length; }
-          if (entry.customFields?.length) { withCustomFields++; totalCustomFields += entry.customFields.length; }
-          if (entry.tags?.length) {
-            withTags++;
-            entry.tags.forEach(t => tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1));
-          }
-
-          const commitCount = entry.history?.length ?? 1;
-          totalCommits += commitCount;
-          if (commitCount > maxCommits) maxCommits = commitCount;
-          if (commitCount === 1) neverEdited++;
-
-          entryList.push({ bytes: entryBytes, title: entry.title || null, username: entry.username || null });
-        }
-
-        entryList.sort((a, b) => b.bytes - a.bytes);
-
-        const topTags = [...tagCounts.entries()]
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 5)
-          .map(([tag, count]) => ({ tag, count }));
-
-        const count = vaultStats.entryCount;
-        const trashCount = vaultStats.trashCount;
-        setStats({
-          count,
-          trashCount,
-          entriesJsonSize: totalBytes,
-          avgBytes: count ? Math.round(totalBytes / count) : 0,
-          withPassword, withUsername, withNotes,
-          withUrls, totalUrls,
-          withTotp, totalTotp,
-          withCustomFields, totalCustomFields,
-          withTags,
-          avgCommits: count ? (totalCommits / count).toFixed(1) : '—',
-          maxCommits,
-          neverEdited,
-          topTags,
-          top5: entryList.slice(0, 5),
-        });
+        setStats(buildAboutStats(entries, trash));
       } catch {
         setStats(null);
       } finally {
@@ -218,14 +234,7 @@ function ExportPage() {
     try {
       const { entries, trash } = await fetchUserEntries();
       const exportObj = buildExportData({ username: getUsername(), entries, trash });
-      const json = JSON.stringify(exportObj, null, 2);
-      const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `secbits-export-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadJsonFile(exportObj, `secbits-export-${new Date().toISOString().slice(0, 10)}.json`);
     } catch {
       alert('Failed to export data.');
     } finally {
