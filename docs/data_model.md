@@ -17,11 +17,15 @@ InstantDB entities, links, and permission rules. Every field beyond row id and t
 
 ## Links
 
-- `keyStore.owner` <-> `$users` (one key store row per user)
-- `entries.owner` <-> `$users` (many entries to one user)
-- `entryHistory.entry` <-> `entries` (many history rows to one entry), `onDelete: cascade` on the entry side: deleting an `entries` row deletes its `entryHistory` rows automatically, so nothing needs to delete them separately.
+- `keyStore.owner` <-> `$users.keyStore` (one key store row per user); `onDelete: cascade` on the `$users` side, deleting a user's account deletes their `keyStore` row.
+- `entries.owner` <-> `$users.entries` (many entries to one user); same cascade, deleting a user's account deletes their entries.
+- `entryHistory.entry` <-> `entries.entryHistory` (many history rows to one entry); `onDelete: cascade` on the `entries` side, deleting an entry deletes its history rows automatically, so nothing needs to delete them separately.
 
-Pushing these through `npx instant-cli@latest push schema` hit a reproducible bug: any newly created link to `$users` fails validation with `connects to non existing entity`, regardless of entity name, casing, or link order, even once the target entity is otherwise proven to exist via other successful links, and even with an auth method already configured. Ruled out: casing, the specific entity name, missing `$users` declaration (it is never declared explicitly, confirmed against InstantDB's own docs), and auth not being set up. `instant.schema.ts` therefore ships with `links: {}`; the three links above are created manually via the InstantDB dashboard UI instead, using the exact names listed so they match `instant.perms.ts` and `src/db.js`.
+These reverse label names (`keyStore`, `entries`, `entryHistory`) matter beyond cosmetics: `instant.schema.ts`'s `links` object needs to mirror them exactly, since InstantDB validates query link references against the schema object passed to `init()`, not against whatever is actually live on the backend. A mismatch there produces "Link 'x' does not exist" errors even when the link genuinely exists server side.
+
+Pushing these through `npx instant-cli@latest push schema` hit a reproducible bug: any newly created link to `$users` fails validation with `connects to non existing entity`, regardless of entity name, casing, or link order, even once the target entity is otherwise proven to exist via other successful links, and even with an auth method already configured. Ruled out: casing, the specific entity name, missing `$users` declaration (it is never declared explicitly, confirmed against InstantDB's own docs), and auth not being set up. The three links above were instead created manually via the InstantDB dashboard's Explorer UI.
+
+**Current state**: `instant.schema.ts` ships with `links: {}`, not mirroring the links above, by deliberate choice as of the most recent commit. Until `links` in that file is updated to match this section exactly, the running app will hit "Link 'owner' does not exist on entity 'keyStore'" at the `ensureKeyStore` step, since `db.js` passes that empty-links schema straight to `init()`.
 
 ## Permission rules (`instant.perms.ts`)
 

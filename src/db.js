@@ -106,13 +106,13 @@ export async function ensureKeyStore(rmkBytes) {
   rootMasterKeyBytes = rmkBytes;
   await requireAuthId();
 
-  let { keyStore: rows } = await db.queryOnce({ keyStore: {} });
+  let rows = (await db.queryOnce({ keyStore: {} })).keyStore || [];
 
   if (rows.length === 0) {
     // Reduce, not eliminate, the multi-tab/multi-device first run race
     // (see docs/security.md, Duplicate keyStore rows mitigation).
     await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300));
-    ({ keyStore: rows } = await db.queryOnce({ keyStore: {} }));
+    rows = (await db.queryOnce({ keyStore: {} })).keyStore || [];
   }
 
   if (rows.length > 1) {
@@ -208,7 +208,7 @@ export async function fetchUserEntries() {
   assertUnlocked();
   await requireAuthId();
 
-  const { entries: rows } = await db.queryOnce({ entries: { history: {} } });
+  const rows = (await db.queryOnce({ entries: { entryHistory: {} } })).entries || [];
 
   const entries = [];
   const trash = [];
@@ -218,7 +218,7 @@ export async function fetchUserEntries() {
     try {
       const rawEntryKey = await getOrDecryptEntryKey(row);
       const decoded = await decryptEntry(b64ToBytes(row.encryptedData), rawEntryKey);
-      const historyRows = row.history || [];
+      const historyRows = row.entryHistory || [];
 
       const history = await Promise.all(
         historyRows.map(async (h) => ({
@@ -271,7 +271,8 @@ export async function deleteUserEntry(entryId) {
   assertUnlocked();
   const rawEntryKey = entryKeyCache.get(entryId);
   if (!rawEntryKey) throw new Error(`Unknown entry ${entryId}; call fetchUserEntries first`);
-  const { entries } = await db.queryOnce({ entries: { $: { where: { id: entryId } } } });
+  const entries = (await db.queryOnce({ entries: { $: { where: { id: entryId } } } })).entries || [];
+  if (!entries[0]) throw new Error(`Entry ${entryId} not found`);
   const current = await decryptEntry(b64ToBytes(entries[0].encryptedData), rawEntryKey);
   const { commitHash: _drop, ...withoutHash } = current;
   return saveEntrySnapshot(entryId, rawEntryKey, { ...withoutHash, deletedAt: Date.now(), updatedAt: Date.now() });
@@ -281,7 +282,8 @@ export async function restoreDeletedUserEntry(entryId) {
   assertUnlocked();
   const rawEntryKey = entryKeyCache.get(entryId);
   if (!rawEntryKey) throw new Error(`Unknown entry ${entryId}; call fetchUserEntries first`);
-  const { entries } = await db.queryOnce({ entries: { $: { where: { id: entryId } } } });
+  const entries = (await db.queryOnce({ entries: { $: { where: { id: entryId } } } })).entries || [];
+  if (!entries[0]) throw new Error(`Entry ${entryId} not found`);
   const current = await decryptEntry(b64ToBytes(entries[0].encryptedData), rawEntryKey);
   const { commitHash: _drop, ...withoutHash } = current;
   return saveEntrySnapshot(entryId, rawEntryKey, { ...withoutHash, deletedAt: null, updatedAt: Date.now() });
@@ -290,9 +292,9 @@ export async function restoreDeletedUserEntry(entryId) {
 async function restoreVersionByCommitHash(entryId, commitHash) {
   const rawEntryKey = entryKeyCache.get(entryId);
   if (!rawEntryKey) throw new Error(`Unknown entry ${entryId}; call fetchUserEntries first`);
-  const { entryHistory: historyRows } = await db.queryOnce({
+  const historyRows = (await db.queryOnce({
     entryHistory: { $: { where: { 'entry.id': entryId } } },
-  });
+  })).entryHistory || [];
   for (const h of historyRows) {
     const snapshot = await decryptEntry(b64ToBytes(h.encryptedSnapshot), rawEntryKey);
     if (snapshot.commitHash === commitHash) {
@@ -338,7 +340,7 @@ export async function rotateRootMasterKey(newRootMasterKeyBytes) {
 
 export async function rotateUserMasterKey() {
   assertUnlocked();
-  const { entries: rows } = await db.queryOnce({ entries: {} });
+  const rows = (await db.queryOnce({ entries: {} })).entries || [];
   const newUmk = generateUMK();
 
   const rewrappedEntryKeys = await Promise.all(
