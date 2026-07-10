@@ -20,7 +20,7 @@ function StatsHeading({ children }) {
 function StatsRow({ label, value, note = null }) {
   return (
     <tr>
-      <td className="text-muted">{label}</td>
+      <td className="text-muted" style={{ width: '60%' }}>{label}</td>
       <td className="fw-semibold">
         {value}
         {note && <span className="text-muted fw-normal ms-2 small">({note})</span>}
@@ -29,9 +29,13 @@ function StatsRow({ label, value, note = null }) {
   );
 }
 
+// Overview, Field coverage, and Version history are each a separate
+// StatsTable; without a shared fixed layout, every table auto-sizes its
+// own label column from its own longest label, so the value column lands
+// at a different x position per section instead of lining up.
 function StatsTable({ rows, className = 'table table-sm mb-3' }) {
   return (
-    <table className={className}>
+    <table className={className} style={{ tableLayout: 'fixed', width: '100%' }}>
       <tbody>
         {rows.map((row) => (
           <StatsRow key={row.label} label={row.label} value={row.value} note={row.note} />
