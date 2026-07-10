@@ -4,6 +4,8 @@ InstantDB entities, links, and permission rules. Every field beyond row id and t
 
 ## Entities
 
+`$users` is declared explicitly in `instant.schema.ts` (`email`, `imageURL`, `type`, matching what InstantDB's own pull of this app's live schema shows), even though this app never writes to it directly. This is required, not cosmetic: a `where` filter using dot notation through a link into `$users` (e.g. `'owner.id'`, used by `ensureKeyStore`/`fetchUserEntries`/`rotateUserMasterKey` to scope queries to the caller) fails validation with "Target entity '$users' does not exist in schema" if `$users` isn't declared locally, even though the link to it works fine on its own without this.
+
 `keyStore`
 - `umkBlob` (string): base64 AEAD blob, the UMK (User Master Key) wrapped via HKDF+AEAD under `root_master_key`. One row per user.
 - `backupKeyBlob` (string): base64 AEAD blob, the backup key wrapped via HKDF+AEAD under `root_master_key`, used only to encrypt cloud backups (see docs/crypto.md, Cloud Backup).
@@ -17,7 +19,7 @@ InstantDB entities, links, and permission rules. Every field beyond row id and t
 
 ## Links
 
-- `keyStore.owner` <-> `$users.keyStore` (one key store row per user); `onDelete: cascade` on the `$users` side, deleting a user's account deletes their `keyStore` row.
+- `keyStore.owner` <-> `$users.keyStore` (one key store row per user, `has: 'one'` on both sides so InstantDB itself rejects a second link, not just an app level convention); `onDelete: cascade` on the `$users` side, deleting a user's account deletes their `keyStore` row.
 - `entries.owner` <-> `$users.entries` (many entries to one user); same cascade, deleting a user's account deletes their entries.
 - `entryHistory.entry` <-> `entries.entryHistory` (many history rows to one entry); `onDelete: cascade` on the `entries` side, deleting an entry deletes its history rows automatically, so nothing needs to delete them separately.
 
@@ -32,11 +34,11 @@ Pushing these through `npx instant-cli@latest push schema` hit a reproducible bu
 ```
 keyStore:
   view/create/delete → auth.id in data.ref('owner.id')
-  update              → auth.id in data.ref('owner.id') && newData.owner == data.owner
+  update              → auth.id in data.ref('owner.id') && newData.ref('owner.id') == data.ref('owner.id')
 
 entries:
   view/create/delete → auth.id in data.ref('owner.id')
-  update              → auth.id in data.ref('owner.id') && newData.owner == data.owner
+  update              → auth.id in data.ref('owner.id') && newData.ref('owner.id') == data.ref('owner.id')
 
 entryHistory:
   view/create → auth.id in data.ref('entry.owner.id')
@@ -52,7 +54,15 @@ Deletion of old history rows and trashed entries is driven entirely by the clien
 
 ## Uniqueness
 
-"One `keyStore` row per user" is a design assumption, not an enforced invariant: InstantDB has no schema level one-to-one link constraint, and the permission rules above only govern access, not cardinality. A duplicate `keyStore` row for one user is possible, whether from the ownership reassignment gap above (before the fix) or an ordinary race, e.g. two tabs both finding no `keyStore` row on first run and both creating one before either sees the other's write. The app must treat first run `keyStore` creation as needing idempotency handling, and must treat finding more than one `keyStore` row for the current user as a fatal, user visible error rather than silently picking one, since silently picking wrong is indistinguishable from losing access to the vault.
+"One `keyStore` row per user" is enforced at the schema level: `keyStoreOwner`'s link is `has: 'one'` on both the `keyStore` side and the `$users` side, so InstantDB itself should reject creating a second `keyStore` linked to a `$users` that already has one, not just rely on app level convention. This corrects an earlier version of this doc that assumed InstantDB had no such constraint; setting both sides of a link to `has: 'one'` does enforce it. This still needs live verification, and the schema change on the dashboard side must have any existing duplicate `keyStore` rows for a user cleaned up first, since InstantDB is unlikely to let a stricter constraint apply over data that already violates it.
+
+Root cause of the observed bug (a new `keyStore` row created on every login, one stable `$users` row underneath) is still not fully confirmed. `ensureKeyStore`'s original query was `{ keyStore: {} }`, an unscoped query relying entirely on the `view` permission rule to implicitly filter results down to the caller's own row; that assumption was wrong somewhere, since the same stable user kept seeing zero rows on each login despite one already existing. Switching to an explicit `{ keyStore: { $: { where: { 'owner.id': authId } } } }` where filter did not resolve it, nor did switching to a `$users`-first, follow-the-link query instead: after confirming zero existing `keyStore` rows and no leftover entities from earlier diagnostic renames, creating a fresh row still failed with a uniqueness violation on `owner`.
+
+One real contributing factor found and fixed: `db.getAuth()` does not read InstantDB's in-memory auth state directly, it reads back through `_getCurrentUser` from a persisted key-value store (`this.kv.waitForKeyToLoad`). There is a genuine window right after `signInWithIdToken()` resolves where `getAuth()` can still return a stale previous session's user, which would make every query/mutation in that window operate as the wrong user. `signIn()` in `src/db.js` now polls `db.getAuth()` after sign in (up to 10 tries, 200ms apart) until its `email` matches the Firebase credential just used, throwing rather than silently proceeding if it never settles. Whether this was the actual cause of the duplicate `keyStore` rows, or just a real bug found along the way, is not yet confirmed.
+
+Current approach (also unconfirmed): query from `$users` (whose id is already known from `auth.id`) and follow the forward link out to `keyStore`/`entries`, rather than querying `keyStore`/`entries` with a reverse dot-path filter, e.g. `{ $users: { $: { where: { id: authId } }, keyStore: {} } }`. This is a different code path in InstantDB's query engine than the reverse filter approach; `ensureKeyStore`, `fetchUserEntries`, and `rotateUserMasterKey` all use it now. Needs live verification.
+
+The app still treats finding more than one `keyStore` row for the current user as a fatal, user visible error rather than silently picking one, as defense in depth: the schema constraint should make this unreachable going forward, but it doesn't retroactively fix rows created before the constraint was tightened, and a bug in enforcement should fail loudly rather than silently corrupt vault access.
 
 ## Multi user, no sharing
 

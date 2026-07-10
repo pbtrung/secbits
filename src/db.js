@@ -62,6 +62,27 @@ export async function signIn({ email, password, firebaseApiKey, instantClientNam
   const credential = await signInWithEmailAndPassword(firebaseAuth, email, password);
   const idToken = await credential.user.getIdToken();
   await db.auth.signInWithIdToken({ idToken, clientName: instantClientName });
+
+  // db.getAuth() reads back from a persisted store, not directly from the
+  // in-memory state signInWithIdToken() just updated, so there is a real
+  // window right after sign-in where it can return nothing yet. Wait for
+  // *some* auth to exist before trusting it elsewhere. Do not require its
+  // `email` to match: that field is optional on $users and may not be
+  // reliably populated even when the session is genuinely correct, so
+  // treating a missing/mismatched email as failure risks a false negative
+  // on a session that is actually fine; only warn on that, don't throw.
+  const expectedEmail = credential.user.email;
+  let auth = await db.getAuth();
+  for (let attempt = 0; !auth && attempt < 10; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    auth = await db.getAuth();
+  }
+  if (!auth) {
+    throw new Error('InstantDB auth did not settle after sign in; try again.');
+  }
+  if (auth.email && auth.email !== expectedEmail) {
+    console.warn(`InstantDB auth settled to ${auth.email}, expected ${expectedEmail}; possible stale session.`);
+  }
 }
 
 export async function getUserId() {
@@ -102,17 +123,29 @@ export function clearSession() {
 
 // Replaces the old bootstrapUMKIfNeeded, minus the ML-KEM/X448 sharing
 // keypair bootstrap (sharing is deferred, see docs/features.md).
+async function queryOwnKeyStoreRows(authId) {
+  // Query from $users (whose id we already have directly) and follow the
+  // forward link out to keyStore, rather than querying keyStore with a
+  // reverse dot-path where filter — a different code path in InstantDB's
+  // query engine, tried after the reverse-filter approach did not reliably
+  // find an existing row (see docs/data_model.md, Uniqueness).
+  const users = (await db.queryOnce({
+    $users: { $: { where: { id: authId } }, keyStore: {} },
+  })).$users || [];
+  return users[0]?.keyStore || [];
+}
+
 export async function ensureKeyStore(rmkBytes) {
   rootMasterKeyBytes = rmkBytes;
-  await requireAuthId();
+  const authId = await requireAuthId();
 
-  let rows = (await db.queryOnce({ keyStore: {} })).keyStore || [];
+  let rows = await queryOwnKeyStoreRows(authId);
 
   if (rows.length === 0) {
     // Reduce, not eliminate, the multi-tab/multi-device first run race
     // (see docs/security.md, Duplicate keyStore rows mitigation).
     await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300));
-    rows = (await db.queryOnce({ keyStore: {} })).keyStore || [];
+    rows = await queryOwnKeyStoreRows(authId);
   }
 
   if (rows.length > 1) {
@@ -206,9 +239,13 @@ async function saveEntrySnapshot(entryId, rawEntryKey, snapshotWithoutHash, { is
 
 export async function fetchUserEntries() {
   assertUnlocked();
-  await requireAuthId();
+  const authId = await requireAuthId();
 
-  const rows = (await db.queryOnce({ entries: { entryHistory: {} } })).entries || [];
+  // Same $users-first, follow-the-link approach as queryOwnKeyStoreRows.
+  const users = (await db.queryOnce({
+    $users: { $: { where: { id: authId } }, entries: { entryHistory: {} } },
+  })).$users || [];
+  const rows = users[0]?.entries || [];
 
   const entries = [];
   const trash = [];
@@ -340,7 +377,11 @@ export async function rotateRootMasterKey(newRootMasterKeyBytes) {
 
 export async function rotateUserMasterKey() {
   assertUnlocked();
-  const rows = (await db.queryOnce({ entries: {} })).entries || [];
+  const authId = await requireAuthId();
+  const usersForRotation = (await db.queryOnce({
+    $users: { $: { where: { id: authId } }, entries: {} },
+  })).$users || [];
+  const rows = usersForRotation[0]?.entries || [];
   const newUmk = generateUMK();
 
   const rewrappedEntryKeys = await Promise.all(

@@ -6,6 +6,18 @@ import { i } from '@instantdb/react';
 
 const _schema = i.schema({
   entities: {
+    // Declared explicitly, matching the real fields InstantDB's own pull of
+    // this app's live schema showed, even though $users is a system entity
+    // this app never writes to directly. Without this, dot-notation where
+    // filters that traverse a link into $users (e.g. 'owner.id') fail
+    // validation: the query validator has no local schema for $users to
+    // resolve the path against, even though the link to it works fine on
+    // its own.
+    $users: i.entity({
+      email: i.string().unique().indexed().optional(),
+      imageURL: i.string().optional(),
+      type: i.string().optional(),
+    }),
     keyStore: i.entity({
       umkBlob: i.string(),
       backupKeyBlob: i.string(),
@@ -28,7 +40,7 @@ const _schema = i.schema({
   links: {
     keyStoreOwner: {
       forward: { on: 'keyStore', has: 'one', label: 'owner', required: true, onDelete: 'cascade' },
-      reverse: { on: '$users', has: 'many', label: 'keyStore' },
+      reverse: { on: '$users', has: 'one', label: 'keyStore' },
     },
     entriesOwner: {
       forward: { on: 'entries', has: 'one', label: 'owner', required: true, onDelete: 'cascade' },
