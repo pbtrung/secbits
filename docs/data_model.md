@@ -6,6 +6,7 @@ InstantDB entities, links, and permission rules. Every field beyond row id and t
 
 `keyStore`
 - `umkBlob` (string): base64 AEAD blob, the UMK (User Master Key) wrapped via HKDF+AEAD under `root_master_key`. One row per user.
+- `backupKeyBlob` (string): base64 AEAD blob, the backup key wrapped via HKDF+AEAD under `root_master_key`, used only to encrypt cloud backups (see docs/crypto.md, Cloud Backup).
 
 `entries`
 - `entryKey` (string): base64 AEAD blob, 64 raw random bytes wrapped via HKDF+AEAD under the UMK. Generated once per entry.

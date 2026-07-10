@@ -20,13 +20,17 @@ Every guarantee in this document, salt uniqueness, IV uniqueness, and by extensi
 
 ```text
 root_master_key (config)
-  └── HKDF+AEAD → keyStore.umkBlob
-        └── HKDF+AEAD → entries.entryKey blob (64 raw random bytes, one per entry)
-              ├── HKDF+AEAD → entries.encryptedData
-              └── HKDF+AEAD → entryHistory.encryptedSnapshot
+  ├── HKDF+AEAD → keyStore.umkBlob
+  │     └── HKDF+AEAD → entries.entryKey blob (64 raw random bytes, one per entry)
+  │           ├── HKDF+AEAD → entries.encryptedData
+  │           └── HKDF+AEAD → entryHistory.encryptedSnapshot
+  └── HKDF+AEAD → keyStore.backupKeyBlob
+        └── HKDF+AEAD → cloud backup blob (R2 / S3 compatible)
 ```
 
-`root_master_key` lives only in local config; it never touches InstantDB. Each level wraps the key below it with a fresh HKDF+AEAD pass, so rotating `root_master_key` only re encrypts `keyStore.umkBlob`, and rotating a single entry only re encrypts that entry's `entryKey` blob, neither requires touching every row.
+`root_master_key` lives only in local config; it never touches InstantDB. Each level wraps the key below it with a fresh HKDF+AEAD pass, so rotating `root_master_key` only re encrypts `keyStore.umkBlob` and `keyStore.backupKeyBlob`, rotating a single entry only re encrypts that entry's `entryKey` blob, and rotating the backup key only affects future backups, neither requires touching every row or every past backup.
+
+`backupKey` is deliberately a sibling of UMK, not a reuse of `root_master_key` directly as the backup blob's IKM. Reusing `root_master_key` directly would not be broken, HKDF plus a fresh random salt gives real domain separation, but it would tie the key protecting offsite backups (on infrastructure this project does not control, R2/S3, for potentially long retention) directly to the same secret protecting the live vault, with nothing but salt non collision standing between them. A dedicated `backupKey` lets backup key rotation happen independently of `root_master_key` rotation, and keeps a compromise of past backup objects from having any direct bearing on `entries`/`entryHistory` key material.
 
 ## Key Hierarchy Key Derivation
 
@@ -39,8 +43,10 @@ Per blob key derivation via HKDF-SHA3-512:
 Where `K` is the parent key for the blob type (see Key Hierarchy above):
 
 - `keyStore.umkBlob`: `K = root_master_key`
+- `keyStore.backupKeyBlob`: `K = root_master_key`
 - `entries.entryKey`: `K = UMK` (decrypted from `keyStore.umkBlob`)
 - `entries.encryptedData` and `entryHistory.encryptedSnapshot`: `K = entryKey` (decrypted from `entries.entryKey`)
+- cloud backup blob: `K = backupKey` (decrypted from `keyStore.backupKeyBlob`)
 
 `randomSalt`: 64 fresh random bytes generated per encryption operation. Output split: first 64 bytes to `encKey`, last 64 bytes to `encIv`.
 
@@ -144,6 +150,14 @@ commitHash = hex(SHA-256(canonicalJson(snapshotWithoutCommitHash))).slice(0, 32)
 
 `canonicalJson` must be deterministic (stable key ordering, UTF-8, no pretty print). The resulting hash is embedded inside the `encryptedSnapshot` blob as `commitHash`. The `entryHistory` entity has no plaintext commit hash field; it exists only inside the ciphertext. After decrypting a snapshot the client verifies by removing `commitHash`, canonicalizing the remaining object, and recomputing the hash.
 
+## Cloud Backup
+
+The full vault, every entry, decrypted, as JSON, is Brotli compressed then AEAD encrypted under `backupKey`, using the same blob format and pipeline as everything else (see Blob Format, Encryption Pipeline). The resulting blob is uploaded directly from the client to Cloudflare R2 and to a configured S3 compatible endpoint, no server proxy (see docs/architecture.md, Backend: none, by design). Upload requests are SigV4 signed client side using access keys read from local config, the same trust model as `root_master_key`, `email`, and `password` already being there (see docs/security.md). Each destination bucket must have CORS enabled for the app's origin, since nothing else makes the request on the client's behalf.
+
+Retention of past backup objects, whether old ones are pruned and after how long, is not yet decided; the simplest approach is to rely on the object storage's own lifecycle policies rather than reimplement a client side cap.
+
+Local backup is a separate, unencrypted feature that does not use this pipeline at all; see docs/features.md and docs/security.md.
+
 ## Security Properties
 
 - **Confidentiality**: ciphertext is computationally indistinguishable from random without the root master key.
@@ -155,13 +169,13 @@ commitHash = hex(SHA-256(canonicalJson(snapshotWithoutCommitHash))).slice(0, 32)
 
 ## Key Rotation
 
-**Root master key rotation** — re encrypts only the UMK blob in `keyStore`:
+**Root master key rotation** — re encrypts the UMK blob and the backup key blob in `keyStore`:
 
-1. Decrypt the `keyStore.umkBlob` row using the current `root_master_key`.
-2. Re encrypt the raw UMK bytes with the new `root_master_key` (fresh salt, current format version).
+1. Decrypt `keyStore.umkBlob` and `keyStore.backupKeyBlob` using the current `root_master_key`.
+2. Re encrypt both raw values with the new `root_master_key` (fresh salt each, current format version).
 3. Write the updated `keyStore` row directly to InstantDB via `db.transact`.
 
-Entry data and history snapshots are unaffected; their encryption depends on `entryKey`, not `root_master_key`.
+Entry data, history snapshots, and every cloud backup already uploaded are unaffected; their encryption depends on `entryKey` and `backupKey`, not directly on `root_master_key`. `backupKey` itself does not change, so past backup objects in R2/S3 remain decryptable exactly as before.
 
 **UMK rotation** — re encrypts all `entryKey` blobs:
 
@@ -171,4 +185,12 @@ Entry data and history snapshots are unaffected; their encryption depends on `en
 4. Re encrypt the new UMK blob with `root_master_key`. Hold the result in memory; do not write it yet.
 5. Write the new `keyStore` row and every re encrypted `entryKey` blob together in a single InstantDB transaction via `db.transact`, so the rotation is all or nothing.
 
-This ordering is required, not incidental: writing the new `keyStore` row separately from, and before, the `entryKey` rewrites would leave the vault in a state where the live UMK no longer matches some entries' still-old-UMK-wrapped `entryKey`, permanently stranding them. Batching every write into one transaction means a failure at any point leaves the old UMK and old `entryKey` blobs fully valid and untouched; the whole rotation can simply be retried from step 1. Entry data and history snapshots are unaffected either way; only `entryKey` blobs and the `keyStore` row change, and only together.
+This ordering is required, not incidental: writing the new `keyStore` row separately from, and before, the `entryKey` rewrites would leave the vault in a state where the live UMK no longer matches some entries' `entryKey`, which would still be wrapped under the old UMK, permanently stranding them. Batching every write into one transaction means a failure at any point leaves the old UMK and old `entryKey` blobs fully valid and untouched; the whole rotation can simply be retried from step 1. Entry data and history snapshots are unaffected either way; only `entryKey` blobs and the `keyStore` row change, and only together.
+
+**Backup key rotation** — re encrypts `keyStore.backupKeyBlob`, future backups only:
+
+1. Decrypt the current `backupKey` from `keyStore.backupKeyBlob`.
+2. Generate a new `backupKey` (64 random bytes).
+3. Re encrypt the new `backupKey` with `root_master_key` and write the updated `keyStore` row.
+
+Unlike UMK rotation, this does not automatically re secure anything already uploaded: past backup objects in R2/S3 remain encrypted under the old `backupKey`, since object storage has no equivalent of a `keyStore` row that can just be swapped in place. If old backup objects need to move to the new key too, each one has to be downloaded, decrypted under the old `backupKey`, and re uploaded under the new one; that is a separate, explicit operation, not a side effect of rotation.

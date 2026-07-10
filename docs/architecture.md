@@ -21,8 +21,13 @@ InstantDB's Firebase integration is used instead of InstantDB's native magic cod
 ## Maintenance: client side
 
 Because every field is encrypted, nothing server side can read timestamps or trash state, so there is no cron job. Instead, the client does this work itself during normal use:
-- History cap: after adding a new history row, decrypt the entry's linked history rows, sort by their embedded timestamp, delete any past the most recent N.
+- History cap: after adding a new history row, decrypt the entry's linked history rows, sort by their embedded timestamp, delete any past the most recent 20.
 - Trash purge: on load, decrypt trashed entries' embedded `deletedAt`, permanently delete any past the retention window.
+
+## Backup: client direct
+
+- Local: on demand, decrypt every entry and let the user download the full vault as plain, unencrypted JSON. Bypasses the encryption pipeline entirely, by design (see docs/security.md for the risk this creates).
+- Cloud: on demand, Brotli compress and AEAD encrypt the same full vault export under a dedicated `backupKey` (see docs/crypto.md, Cloud Backup), then upload directly from the client to Cloudflare R2 and to a configured S3 compatible endpoint, using access keys from local config. Same "no custom backend" principle as everything else here, no server proxies the upload.
 
 ## Data model
 

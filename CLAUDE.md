@@ -39,8 +39,12 @@ Save (create or update):
 
 Maintenance (client side, on load/save):
 1. App decrypts an entry's linked history rows to read their embedded timestamps.
-2. App deletes the oldest history rows past the cap of the most recent N per entry.
+2. App deletes the oldest history rows past the cap of the most recent 20 per entry.
 3. App decrypts trashed entries' embedded `deletedAt` and permanently deletes those past the retention window.
+
+Backup (on demand):
+1. Local: App decrypts every entry and lets the user download the full vault as plain, unencrypted JSON. No encryption pipeline involved.
+2. Cloud: App assembles the same plain JSON, Brotli compresses it, AEAD encrypts it under `backupKey` (fresh salt, current format version), and uploads it directly from the client to Cloudflare R2 and to a configured S3 compatible endpoint using access keys from config. No server proxy.
 
 ## Config Contract
 
@@ -50,6 +54,8 @@ Config JSON is required at app startup. Key fields:
 - `email`
 - `password`
 - `root_master_key`
+- `r2_config`: account id, bucket, access key id, secret access key
+- `s3_config`: endpoint, region, bucket, access key id, secret access key
 
 ## Docs
 
@@ -57,4 +63,6 @@ Config JSON is required at app startup. Key fields:
 - `docs/tech_stack.md` - technologies and project layout
 - `docs/data_model.md` - InstantDB entities, links, permission rules
 - `docs/crypto.md` - cipher spec, key hierarchy, blob format v1.0
-- TODO: `docs/security.md`, `docs/features.md`, `docs/testing.md`
+- `docs/security.md` - threat model and guarantees
+- `docs/features.md` - feature surface
+- `docs/testing.md` - testing strategy
