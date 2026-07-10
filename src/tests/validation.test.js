@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateConfig, validateRootMasterKey, isHttpsUrl } from '../lib/validation.js';
+import { validateConfig, validateRootMasterKey, isHttpsUrl, isHttpUrl } from '../lib/validation.js';
 
 function makeB64(length) {
   const bytes = new Uint8Array(length);
@@ -32,6 +32,15 @@ describe('validation', () => {
   it('accepts HTTPS and rejects HTTP', () => {
     expect(isHttpsUrl('https://example.com')).toBe(true);
     expect(isHttpsUrl('http://example.com')).toBe(false);
+  });
+
+  it('isHttpUrl accepts both HTTP and HTTPS, rejects other schemes and non-strings', () => {
+    expect(isHttpUrl('https://example.com')).toBe(true);
+    expect(isHttpUrl('http://example.com')).toBe(true);
+    expect(isHttpUrl('ftp://example.com')).toBe(false);
+    expect(isHttpUrl('not a url')).toBe(false);
+    expect(isHttpUrl(null)).toBe(false);
+    expect(isHttpUrl(42)).toBe(false);
   });
 
   it('config validation accepts a fully populated config', () => {

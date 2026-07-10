@@ -42,6 +42,16 @@ function verifyBlobMagic(blobBytes) {
   }
 }
 
+// Major version bump means a breaking format/cipher change this decoder
+// must refuse rather than misdecode; minor bumps are additive and safe to
+// accept (see docs/crypto.md, Versioning Strategy). Only the major byte is
+// checked, so a future v1.x minor bump keeps decoding under this same path.
+function verifyBlobVersion(version) {
+  if (version[0] !== BLOB_VERSION[0]) {
+    throw new Error(`Unsupported blob version: ${version[0]}.${version[1]}`);
+  }
+}
+
 export function parseBlob(blobBytes) {
   if (!(blobBytes instanceof Uint8Array) || blobBytes.length < BLOB_MIN_LEN) {
     throw new Error('Invalid encrypted value');
@@ -54,6 +64,8 @@ export function parseBlob(blobBytes) {
   const tagStart = blobBytes.length - BLOB_TAG_LEN;
 
   const version = blobBytes.slice(versionStart, saltStart);
+  verifyBlobVersion(version);
+
   const salt = blobBytes.slice(saltStart, ctStart);
   const ciphertext = blobBytes.slice(ctStart, tagStart);
   const tag = blobBytes.slice(tagStart);

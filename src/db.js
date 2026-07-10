@@ -23,7 +23,10 @@ const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days, provisional
 // Fields HistoryDiffModal knows how to diff; see its DIFF_FIELD_ORDER.
 const DIFFABLE_FIELDS = ['title', 'username', 'password', 'notes', 'urls', 'totpSecrets', 'tags', 'customFields'];
 
-function fieldsChanged(fromSnap, toSnap) {
+// Exported (unlike most of this file's internals) purely so it's directly
+// unit-testable: it's pure data logic with no dependency on InstantDB, see
+// src/tests/db-pure.test.js.
+export function fieldsChanged(fromSnap, toSnap) {
   return DIFFABLE_FIELDS.filter((f) => JSON.stringify(fromSnap?.[f]) !== JSON.stringify(toSnap?.[f]));
 }
 
@@ -32,7 +35,8 @@ function fieldsChanged(fromSnap, toSnap) {
 // snapshot forever (entryHistory rows are immutable, never rewritten), so
 // this must be stripped again here at read time, not only at write time, or
 // old rows go on looking nested no matter how many times they're re-saved.
-function stripNestedHistory(snap) {
+// Exported for the same reason as fieldsChanged above.
+export function stripNestedHistory(snap) {
   const { history: _drop, ...rest } = snap;
   return rest;
 }
@@ -42,7 +46,8 @@ function stripNestedHistory(snap) {
 // decrypted snapshots (already sorted newest first). Each commit's parent
 // is the next, chronologically older, entry in the array; the oldest one
 // has no parent and no `changed` list, shown as "initial version".
-function buildCommitList(sortedSnapshots) {
+// Exported for the same reason as fieldsChanged above.
+export function buildCommitList(sortedSnapshots) {
   return sortedSnapshots.map((snap, i) => {
     const parentSnap = sortedSnapshots[i + 1] || null;
     return {

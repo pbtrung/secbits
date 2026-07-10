@@ -2,6 +2,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import leancrypto from '../../leancrypto/leancrypto.js';
 import {
   bytesToB64,
+  compressJson,
+  decompressJson,
   decryptBlob,
   decryptEntry,
   encryptBlob,
@@ -101,6 +103,23 @@ describe('encryptBlob / decryptBlob', () => {
       tampered[i] ^= 0x01;
       await expect(decryptBlob(keyBytes, tampered)).rejects.toThrow();
     }
+  });
+
+  it('rejects non-Uint8Array key or plaintext before touching the WASM module', async () => {
+    const keyBytes = crypto.getRandomValues(new Uint8Array(64));
+    const plain = crypto.getRandomValues(new Uint8Array(8));
+    await expect(encryptBlob('not bytes', plain)).rejects.toThrow('encryptBlob expects byte arrays');
+    await expect(encryptBlob(keyBytes, [1, 2, 3])).rejects.toThrow('encryptBlob expects byte arrays');
+  });
+});
+
+describe('compressJson / decompressJson', () => {
+  it('round-trips a representative JSON value directly, independent of the AEAD layer', async () => {
+    const value = { type: 'login', title: 'GitHub', tags: ['work', 'dev'], nested: { a: 1, b: [1, 2, 3] } };
+    const compressed = await compressJson(value);
+    expect(compressed).toBeInstanceOf(Uint8Array);
+    const recovered = await decompressJson(compressed);
+    expect(recovered).toEqual(value);
   });
 });
 

@@ -62,9 +62,6 @@ export default defineConfig(({ mode }) => ({
     include: [
       'src/**/*.test.{js,ts}',
     ],
-    exclude: [
-      'src/tests/perf.test.js',
-    ],
     alias: {
       '/leancrypto/leancrypto.js': path.resolve(__dirname, 'leancrypto/leancrypto.js'),
       'brotli-wasm': path.resolve(__dirname, 'node_modules/brotli-wasm/index.node.js'),
