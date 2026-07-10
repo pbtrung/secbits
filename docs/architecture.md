@@ -27,7 +27,7 @@ Because every field is encrypted, nothing server side can read timestamps or tra
 ## Backup: client direct
 
 - Local: on demand, decrypt every entry and let the user download the full vault as plain, unencrypted JSON. Bypasses the encryption pipeline entirely, by design (see docs/security.md for the risk this creates).
-- Cloud: on demand, Brotli compress and AEAD encrypt the same full vault export under a dedicated `backupKey` (see docs/crypto.md, Cloud Backup), then upload directly from the client to Cloudflare R2 and to every configured S3 compatible destination, using access keys from local config. Same "no custom backend" principle as everything else here, no server proxies the upload.
+- Cloud: on demand, Brotli compress and AEAD encrypt the same full vault export under `backup_master_key` from local config (see docs/crypto.md, Cloud Backup), then upload directly from the client to Cloudflare R2 and to every configured S3 compatible destination, using access keys from local config. Same "no custom backend" principle as everything else here, no server proxies the upload.
 
 ## Data model
 

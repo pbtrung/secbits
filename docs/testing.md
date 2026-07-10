@@ -9,7 +9,7 @@ No code exists yet; this describes the intended strategy.
 
 ## Crypto pipeline
 
-- Round trip: encrypt then decrypt for every blob type (`keyStore.umkBlob`, `keyStore.backupKeyBlob`, `entries.entryKey`, `entries.encryptedData`, `entryHistory.encryptedSnapshot`, cloud backup blob) recovers the original payload.
+- Round trip: encrypt then decrypt for every blob type (`keyStore.umkBlob`, `entries.entryKey`, `entries.encryptedData`, `entryHistory.encryptedSnapshot`, cloud backup blob) recovers the original payload.
 - Tamper detection: flipping a single bit anywhere in a blob, magic, version, salt, ciphertext, or tag, causes decryption to fail before any plaintext is returned (see docs/crypto.md, AEAD Additional Data).
 - Wrong key rejection: decrypting with an incorrect `root_master_key`, UMK, or `entryKey` fails at the AEAD tag check.
 - Version dispatch: a v1.0 blob decodes through the v1.0 path; an unrecognized major version is rejected rather than misdecoded (see docs/crypto.md, Versioning Strategy).
@@ -18,9 +18,9 @@ No code exists yet; this describes the intended strategy.
 
 ## Key hierarchy
 
-- `root_master_key` rotation re encrypts `keyStore.umkBlob` and `keyStore.backupKeyBlob`; existing `entries`, `entryHistory`, and past cloud backup blobs all remain decryptable unchanged.
+- `root_master_key` rotation re encrypts `keyStore.umkBlob`; existing `entries`, `entryHistory`, and past cloud backup blobs all remain decryptable unchanged.
 - UMK rotation re encrypts every `entryKey`; assert this happens as a single all or nothing operation. A simulated failure partway through must leave the old UMK and every `entryKey` still valid, never a mix of old and new (see docs/crypto.md, Key Rotation).
-- Backup key rotation re encrypts `keyStore.backupKeyBlob` only; assert a backup object uploaded before rotation still decrypts under the old `backupKey`, and a backup created after rotation decrypts only under the new one.
+- `backup_master_key` is config only, with nothing stored to rotate; assert a backup object uploaded under one `backup_master_key` value still decrypts under that same value, and fails to decrypt under a different one.
 
 ## Entry lifecycle
 
@@ -31,7 +31,7 @@ No code exists yet; this describes the intended strategy.
 ## Backup
 
 - Local export produces valid, complete JSON that round trips back into the same in memory vault state; no field is silently dropped.
-- Cloud backup blob: Brotli compress, AEAD encrypt under `backupKey`, and decrypt round trips to the original vault JSON, same as any other blob type.
+- Cloud backup blob: Brotli compress, AEAD encrypt under `backup_master_key`, and decrypt round trips to the original vault JSON, same as any other blob type.
 - Cloud backup upload is exercised against real test buckets, R2 and each configured S3 compatible destination, not mocked, since SigV4 signing and CORS are both real failure points for a client direct upload; there is no server to fall back on if either is wrong.
 - With more than one `s3_config` entry, a failure uploading to one destination must not block or roll back uploads to the others, and the reported result must be per destination, not a single combined success or failure.
 

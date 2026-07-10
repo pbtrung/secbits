@@ -7,8 +7,8 @@ End to end encrypted password manager. React and Vite frontend, Firebase Authent
 - Encrypted vault: every field of every entry, including type and timestamps, is end to end encrypted; InstantDB never sees plaintext (see docs/features.md, docs/crypto.md).
 - History: every save keeps an immutable snapshot, capped at the most recent 20 commits per entry, verified with an embedded commit hash.
 - Trash: soft delete with a client side retention purge.
-- Backup: on demand local export as plain JSON, and on demand cloud backup, compressed and encrypted under a dedicated backup key, to Cloudflare R2 and any S3 compatible endpoint.
-- Key rotation: rotate the root master key, the per user master key, or the backup key independently, without needing to re encrypt everything downstream.
+- Backup: on demand local export as plain JSON, and on demand cloud backup, compressed and encrypted under a config only backup master key, to Cloudflare R2 and any S3 compatible endpoint.
+- Key rotation: rotate the root master key or the per user master key from settings, without needing to re encrypt everything downstream; the backup master key lives only in config and is rotated by changing it there.
 - Multi user, no sharing: every user's data is strictly isolated; there is no mechanism to share an entry with another user (see docs/security.md for the full threat model).
 - Display name: `username` from config is shown in the UI; cosmetic only, not used for auth or stored in InstantDB.
 
@@ -35,7 +35,7 @@ Prerequisites: Node.js, a Firebase project with email and password authenticatio
    npx instant-cli@latest push perms
    ```
 4. For cloud backup, create a Cloudflare R2 bucket and, optionally, a bucket on any S3 compatible provider, and enable CORS on each for the app's origin (see docs/tech_stack.md).
-5. Prepare a config JSON with the fields listed in CLAUDE.md, Config Contract: `instant_app_id`, `instant_client_name`, `firebase_api_key`, `email`, `password`, `root_master_key`, `username`, and, if using cloud backup, `r2_config` and `s3_config`. You provide this by dragging the file onto the setup screen, or clicking it to browse, when the app first loads; nothing is baked into the build.
+5. Prepare a config JSON with the fields listed in CLAUDE.md, Config Contract: `instant_app_id`, `instant_client_name`, `firebase_api_key`, `email`, `password`, `root_master_key`, `username`, and, if using cloud backup, `backup_master_key`, `r2_config`, and `s3_config`. You provide this by dragging the file onto the setup screen, or clicking it to browse, when the app first loads; nothing is baked into the build.
 
    ```json
    {
@@ -46,6 +46,7 @@ Prerequisites: Node.js, a Firebase project with email and password authenticatio
      "password": "REPLACE_WITH_FIREBASE_PASSWORD",
      "root_master_key": "REPLACE_WITH_BASE64_ENCODED_256_PLUS_BYTE_SECRET",
      "username": "Jane Doe",
+     "backup_master_key": "REPLACE_WITH_A_DIFFERENT_BASE64_ENCODED_256_PLUS_BYTE_SECRET",
      "r2_config": {
        "account_id": "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID",
        "bucket": "secbits-backup",
@@ -71,7 +72,7 @@ Prerequisites: Node.js, a Firebase project with email and password authenticatio
    }
    ```
 
-   `r2_config` and `s3_config` are optional and only needed if cloud backup is used. `s3_config` is an array, one entry per S3 compatible destination, so the vault can back up to more than one S3 compatible provider at once.
+   `backup_master_key`, `r2_config`, and `s3_config` are optional and only needed if cloud backup is used. `backup_master_key` must be a different secret from `root_master_key`; it lives only in this config file and is never stored, wrapped or not, in InstantDB, so a cloud backup stays decryptable even if InstantDB itself is lost. `s3_config` is an array, one entry per S3 compatible destination, so the vault can back up to more than one S3 compatible provider at once.
 
 ## Usage
 
@@ -80,7 +81,7 @@ Prerequisites: Node.js, a Firebase project with email and password authenticatio
 - Add, edit, tag, and search entries; every save keeps a history entry automatically.
 - Trash and restore entries; trashed entries are purged automatically after the retention window.
 - Back up the vault on demand, locally as plain JSON, or to configured cloud storage, encrypted.
-- Rotate the root master key, the per user master key, or the backup key from settings if you suspect a compromise (see docs/security.md, Recovery).
+- Rotate the root master key or the per user master key from settings if you suspect a compromise; rotate the backup master key by changing it in your config file (see docs/security.md, Recovery).
 
 ## Build
 
@@ -96,7 +97,7 @@ Produces the static production bundle in `dist/`, including the leancrypto WASM 
 npm test
 ```
 
-Runs the Vitest suite: the crypto and blob pipeline (round trips, tamper detection, wrong key rejection), the key hierarchy including `backupKey` rotation, commit hash computation, TOTP, entry search/filtering, config validation, and the raw leancrypto WASM vector tests. All of this runs with zero live services, no Firebase or InstantDB project needed.
+Runs the Vitest suite: the crypto and blob pipeline (round trips, tamper detection, wrong key rejection), the key hierarchy, commit hash computation, TOTP, entry search/filtering, config validation, and the raw leancrypto WASM vector tests. All of this runs with zero live services, no Firebase or InstantDB project needed.
 
 Not covered by `npm test`, and not mockable, per docs/testing.md:
 - `instant.perms.ts` needs a real InstantDB app and the two-user test matrix in docs/testing.md, Permission rules, run by hand. In particular, the `newData.ref('owner.id') == data.ref('owner.id')` ownership pinning rule is an unverified best-effort guess at InstantDB's rule syntax for comparing links, not a confirmed one.

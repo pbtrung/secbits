@@ -1,11 +1,9 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import leancrypto from '../../leancrypto/leancrypto.js';
 import {
-  decryptBackupKey,
   decryptEntry,
   decryptEntryKey,
   decryptUMK,
-  encryptBackupKey,
   encryptEntry,
   encryptEntryKey,
   encryptUMK,
@@ -25,16 +23,6 @@ describe('key hierarchy', () => {
     const blob = await encryptUMK(umk, rmk);
     await expect(decryptUMK(blob, wrong)).rejects.toThrow();
     await expect(decryptUMK(blob, rmk)).resolves.toEqual(umk);
-  });
-
-  it('backupKey round-trip works and wrong RMK fails', async () => {
-    const rmk = crypto.getRandomValues(new Uint8Array(256));
-    const wrong = crypto.getRandomValues(new Uint8Array(256));
-    const backupKey = crypto.getRandomValues(new Uint8Array(64));
-
-    const blob = await encryptBackupKey(backupKey, rmk);
-    await expect(decryptBackupKey(blob, wrong)).rejects.toThrow();
-    await expect(decryptBackupKey(blob, rmk)).resolves.toEqual(backupKey);
   });
 
   it('entry key round-trip works and wrong UMK fails', async () => {

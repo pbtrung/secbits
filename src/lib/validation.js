@@ -73,5 +73,14 @@ export function validateConfig(config) {
     }
   }
 
+  // Same format requirement as root_master_key (base64, >=256 bytes); only
+  // required when a cloud destination is actually configured, since it's
+  // otherwise unused.
+  const wantsCloudBackup = c.r2_config !== undefined
+    || (Array.isArray(c.s3_config) && c.s3_config.length > 0);
+  if (wantsCloudBackup && !validateRootMasterKey(c.backup_master_key || '')) {
+    errors.push('Backup master key must be base64 and at least 256 bytes decoded');
+  }
+
   return errors;
 }

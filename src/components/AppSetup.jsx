@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
-import { initDb, signIn, ensureKeyStore, setUsername, setBackupDestinations, getUserId, clearSession } from '../db';
-import { decodeRootMasterKey } from '../crypto';
+import { initDb, signIn, ensureKeyStore, setUsername, setBackupDestinations, setBackupMasterKey, getUserId, clearSession } from '../db';
+import { decodeRootMasterKey, decodeBackupMasterKey } from '../crypto';
 import { validateConfig } from '../lib/validation';
 
 function AppSetup({ onReady }) {
@@ -34,6 +34,7 @@ function AppSetup({ onReady }) {
 
     setUsername(json.username);
     setBackupDestinations({ r2_config: json.r2_config, s3_config: json.s3_config });
+    setBackupMasterKey(json.backup_master_key ? decodeBackupMasterKey(json.backup_master_key) : null);
     const userId = await getUserId();
     return { userId, username: json.username };
   };
@@ -138,6 +139,7 @@ function AppSetup({ onReady }) {
   "password": "<password>",
   "username": "<display-name>",
   "root_master_key": "<base64, >=256 bytes>",
+  "backup_master_key": "<base64, >=256 bytes, required for cloud backup>",
   "r2_config": { "...": "optional, see README" },
   "s3_config": [{ "...": "optional, see README" }]
 }`}

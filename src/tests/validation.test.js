@@ -64,6 +64,7 @@ describe('validation', () => {
     expect(missingFields).toContain('S3 destination 1 bucket is required');
 
     const ok = validateConfig(validConfig({
+      backup_master_key: makeB64(256),
       s3_config: [{
         endpoint: 'https://s3.us-west-1.amazonaws.com',
         region: 'us-west-1',
@@ -71,6 +72,19 @@ describe('validation', () => {
         access_key_id: 'k',
         secret_access_key: 's',
       }],
+    }));
+    expect(ok).toEqual([]);
+  });
+
+  it('backup_master_key is required only once a cloud destination is configured', () => {
+    expect(validateConfig(validConfig({ r2_config: undefined, s3_config: undefined }))).toEqual([]);
+
+    const missing = validateConfig(validConfig({ r2_config: { account_id: 'a', bucket: 'b', access_key_id: 'k', secret_access_key: 's' } }));
+    expect(missing).toContain('Backup master key must be base64 and at least 256 bytes decoded');
+
+    const ok = validateConfig(validConfig({
+      backup_master_key: makeB64(256),
+      r2_config: { account_id: 'a', bucket: 'b', access_key_id: 'k', secret_access_key: 's' },
     }));
     expect(ok).toEqual([]);
   });

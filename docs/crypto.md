@@ -16,23 +16,29 @@ These sizes are the leancrypto WASM bundle's actual API for this Ascon-Keccak-51
 
 Corrected after reading the actual WASM entropy backend (`leancrypto/seeded_rng_wasm.c`): `seeded_rng_status()` writes a fixed diagnostic string unconditionally; it is not a pass/fail check and has no boolean readiness signal to gate on. There is no runtime "is the RNG seeded" check to perform against it.
 
-The precondition that actually matters is simpler: every salt and every raw key (UMK, `entryKey`, `backupKey`) is generated with the browser's `crypto.getRandomValues()` (Web Crypto API) directly in JS, not through leancrypto's own RNG facility. Web Crypto's CSPRNG has no unseeded boot state the way, say, a fresh Linux VM's `/dev/random` can; it is cryptographically ready the moment it is called. leancrypto's WASM entropy backend (`get_full_entropy`, backed by `getentropy()`, itself backed by `crypto.getRandomValues()`) only matters if leancrypto's own internal code calls its own RNG facility, which none of the operations this project uses (AEAD encrypt/decrypt, HKDF, hashing) do; they only consume the key and salt bytes already generated in JS.
+The precondition that actually matters is simpler: every salt and every raw key (UMK, `entryKey`) is generated with the browser's `crypto.getRandomValues()` (Web Crypto API) directly in JS, not through leancrypto's own RNG facility. Web Crypto's CSPRNG has no unseeded boot state the way, say, a fresh Linux VM's `/dev/random` can; it is cryptographically ready the moment it is called. leancrypto's WASM entropy backend (`get_full_entropy`, backed by `getentropy()`, itself backed by `crypto.getRandomValues()`) only matters if leancrypto's own internal code calls its own RNG facility, which none of the operations this project uses (AEAD encrypt/decrypt, HKDF, hashing) do; they only consume the key and salt bytes already generated in JS.
 
 ## Key Hierarchy
 
 ```text
 root_master_key (config)
-  ├── HKDF+AEAD → keyStore.umkBlob
-  │     └── HKDF+AEAD → entries.entryKey blob (64 raw random bytes, one per entry)
-  │           ├── HKDF+AEAD → entries.encryptedData
-  │           └── HKDF+AEAD → entryHistory.encryptedSnapshot
-  └── HKDF+AEAD → keyStore.backupKeyBlob
-        └── HKDF+AEAD → cloud backup blob (R2 / S3 compatible)
+  └── HKDF+AEAD → keyStore.umkBlob
+        └── HKDF+AEAD → entries.entryKey blob (64 raw random bytes, one per entry)
+              ├── HKDF+AEAD → entries.encryptedData
+              └── HKDF+AEAD → entryHistory.encryptedSnapshot
+
+backup_master_key (config)
+  └── HKDF+AEAD → cloud backup blob (R2 / S3 compatible)
 ```
 
-`root_master_key` lives only in local config; it never touches InstantDB. Each level wraps the key below it with a fresh HKDF+AEAD pass, so rotating `root_master_key` only re encrypts `keyStore.umkBlob` and `keyStore.backupKeyBlob`, rotating a single entry only re encrypts that entry's `entryKey` blob, and rotating the backup key only affects future backups, neither requires touching every row or every past backup.
+`root_master_key` lives only in local config; it never touches InstantDB. Each level wraps the key below it with a fresh HKDF+AEAD pass, so rotating `root_master_key` only re encrypts `keyStore.umkBlob`, and rotating a single entry only re encrypts that entry's `entryKey` blob; neither requires touching every row.
 
-`backupKey` is deliberately a sibling of UMK, not a reuse of `root_master_key` directly as the backup blob's IKM. Reusing `root_master_key` directly would not be broken, HKDF plus a fresh random salt gives real domain separation, but it would tie the key protecting offsite backups (on infrastructure this project does not control, R2/S3, for potentially long retention) directly to the same secret protecting the live vault, with nothing but salt non collision standing between them. A dedicated `backupKey` lets backup key rotation happen independently of `root_master_key` rotation, and keeps a compromise of past backup objects from having any direct bearing on `entries`/`entryHistory` key material.
+`backup_master_key` is a second, independent root secret, not a sibling key wrapped under `root_master_key` the way UMK is, and not a reuse of `root_master_key` directly as the backup blob's IKM either. Two prior designs were considered and rejected:
+
+- **Wrapping a random `backupKey` under `root_master_key` and storing the wrapped blob in `keyStore`** (the original design): this ties backup decryption to InstantDB surviving, since the only copy of the wrapped blob lives there. If InstantDB itself is lost, exactly the disaster a cloud backup exists to protect against, `root_master_key` alone is no longer enough to decrypt any backup: the wrapped `backupKeyBlob` needed to recover the raw key is gone too.
+- **Reusing `root_master_key` directly as the backup blob's IKM**: HKDF plus a fresh random salt gives real domain separation, so this would not be cryptographically broken, but it ties the key protecting offsite backups (on infrastructure this project does not control, R2/S3, for potentially long retention) directly to the same secret protecting the live vault. Any weakness in backup handling code that leaks or mishandles this key exposes the entire vault, not just backups.
+
+A second config only secret avoids both problems: it never touches InstantDB in any form, so a backup stays decryptable using only the config file regardless of InstantDB's fate, and it stays fully isolated from `root_master_key`, so a compromise of one does not expose the other in either direction. The cost is that there is no in-app way to rotate it: rotating means changing the value in config directly (see Key Rotation below), the same as it would be for a wrapped `backupKey` anyway, since rotation never retroactively re encrypts backups already uploaded either way.
 
 ## Key Hierarchy Key Derivation
 
@@ -45,10 +51,9 @@ Per blob key derivation via HKDF-SHA3-512:
 Where `K` is the parent key for the blob type (see Key Hierarchy above):
 
 - `keyStore.umkBlob`: `K = root_master_key`
-- `keyStore.backupKeyBlob`: `K = root_master_key`
 - `entries.entryKey`: `K = UMK` (decrypted from `keyStore.umkBlob`)
 - `entries.encryptedData` and `entryHistory.encryptedSnapshot`: `K = entryKey` (decrypted from `entries.entryKey`)
-- cloud backup blob: `K = backupKey` (decrypted from `keyStore.backupKeyBlob`)
+- cloud backup blob: `K = backup_master_key` (from config, directly, no unwrap step)
 
 `randomSalt`: 64 fresh random bytes generated per encryption operation. Output split: first 64 bytes to `encKey`, last 64 bytes to `encIv`.
 
@@ -154,7 +159,9 @@ commitHash = hex(SHA-256(canonicalJson(snapshotWithoutCommitHash))).slice(0, 32)
 
 ## Cloud Backup
 
-The full vault, every entry, decrypted, as JSON, is Brotli compressed then AEAD encrypted under `backupKey`, using the same blob format and pipeline as everything else (see Blob Format, Encryption Pipeline). The same resulting blob is uploaded directly from the client to Cloudflare R2 and to every configured S3 compatible destination (`s3_config` is an array; one destination might be AWS, another Backblaze B2, and so on), no server proxy (see docs/architecture.md, Backend: none, by design). Each destination is uploaded independently: a failure at one does not block or roll back the others, and the app should report success or failure per destination rather than a single combined result. Upload requests are SigV4 signed client side using access keys read from local config, the same trust model as `root_master_key`, `email`, and `password` already being there (see docs/security.md). Every destination bucket must have CORS enabled for the app's origin, since nothing else makes the request on the client's behalf.
+The full vault, every entry, decrypted, as JSON, is Brotli compressed then AEAD encrypted under `backup_master_key`, using the same blob format and pipeline as everything else (see Blob Format, Encryption Pipeline). The same resulting blob is uploaded directly from the client to Cloudflare R2 and to every configured S3 compatible destination (`s3_config` is an array; one destination might be AWS, another Backblaze B2, and so on), no server proxy (see docs/architecture.md, Backend: none, by design). Each destination is uploaded independently: a failure at one does not block or roll back the others, and the app should report success or failure per destination rather than a single combined result. Upload requests are SigV4 signed client side using access keys read from local config, the same trust model as `root_master_key`, `email`, and `password` already being there (see docs/security.md). Every destination bucket must have CORS enabled for the app's origin, since nothing else makes the request on the client's behalf.
+
+Decrypting a backup needs only `backup_master_key` from config; no lookup into InstantDB is involved at all, unlike `root_master_key`, which still needs `keyStore.umkBlob` to reach the live vault. This is deliberate: a cloud backup exists to protect against exactly the scenario where InstantDB itself is unavailable or lost, so its decryption path must not depend on InstantDB surviving.
 
 Retention of past backup objects, whether old ones are pruned and after how long, is not yet decided; the simplest approach is to rely on the object storage's own lifecycle policies rather than reimplement a client side cap.
 
@@ -171,13 +178,13 @@ Local backup is a separate, unencrypted feature that does not use this pipeline 
 
 ## Key Rotation
 
-**Root master key rotation** — re encrypts the UMK blob and the backup key blob in `keyStore`:
+**Root master key rotation** — re encrypts the UMK blob in `keyStore`:
 
-1. Decrypt `keyStore.umkBlob` and `keyStore.backupKeyBlob` using the current `root_master_key`.
-2. Re encrypt both raw values with the new `root_master_key` (fresh salt each, current format version).
+1. Decrypt `keyStore.umkBlob` using the current `root_master_key`.
+2. Re encrypt the raw UMK with the new `root_master_key` (fresh salt, current format version).
 3. Write the updated `keyStore` row directly to InstantDB via `db.transact`.
 
-Entry data, history snapshots, and every cloud backup already uploaded are unaffected; their encryption depends on `entryKey` and `backupKey`, not directly on `root_master_key`. `backupKey` itself does not change, so past backup objects in R2/S3 remain decryptable exactly as before.
+Entry data, history snapshots, and every cloud backup already uploaded are unaffected; their encryption depends on `entryKey` and `backup_master_key`, not directly on `root_master_key`.
 
 **UMK rotation** — re encrypts all `entryKey` blobs:
 
@@ -189,10 +196,4 @@ Entry data, history snapshots, and every cloud backup already uploaded are unaff
 
 This ordering is required, not incidental: writing the new `keyStore` row separately from, and before, the `entryKey` rewrites would leave the vault in a state where the live UMK no longer matches some entries' `entryKey`, which would still be wrapped under the old UMK, permanently stranding them. Batching every write into one transaction means a failure at any point leaves the old UMK and old `entryKey` blobs fully valid and untouched; the whole rotation can simply be retried from step 1. Entry data and history snapshots are unaffected either way; only `entryKey` blobs and the `keyStore` row change, and only together.
 
-**Backup key rotation** — re encrypts `keyStore.backupKeyBlob`, future backups only:
-
-1. Decrypt the current `backupKey` from `keyStore.backupKeyBlob`.
-2. Generate a new `backupKey` (64 random bytes).
-3. Re encrypt the new `backupKey` with `root_master_key` and write the updated `keyStore` row.
-
-Unlike UMK rotation, this does not automatically re secure anything already uploaded: past backup objects in R2/S3 remain encrypted under the old `backupKey`, since object storage has no equivalent of a `keyStore` row that can just be swapped in place. If old backup objects need to move to the new key too, each one has to be downloaded, decrypted under the old `backupKey`, and re uploaded under the new one; that is a separate, explicit operation, not a side effect of rotation.
+**Backup master key rotation** — there is nothing stored in InstantDB to rewrite, since `backup_master_key` lives only in config: rotation is simply replacing the value in the config file. Future backups are encrypted under the new value immediately, with no app side action needed. As with the old wrapped-`backupKey` design, this does not automatically re secure anything already uploaded: past backup objects in R2/S3 remain encrypted under the old key, since object storage has no equivalent of a `keyStore` row that can just be swapped in place. If old backup objects need to move to the new key too, each one has to be downloaded, decrypted under the old `backup_master_key`, and re uploaded under the new one; that is a separate, explicit operation, not a side effect of rotation.

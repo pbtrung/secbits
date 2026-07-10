@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeRootMasterKey } from '../crypto.js';
+import { decodeRootMasterKey, decodeBackupMasterKey } from '../crypto.js';
 
 function makeB64(length) {
   const bytes = new Uint8Array(length);
@@ -27,5 +27,17 @@ describe('decodeRootMasterKey', () => {
 
   it('rejects an invalid base64 string', () => {
     expect(() => decodeRootMasterKey('!!!invalid')).toThrow();
+  });
+});
+
+describe('decodeBackupMasterKey', () => {
+  it('accepts a 256-byte key and returns a Uint8Array of length 256', () => {
+    const result = decodeBackupMasterKey(makeB64(256));
+    expect(result).toBeInstanceOf(Uint8Array);
+    expect(result.length).toBe(256);
+  });
+
+  it('rejects a 255-byte key with an "at least 256 bytes" error', () => {
+    expect(() => decodeBackupMasterKey(makeB64(255))).toThrow('at least 256 bytes');
   });
 });

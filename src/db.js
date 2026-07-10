@@ -3,17 +3,14 @@ import schema from '../instant.schema';
 import {
   b64ToBytes,
   bytesToB64,
-  decryptBackupKey,
   decryptEntry,
   decryptEntryKey,
   decryptUMK,
-  encryptBackupKey,
   encryptEntry,
   encryptEntryKey,
   encryptUMK,
   generateEntryKey,
   generateUMK,
-  generateBackupKey,
 } from './crypto';
 import { computeCommitHash } from './lib/commitHash';
 
@@ -62,7 +59,9 @@ function buildCommitList(sortedSnapshots) {
 let db = null;
 let rootMasterKeyBytes = null;
 let umkBytes = null;
-let backupKeyBytes = null;
+// Config only, never stored in InstantDB in any form: see
+// decodeBackupMasterKey in crypto.js for why.
+let backupMasterKeyBytes = null;
 let keyStoreId = null;
 let usernameValue = null;
 let backupDestinationsValue = { r2_config: null, s3_config: [] };
@@ -143,13 +142,21 @@ export function getBackupDestinations() {
   return backupDestinationsValue;
 }
 
+export function setBackupMasterKey(bytes) {
+  backupMasterKeyBytes = bytes;
+}
+
+export function getBackupMasterKeyBytes() {
+  return backupMasterKeyBytes;
+}
+
 export function clearSession() {
   rootMasterKeyBytes?.fill(0);
   umkBytes?.fill(0);
-  backupKeyBytes?.fill(0);
+  backupMasterKeyBytes?.fill(0);
   rootMasterKeyBytes = null;
   umkBytes = null;
-  backupKeyBytes = null;
+  backupMasterKeyBytes = null;
   keyStoreId = null;
   usernameValue = null;
   backupDestinationsValue = { r2_config: null, s3_config: [] };
@@ -197,29 +204,22 @@ export async function ensureKeyStore(rmkBytes) {
   if (rows.length === 1) {
     const row = rows[0];
     umkBytes = await decryptUMK(b64ToBytes(row.umkBlob), rootMasterKeyBytes);
-    backupKeyBytes = await decryptBackupKey(b64ToBytes(row.backupKeyBlob), rootMasterKeyBytes);
     keyStoreId = row.id;
     return;
   }
 
   const newUmk = generateUMK();
-  const newBackupKey = generateBackupKey();
   const umkBlobBytes = await encryptUMK(newUmk, rootMasterKeyBytes);
-  const backupBlobBytes = await encryptBackupKey(newBackupKey, rootMasterKeyBytes);
   const newId = id();
   const ownerId = await requireAuthId();
 
   await db.transact([
     db.tx.keyStore[newId]
-      .update({
-        umkBlob: bytesToB64(umkBlobBytes),
-        backupKeyBlob: bytesToB64(backupBlobBytes),
-      })
+      .update({ umkBlob: bytesToB64(umkBlobBytes) })
       .link({ owner: ownerId }),
   ]);
 
   umkBytes = newUmk;
-  backupKeyBytes = newBackupKey;
   keyStoreId = newId;
 }
 
@@ -445,12 +445,8 @@ export async function permanentlyDeleteUserEntry(entryId) {
 export async function rotateRootMasterKey(newRootMasterKeyBytes) {
   assertUnlocked();
   const newUmkBlob = await encryptUMK(umkBytes, newRootMasterKeyBytes);
-  const newBackupBlob = await encryptBackupKey(backupKeyBytes, newRootMasterKeyBytes);
   await db.transact([
-    db.tx.keyStore[keyStoreId].update({
-      umkBlob: bytesToB64(newUmkBlob),
-      backupKeyBlob: bytesToB64(newBackupBlob),
-    }),
+    db.tx.keyStore[keyStoreId].update({ umkBlob: bytesToB64(newUmkBlob) }),
   ]);
   rootMasterKeyBytes = newRootMasterKeyBytes;
 }
@@ -483,18 +479,6 @@ export async function rotateUserMasterKey() {
 
   umkBytes = newUmk;
   return { rotatedEntries: rewrappedEntryKeys.length };
-}
-
-export async function rotateBackupKey() {
-  assertUnlocked();
-  const newBackupKey = generateBackupKey();
-  const newBlob = await encryptBackupKey(newBackupKey, rootMasterKeyBytes);
-  await db.transact([db.tx.keyStore[keyStoreId].update({ backupKeyBlob: bytesToB64(newBlob) })]);
-  backupKeyBytes = newBackupKey;
-}
-
-export function getBackupKeyBytes() {
-  return backupKeyBytes;
 }
 
 // --- stats / export ---------------------------------------------------------------

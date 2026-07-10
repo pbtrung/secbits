@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import SpinnerBtn from './SpinnerBtn';
-import { buildExportData, fetchUserEntries, getUsername, getVaultStats, getBackupKeyBytes, getBackupDestinations } from '../db';
+import { buildExportData, fetchUserEntries, getUsername, getVaultStats, getBackupMasterKeyBytes, getBackupDestinations } from '../db';
 import { buildCloudBackupBlob } from '../lib/backup';
 import { uploadAllBackupDestinations } from '../lib/s3';
 import KeyRotation from './KeyRotation';
@@ -236,6 +236,7 @@ function ExportPage() {
 
   const destinations = getBackupDestinations();
   const hasCloudDestinations = Boolean(destinations.r2_config) || destinations.s3_config.length > 0;
+  const backupMasterKeyBytes = getBackupMasterKeyBytes();
 
   const handleCloudBackup = useCallback(async () => {
     setBackingUp(true);
@@ -243,9 +244,8 @@ function ExportPage() {
     setBackupError(null);
     try {
       const { entries, trash } = await fetchUserEntries();
-      const backupKeyBytes = getBackupKeyBytes();
       const exportObj = buildExportData({ username: getUsername(), entries, trash });
-      const blob = await buildCloudBackupBlob(exportObj, backupKeyBytes);
+      const blob = await buildCloudBackupBlob(exportObj, backupMasterKeyBytes);
       const key = `secbits-backup-${new Date().toISOString().slice(0, 10)}.bin`;
       const results = await uploadAllBackupDestinations(destinations, blob, key);
       setBackupResults(results);
@@ -254,7 +254,7 @@ function ExportPage() {
     } finally {
       setBackingUp(false);
     }
-  }, [destinations]);
+  }, [destinations, backupMasterKeyBytes]);
 
   return (
     <div className="p-4" style={{ maxWidth: 700 }}>
@@ -283,6 +283,11 @@ function ExportPage() {
       {!hasCloudDestinations ? (
         <div className="text-muted small fst-italic">
           No cloud backup destinations configured; nothing to back up to.
+        </div>
+      ) : !backupMasterKeyBytes ? (
+        <div className="text-muted small fst-italic">
+          Cloud backup destinations are configured, but no backup master key
+          is set; add one to your config file to enable cloud backup.
         </div>
       ) : (
         <SpinnerBtn

@@ -205,15 +205,28 @@ function akDecrypt(lib, encKey, encIv, ciphertext, tag, ad) {
 }
 
 /**
- * Validate root_master_key from config: must be base64, decode to >= 256 bytes.
- * Returns decoded bytes or throws.
+ * Validate a master key from config: must be base64, decode to >= 256 bytes.
+ * Shared by root_master_key and backup_master_key, which have identical
+ * format requirements. Returns decoded bytes or throws.
  */
-export function decodeRootMasterKey(rootMasterKeyB64) {
-  const bytes = b64ToBytes(rootMasterKeyB64);
+function decodeMasterKey(masterKeyB64, label) {
+  const bytes = b64ToBytes(masterKeyB64);
   if (bytes.length < 256) {
-    throw new Error('Root master key must be at least 256 bytes when decoded');
+    throw new Error(`${label} must be at least 256 bytes when decoded`);
   }
   return bytes;
+}
+
+export function decodeRootMasterKey(rootMasterKeyB64) {
+  return decodeMasterKey(rootMasterKeyB64, 'Root master key');
+}
+
+// backup_master_key is a config only secret, independent of root_master_key:
+// it never touches InstantDB in any form, wrapped or not, so a cloud backup
+// stays decryptable using only the config file even if InstantDB itself is
+// completely lost. See docs/crypto.md, Cloud Backup.
+export function decodeBackupMasterKey(backupMasterKeyB64) {
+  return decodeMasterKey(backupMasterKeyB64, 'Backup master key');
 }
 
 export function generateEntryKey() {
@@ -221,10 +234,6 @@ export function generateEntryKey() {
 }
 
 export function generateUMK() {
-  return getRandomBytes(ENTRY_KEY_LEN);
-}
-
-export function generateBackupKey() {
   return getRandomBytes(ENTRY_KEY_LEN);
 }
 
@@ -254,19 +263,6 @@ export async function encryptUMK(rawUmkBytes, rootMasterKeyBytes) {
 export async function decryptUMK(umkBlobBytes, rootMasterKeyBytes) {
   const raw = await decryptBlob(rootMasterKeyBytes, umkBlobBytes);
   if (raw.length !== ENTRY_KEY_LEN) throw new Error('Invalid UMK');
-  return raw;
-}
-
-// backupKey is a sibling of UMK in the key hierarchy: same wrapping pattern
-// (root_master_key wraps a fresh 64 byte secret), different purpose (cloud
-// backup blobs instead of entryKey blobs). See docs/crypto.md, Key Hierarchy.
-export async function encryptBackupKey(rawBackupKeyBytes, rootMasterKeyBytes) {
-  return encryptBlob(rootMasterKeyBytes, rawBackupKeyBytes);
-}
-
-export async function decryptBackupKey(backupKeyBlobBytes, rootMasterKeyBytes) {
-  const raw = await decryptBlob(rootMasterKeyBytes, backupKeyBlobBytes);
-  if (raw.length !== ENTRY_KEY_LEN) throw new Error('Invalid backup key');
   return raw;
 }
 

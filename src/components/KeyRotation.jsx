@@ -1,18 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import SpinnerBtn from './SpinnerBtn';
 import { bytesToB64, decodeRootMasterKey } from '../crypto';
-import { rotateRootMasterKey, rotateUserMasterKey, rotateBackupKey } from '../db';
+import { rotateRootMasterKey, rotateUserMasterKey } from '../db';
 
 function KeyRotation() {
   const [newKeyB64, setNewKeyB64] = useState('');
   const [confirmed, setConfirmed] = useState(false);
   const [loadingRoot, setLoadingRoot] = useState(false);
   const [loadingUmk, setLoadingUmk] = useState(false);
-  const [loadingBackup, setLoadingBackup] = useState(false);
   const [copied, setCopied] = useState(false);
   const [status, setStatus] = useState(null);
 
-  const anyLoading = loadingRoot || loadingUmk || loadingBackup;
+  const anyLoading = loadingRoot || loadingUmk;
 
   const generateKey = useCallback(() => {
     const bytes = crypto.getRandomValues(new Uint8Array(256));
@@ -64,23 +63,6 @@ function KeyRotation() {
     }
   }, [anyLoading]);
 
-  const handleRotateBackupKey = useCallback(async () => {
-    if (anyLoading) return;
-    setLoadingBackup(true);
-    setStatus(null);
-    try {
-      await rotateBackupKey();
-      setStatus({
-        type: 'success',
-        msg: 'Backup key rotated. This only affects future cloud backups; past backup objects already uploaded stay under the old key.',
-      });
-    } catch (err) {
-      setStatus({ type: 'danger', msg: err?.message || 'Failed to rotate backup key.' });
-    } finally {
-      setLoadingBackup(false);
-    }
-  }, [anyLoading]);
-
   return (
     <div className="card mb-3">
       <div className="card-body">
@@ -125,7 +107,7 @@ function KeyRotation() {
           <SpinnerBtn
             className="btn btn-danger btn-sm"
             onClick={handleRotateRoot}
-            disabled={!confirmed || loadingUmk || loadingBackup}
+            disabled={!confirmed || loadingUmk}
             busy={loadingRoot}
             busyLabel="Rotating RMK..."
           >
@@ -134,22 +116,20 @@ function KeyRotation() {
           <SpinnerBtn
             className="btn btn-warning btn-sm"
             onClick={handleRotateUMK}
-            disabled={loadingRoot || loadingBackup}
+            disabled={loadingRoot}
             busy={loadingUmk}
             busyLabel="Rotating UMK..."
           >
             Rotate user master key
           </SpinnerBtn>
-          <SpinnerBtn
-            className="btn btn-outline-warning btn-sm"
-            onClick={handleRotateBackupKey}
-            disabled={loadingRoot || loadingUmk}
-            busy={loadingBackup}
-            busyLabel="Rotating backup key..."
-          >
-            Rotate backup key
-          </SpinnerBtn>
         </div>
+
+        <p className="text-muted small mt-3 mb-0">
+          The backup master key lives only in your config file; there is
+          nothing stored to rotate here. To rotate it, change the value in
+          your config file directly. As with the other keys, this only
+          protects future cloud backups, not ones already uploaded.
+        </p>
 
         {status && <div className={`alert alert-${status.type} small py-2 mt-3 mb-0`}>{status.msg}</div>}
       </div>

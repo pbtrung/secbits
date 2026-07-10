@@ -22,14 +22,14 @@ What is actually decided for this rebuild so far. Anything not listed here is un
 ## Backup
 
 - Local: on demand export of the full, decrypted vault as plain, unencrypted JSON, downloaded to the user's machine. No encryption involved; this is a deliberate, unprotected escape hatch, see docs/security.md for the risk it creates.
-- Cloud: on demand export of the same vault content, Brotli compressed and AEAD encrypted under a dedicated `backupKey`, uploaded directly from the client to Cloudflare R2 and to every configured S3 compatible destination, one or more (see docs/crypto.md, Cloud Backup). No server proxy; each destination is uploaded independently, so one failing does not block the others.
+- Cloud: on demand export of the same vault content, Brotli compressed and AEAD encrypted under `backup_master_key` from config, uploaded directly from the client to Cloudflare R2 and to every configured S3 compatible destination, one or more (see docs/crypto.md, Cloud Backup). No server proxy; each destination is uploaded independently, so one failing does not block the others.
 - Retention of past cloud backup objects is not yet decided.
 
 ## Key management
 
-- `root_master_key` rotation: re encrypts `keyStore.umkBlob` and `keyStore.backupKeyBlob`.
+- `root_master_key` rotation: re encrypts `keyStore.umkBlob`.
 - UMK rotation: re encrypts every entry's `entryKey`, atomically, in one InstantDB transaction (see docs/crypto.md, Key Rotation).
-- Backup key rotation: re encrypts `keyStore.backupKeyBlob`; affects future cloud backups only, not ones already uploaded (see docs/crypto.md, Key Rotation).
+- `backup_master_key` rotation: a config only value; there is nothing in InstantDB to rewrite, so rotation is just changing it in the config file. Affects future cloud backups only, not ones already uploaded (see docs/crypto.md, Key Rotation).
 
 ## Auth
 
