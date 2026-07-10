@@ -37,15 +37,6 @@ const _schema = i.schema({
       encryptedSnapshot: i.string(),
     }),
     keyStore: i.entity({
-      // Vestigial: backup_master_key in local config replaced this (see
-      // CLAUDE.md, Config Contract, and docs/crypto.md, Cloud Backup) so
-      // cloud backups stay decryptable even if InstantDB itself is lost.
-      // Kept here, optional, only because it may still exist on the live
-      // app from earlier testing, and this file mirrors what is actually
-      // live rather than what would ideally be set (see docs/data_model.md,
-      // Uniqueness, for why that mirroring rule exists). Safe to delete from
-      // the dashboard and this field together whenever convenient.
-      backupKeyBlob: i.string().optional(),
       umkBlob: i.string(),
     }),
   },

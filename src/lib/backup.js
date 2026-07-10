@@ -1,10 +1,10 @@
-import { encryptEntry, decryptEntry } from '../crypto';
+import { encryptEntry } from '../crypto';
 
-// Reuses encryptEntry/decryptEntry as-is: they already do exactly
-// "Brotli compress then AEAD encrypt any JSON value", which is the whole
-// cloud backup pipeline (see docs/crypto.md, Cloud Backup). backupMasterKeyBytes
-// plays the role entryKey plays for a normal entry, except it's a config
-// only secret rather than something wrapped and stored in InstantDB.
+// Reuses encryptEntry as-is: it already does exactly "Brotli compress then
+// AEAD encrypt any JSON value", which is the whole cloud backup pipeline
+// (see docs/crypto.md, Cloud Backup). backupMasterKeyBytes plays the role
+// entryKey plays for a normal entry, except it's a config only secret
+// rather than something wrapped and stored in InstantDB.
 //
 // Takes the same export object buildExportData() produces (version,
 // user_master_key, data, trash, each entry carrying its entry_key) rather
@@ -13,8 +13,4 @@ import { encryptEntry, decryptEntry } from '../crypto';
 
 export async function buildCloudBackupBlob(exportObj, backupMasterKeyBytes) {
   return encryptEntry(exportObj, backupMasterKeyBytes);
-}
-
-export async function decryptCloudBackupBlob(blobBytes, backupMasterKeyBytes) {
-  return decryptEntry(blobBytes, backupMasterKeyBytes);
 }

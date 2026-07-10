@@ -50,6 +50,7 @@ Backup (on demand):
 
 Config JSON is required at app startup. Key fields:
 - `instant_app_id`
+- `instant_client_name`: registered when linking Firebase to InstantDB; required by `db.auth.signInWithIdToken`
 - `firebase_api_key`
 - `email`
 - `password`

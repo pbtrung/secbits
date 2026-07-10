@@ -261,19 +261,22 @@ async function saveEntrySnapshot(entryId, rawEntryKey, snapshotWithoutHash, { is
   const { history: _dropHistory, ...cleanSnapshot } = snapshotWithoutHash;
   const commitHash = await computeCommitHash(cleanSnapshot);
   const withHash = { ...cleanSnapshot, commitHash };
-  const dataBlob = await encryptEntry(withHash, rawEntryKey);
-  const snapshotBlob = await encryptEntry(withHash, rawEntryKey);
+  // entries.encryptedData and entryHistory.encryptedSnapshot store the same
+  // plaintext for this commit, so one encrypt call covers both; there's no
+  // security reason to spend a second Brotli+AEAD pass re-encrypting
+  // identical content under a second random salt.
+  const blob = bytesToB64(await encryptEntry(withHash, rawEntryKey));
   const historyId = id();
 
   const entriesChunk = isCreate
     ? db.tx.entries[entryId]
-        .update({ entryKey: bytesToB64(await encryptEntryKey(rawEntryKey, umkBytes)), encryptedData: bytesToB64(dataBlob) })
+        .update({ entryKey: bytesToB64(await encryptEntryKey(rawEntryKey, umkBytes)), encryptedData: blob })
         .link({ owner: ownerId })
-    : db.tx.entries[entryId].update({ encryptedData: bytesToB64(dataBlob) });
+    : db.tx.entries[entryId].update({ encryptedData: blob });
 
   await db.transact([
     entriesChunk,
-    db.tx.entryHistory[historyId].update({ encryptedSnapshot: bytesToB64(snapshotBlob) }).link({ entry: entryId }),
+    db.tx.entryHistory[historyId].update({ encryptedSnapshot: blob }).link({ entry: entryId }),
   ]);
 
   // Rebuild history the same way fetchUserEntries does, rather than

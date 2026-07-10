@@ -2,7 +2,7 @@ export const BLOB_MAGIC = new Uint8Array([0x53, 0x42]); // "SB"
 export const BLOB_VERSION = new Uint8Array([0x01, 0x00]); // v1.0
 export const BLOB_SALT_LEN = 64;
 export const BLOB_TAG_LEN = 64;
-export const BLOB_HEADER_LEN = BLOB_MAGIC.length + BLOB_VERSION.length;
+const BLOB_HEADER_LEN = BLOB_MAGIC.length + BLOB_VERSION.length;
 export const BLOB_AD_LEN = BLOB_HEADER_LEN + BLOB_SALT_LEN;
 export const BLOB_MIN_LEN = BLOB_HEADER_LEN + BLOB_SALT_LEN + BLOB_TAG_LEN;
 

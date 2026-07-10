@@ -36,6 +36,32 @@ export const ENTRY_TYPE_META = Object.fromEntries(
   ENTRY_TYPES.map(({ type, icon, label }) => [type, { icon, label }])
 );
 
+// customFields replaced the older `hiddenFields` name; entries saved under
+// the old name still need to read as customFields everywhere an entry gets
+// normalized.
+export function normalizeCustomFields(entry) {
+  if (Array.isArray(entry?.customFields)) return entry.customFields;
+  if (Array.isArray(entry?.hiddenFields)) return entry.hiddenFields;
+  return [];
+}
+
+// Fills in defaults for a decrypted entry coming back from db.js, so every
+// caller that puts one into React state gets the same shape regardless of
+// which db.js function produced it.
+export function normalizeEntry(e) {
+  return {
+    title: '',
+    username: '',
+    password: '',
+    notes: '',
+    ...e,
+    urls: Array.isArray(e.urls) ? e.urls : [],
+    totpSecrets: Array.isArray(e.totpSecrets) ? e.totpSecrets : [],
+    customFields: normalizeCustomFields(e),
+    tags: Array.isArray(e.tags) ? e.tags : [],
+  };
+}
+
 /**
  * Filter live entries by tag and/or search query.
  * trashed entries are excluded — callers should not pass trashed entries.

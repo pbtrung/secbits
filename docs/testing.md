@@ -1,6 +1,6 @@
 # Testing
 
-No code exists yet; this describes the intended strategy.
+Testing strategy for the current implementation.
 
 ## Tooling
 
@@ -41,7 +41,7 @@ No code exists yet; this describes the intended strategy.
 
 - User A cannot view, update, or delete User B's `entries`, `entryHistory`, or `keyStore` rows.
 - User A cannot create an `entries` or `keyStore` row with `owner` set to User B.
-- User A cannot update one of their own rows to reassign `owner` to User B; `newData.owner == data.owner` holds.
+- User A cannot update one of their own rows to reassign `owner` to User B; `!('owner' in request.modifiedFields)` rejects any update that touches `owner` at all.
 - No user can update an `entryHistory` row; only create or delete succeed.
 - User A can delete their own `entryHistory` rows through the `entry.owner` ref chain, not just direct ownership.
 

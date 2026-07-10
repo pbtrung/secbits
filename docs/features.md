@@ -5,7 +5,10 @@ What is actually decided for this rebuild so far. Anything not listed here is un
 ## Vault
 
 - Entries: an id, an owner link, an `entryKey` blob, and an `encryptedData` blob. Everything about the entry, type, title, fields, tags, notes, and timestamps, lives inside `encryptedData`; none of it is plaintext (see docs/data_model.md, Entities).
-- Exact entry types and field layout (e.g. login vs card vs note, and which fields each has) are not yet decided.
+- Three entry types, every entry also has `title`, `notes`, `tags`, and `customFields` regardless of type:
+  - `login`: `username`, `password`, `urls` (multiple), TOTP secrets (multiple).
+  - `note`: no type specific fields beyond the common ones above.
+  - `card`: `cardholderName`, `cardNumber`, `cardExpiry`, `cardCvv`.
 
 ## History
 
@@ -17,7 +20,7 @@ What is actually decided for this rebuild so far. Anything not listed here is un
 ## Trash
 
 - Soft delete via an encrypted `deletedAt` timestamp inside `encryptedData`.
-- Entries past a retention window are purged client side on load. Exact retention window is not yet decided.
+- Entries past a retention window are purged client side on load. Currently 30 days (`TRASH_RETENTION_MS` in `src/db.js`), provisional and subject to change.
 
 ## Backup
 

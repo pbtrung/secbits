@@ -111,7 +111,7 @@ function buildDiffSections(fromSnap, toSnap, changedFields) {
       return lines.length ? [{ field, lines }] : [];
     }
 
-    if (field === 'customFields' || field === 'hiddenFields') {
+    if (field === 'customFields') {
       const a = Array.isArray(oldVal) ? oldVal : [];
       const b = Array.isArray(newVal) ? newVal : [];
       const lines = [];
@@ -210,7 +210,10 @@ function CommitDiff({ commits, idx }) {
   const parentCommit = commit?.parent
     ? commits.find((c) => c.hash === commit.parent)
     : null;
-  const parentEvicted = commit?.parent !== null && commit?.parent !== undefined && parentCommit === null;
+  // Array.prototype.find yields undefined, never null, when nothing matches,
+  // so a parent hash pruned out of history by HISTORY_CAP must be detected
+  // as undefined here, not null; comparing against null let this never fire.
+  const parentEvicted = commit?.parent != null && parentCommit === undefined;
 
   if (!commit) return null;
 

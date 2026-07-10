@@ -6,7 +6,7 @@ import NotesField from './NotesField';
 import TagsField from './TagsField';
 import SpinnerBtn from './SpinnerBtn';
 import { isHttpUrl } from '../lib/validation.js';
-import { formatDeletedLabel, ENTRY_TYPE_META } from '../lib/entryUtils.js';
+import { formatDeletedLabel, ENTRY_TYPE_META, normalizeCustomFields } from '../lib/entryUtils.js';
 import {
   TITLE_MAX,
   TAG_MAX,
@@ -48,7 +48,7 @@ function normalizeEntryForDraft(entry) {
     ...safe,
     urls: Array.isArray(safe.urls) ? safe.urls : [],
     totpSecrets: Array.isArray(safe.totpSecrets) ? safe.totpSecrets : [],
-    customFields: Array.isArray(safe.customFields) ? safe.customFields : (Array.isArray(safe.hiddenFields) ? safe.hiddenFields : []),
+    customFields: normalizeCustomFields(safe),
     tags: Array.isArray(safe.tags) ? safe.tags : [],
   };
   if (safe.type === 'card') {

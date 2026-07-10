@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
-export function evaluateStrength(password) {
+function evaluateStrength(password) {
   if (!password) return { entropy: 0, label: '', colorClass: '' };
 
   let poolSize = 0;

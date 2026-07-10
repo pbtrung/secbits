@@ -102,7 +102,6 @@ function AboutPage() {
           trashCount,
           entriesJsonSize: totalBytes,
           avgBytes: count ? Math.round(totalBytes / count) : 0,
-          decryptedCount: count,
           withPassword, withUsername, withNotes,
           withUrls, totalUrls,
           withTotp, totalTotp,
@@ -144,17 +143,17 @@ function AboutPage() {
             ]}
           />
 
-          {stats.decryptedCount > 0 && (<>
+          {stats.count > 0 && (<>
             <StatsHeading>Field coverage</StatsHeading>
             <StatsTable
               rows={[
-                { label: 'Password', value: `${stats.withPassword} / ${stats.decryptedCount}` },
-                { label: 'Username', value: `${stats.withUsername} / ${stats.decryptedCount}` },
-                { label: 'Notes', value: `${stats.withNotes} / ${stats.decryptedCount}` },
-                { label: 'URLs', value: `${stats.withUrls} / ${stats.decryptedCount}`, note: stats.totalUrls > 0 ? `${stats.totalUrls} total` : null },
-                { label: 'TOTP secrets', value: `${stats.withTotp} / ${stats.decryptedCount}`, note: stats.totalTotp > 0 ? `${stats.totalTotp} total` : null },
-                { label: 'Custom fields', value: `${stats.withCustomFields} / ${stats.decryptedCount}`, note: stats.totalCustomFields > 0 ? `${stats.totalCustomFields} total` : null },
-                { label: 'Tags', value: `${stats.withTags} / ${stats.decryptedCount}` },
+                { label: 'Password', value: `${stats.withPassword} / ${stats.count}` },
+                { label: 'Username', value: `${stats.withUsername} / ${stats.count}` },
+                { label: 'Notes', value: `${stats.withNotes} / ${stats.count}` },
+                { label: 'URLs', value: `${stats.withUrls} / ${stats.count}`, note: stats.totalUrls > 0 ? `${stats.totalUrls} total` : null },
+                { label: 'TOTP secrets', value: `${stats.withTotp} / ${stats.count}`, note: stats.totalTotp > 0 ? `${stats.totalTotp} total` : null },
+                { label: 'Custom fields', value: `${stats.withCustomFields} / ${stats.count}`, note: stats.totalCustomFields > 0 ? `${stats.totalCustomFields} total` : null },
+                { label: 'Tags', value: `${stats.withTags} / ${stats.count}` },
               ]}
             />
 

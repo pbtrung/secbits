@@ -14,7 +14,7 @@ async function putObject({ endpoint, region, bucket, accessKeyId, secretAccessKe
   }
 }
 
-export async function uploadToR2(r2Config, key, bodyBytes) {
+async function uploadToR2(r2Config, key, bodyBytes) {
   await putObject(
     {
       endpoint: `https://${r2Config.account_id}.r2.cloudflarestorage.com`,
@@ -28,7 +28,7 @@ export async function uploadToR2(r2Config, key, bodyBytes) {
   );
 }
 
-export async function uploadToS3(s3DestinationConfig, key, bodyBytes) {
+async function uploadToS3(s3DestinationConfig, key, bodyBytes) {
   await putObject(
     {
       endpoint: s3DestinationConfig.endpoint,

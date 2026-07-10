@@ -17,7 +17,7 @@ import {
   restoreDeletedEntryVersion,
   permanentlyDeleteUserEntry,
 } from './db';
-import { filterEntries } from './lib/entryUtils';
+import { filterEntries, normalizeEntry } from './lib/entryUtils';
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -31,17 +31,6 @@ function useIsMobile() {
 
 function App() {
   const [session, setSession] = useState(null);
-  const normalizeEntry = useCallback((e) => ({
-    title: '',
-    username: '',
-    password: '',
-    notes: '',
-    ...e,
-    urls: Array.isArray(e.urls) ? e.urls : [],
-    totpSecrets: Array.isArray(e.totpSecrets) ? e.totpSecrets : [],
-    customFields: Array.isArray(e.customFields) ? e.customFields : (Array.isArray(e.hiddenFields) ? e.hiddenFields : []),
-    tags: Array.isArray(e.tags) ? e.tags : [],
-  }), []);
 
   const handleReady = useCallback(async (userId, userName) => {
     const { entries: data, trash, failedCount } = await fetchUserEntries();
@@ -51,7 +40,7 @@ function App() {
       ? `${failedCount} entry(ies) could not be decrypted and were skipped. Check your master key.`
       : '';
     setSession({ userId, userName, initialEntries: filtered, initialTrash: deleted, initialSyncError });
-  }, [normalizeEntry]);
+  }, []);
 
   const handleLogout = useCallback(() => {
     clearSession();
@@ -232,17 +221,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
     setSaving(true);
     try {
       const restored = await restoreEntryVersion(entryId, commitHash);
-      setEntries((prev) => prev.map((e) => (e.id === entryId ? {
-        title: '',
-        username: '',
-        password: '',
-        notes: '',
-        ...restored,
-        urls: Array.isArray(restored.urls) ? restored.urls : [],
-        totpSecrets: Array.isArray(restored.totpSecrets) ? restored.totpSecrets : [],
-        customFields: Array.isArray(restored.customFields) ? restored.customFields : (Array.isArray(restored.hiddenFields) ? restored.hiddenFields : []),
-        tags: Array.isArray(restored.tags) ? restored.tags : [],
-      } : e)));
+      setEntries((prev) => prev.map((e) => (e.id === entryId ? normalizeEntry(restored) : e)));
       return true;
     } catch (err) {
       setSyncError(err?.message || 'Failed to restore entry.');
@@ -256,7 +235,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
     setSyncError('');
     setSaving(true);
     try {
-      const restored = await restoreDeletedEntryVersion(entryId, commitHash);
+      const restored = normalizeEntry(await restoreDeletedEntryVersion(entryId, commitHash));
       setTrashEntries((prev) => prev.filter((e) => e.id !== entryId));
       setEntries((prev) => [restored, ...prev.filter((e) => e.id !== restored.id)]);
       setTrashMode(false);
@@ -274,7 +253,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
     setSyncError('');
     setSaving(true);
     try {
-      const restored = await restoreDeletedUserEntry(entryId);
+      const restored = normalizeEntry(await restoreDeletedUserEntry(entryId));
       setTrashEntries((prev) => prev.filter((e) => e.id !== entryId));
       setEntries((prev) => [restored, ...prev.filter((e) => e.id !== restored.id)]);
       setTrashMode(false);
