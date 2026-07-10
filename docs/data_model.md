@@ -25,7 +25,7 @@ These reverse label names (`keyStore`, `entries`, `entryHistory`) matter beyond 
 
 Pushing these through `npx instant-cli@latest push schema` hit a reproducible bug: any newly created link to `$users` fails validation with `connects to non existing entity`, regardless of entity name, casing, or link order, even once the target entity is otherwise proven to exist via other successful links, and even with an auth method already configured. Ruled out: casing, the specific entity name, missing `$users` declaration (it is never declared explicitly, confirmed against InstantDB's own docs), and auth not being set up. The three links above were instead created manually via the InstantDB dashboard's Explorer UI.
 
-**Current state**: `instant.schema.ts` ships with `links: {}`, not mirroring the links above, by deliberate choice as of the most recent commit. Until `links` in that file is updated to match this section exactly, the running app will hit "Link 'owner' does not exist on entity 'keyStore'" at the `ensureKeyStore` step, since `db.js` passes that empty-links schema straight to `init()`.
+`instant.schema.ts`'s `links` object mirrors the three links above exactly. If it is ever reverted to `links: {}` (which happened once already, deliberately, and reintroduced the exact failure this section describes), the running app breaks at the `ensureKeyStore` step with "Link 'owner' does not exist on entity 'keyStore'", since `db.js` passes that schema straight to `init()`. That is not a `db.js` bug; `db.js`'s query logic is correct and unaffected either way, the fix is always to restore `links` here to match this section.
 
 ## Permission rules (`instant.perms.ts`)
 
