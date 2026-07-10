@@ -18,23 +18,14 @@ const _schema = i.schema({
       encryptedSnapshot: i.string(),
     }),
   },
-  links: {
-    keyStoreOwner: {
-      forward: { on: 'keyStore', has: 'one', label: 'owner' },
-      reverse: { on: '$users', has: 'many', label: 'keyStore' },
-    },
-    entriesOwner: {
-      forward: { on: 'entries', has: 'one', label: 'owner' },
-      reverse: { on: '$users', has: 'many', label: 'entries' },
-    },
-    // onDelete: 'cascade' on the "one" side (entryHistory -> its one entry)
-    // means deleting an entries row cascades to delete its entryHistory rows,
-    // so permanentlyDeleteUserEntry doesn't need to delete them separately.
-    entryHistoryEntry: {
-      forward: { on: 'entryHistory', has: 'one', label: 'entry', onDelete: 'cascade' },
-      reverse: { on: 'entries', has: 'many', label: 'history' },
-    },
-  },
+  // Links are created via the InstantDB dashboard UI instead of pushed here:
+  // pushing new links to $users through the CLI hit an unresolved bug (see
+  // docs/data_model.md). Create these three manually in the dashboard so the
+  // resulting link names match what instant.perms.ts and src/db.js expect:
+  //   keyStore.owner  -> one, to $users
+  //   entries.owner   -> one, to $users
+  //   entryHistory.entry -> one, to entries, onDelete: cascade
+  links: {},
 });
 
 // This idiom (re-exporting the inferred type via an empty interface) is

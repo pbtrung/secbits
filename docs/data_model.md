@@ -21,6 +21,8 @@ InstantDB entities, links, and permission rules. Every field beyond row id and t
 - `entries.owner` <-> `$users` (many entries to one user)
 - `entryHistory.entry` <-> `entries` (many history rows to one entry), `onDelete: cascade` on the entry side: deleting an `entries` row deletes its `entryHistory` rows automatically, so nothing needs to delete them separately.
 
+Pushing these through `npx instant-cli@latest push schema` hit a reproducible bug: any newly created link to `$users` fails validation with `connects to non existing entity`, regardless of entity name, casing, or link order, even once the target entity is otherwise proven to exist via other successful links, and even with an auth method already configured. Ruled out: casing, the specific entity name, missing `$users` declaration (it is never declared explicitly, confirmed against InstantDB's own docs), and auth not being set up. `instant.schema.ts` therefore ships with `links: {}`; the three links above are created manually via the InstantDB dashboard UI instead, using the exact names listed so they match `instant.perms.ts` and `src/db.js`.
+
 ## Permission rules (`instant.perms.ts`)
 
 ```
