@@ -260,6 +260,23 @@ async function saveEntrySnapshot(entryId, rawEntryKey, snapshotWithoutHash, { is
     db.tx.entryHistory[historyId].update({ encryptedSnapshot: bytesToB64(snapshotBlob) }).link({ entry: entryId }),
   ]);
 
+  // Rebuild history the same way fetchUserEntries does, rather than
+  // omitting it: every caller (create/update/restore) returns this result
+  // straight to the UI, which replaces its in-memory entry with it. Without
+  // this, `history` silently disappeared from the entry after every single
+  // save, not just restore, since nothing here ever included it.
+  const historyRows = (await db.queryOnce({
+    entryHistory: { $: { where: { 'entry.id': entryId } } },
+  })).data.entryHistory || [];
+  const rawSnapshots = await Promise.all(
+    historyRows.map(async (h) => ({
+      id: h.id,
+      ...(await decryptEntry(b64ToBytes(h.encryptedSnapshot), rawEntryKey)),
+    })),
+  );
+  rawSnapshots.sort((a, b) => (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0));
+  const history = buildCommitList(rawSnapshots);
+
   // id must come after the spread, not before: withHash can carry its own
   // stale `id` (e.g. the UI's local-<uuid> draft id, copied in via
   // createUserEntry's `...entry` spread), which would otherwise silently
@@ -267,7 +284,7 @@ async function saveEntrySnapshot(entryId, rawEntryKey, snapshotWithoutHash, { is
   // "edit an entry, save, and it creates a new entry instead of updating":
   // the UI kept holding the draft's local id after create, so the next
   // save looked like a new entry again.
-  return { ...withHash, id: entryId, historyId };
+  return { ...withHash, id: entryId, historyId, history };
 }
 
 // --- vault read ---------------------------------------------------------------

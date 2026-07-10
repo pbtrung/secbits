@@ -1,5 +1,6 @@
 export function formatExact(ts) {
   const d = new Date(ts);
+  if (!Number.isFinite(d.getTime())) return 'Unknown date';
   const pad = (n) => String(n).padStart(2, '0');
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
