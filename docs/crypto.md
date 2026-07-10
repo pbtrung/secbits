@@ -14,7 +14,9 @@ These sizes are the leancrypto WASM bundle's actual API for this Ascon-Keccak-51
 
 ## Entropy Precondition
 
-Every guarantee in this document, salt uniqueness, IV uniqueness, and by extension confidentiality itself, depends on the WASM RNG being properly seeded before any salt or key is generated. This project has previously hit a real gap here (see `seeded_rng_status()` in the WASM entropy backend, added to fix an underseeded RNG). Before generating any salt, UMK, or `entryKey`, including during the very first `keyStore` bootstrap, the client must confirm the RNG backend reports seeded and refuse to encrypt or generate key material otherwise, not assume it silently.
+Corrected after reading the actual WASM entropy backend (`leancrypto/seeded_rng_wasm.c`): `seeded_rng_status()` writes a fixed diagnostic string unconditionally; it is not a pass/fail check and has no boolean readiness signal to gate on. There is no runtime "is the RNG seeded" check to perform against it.
+
+The precondition that actually matters is simpler: every salt and every raw key (UMK, `entryKey`, `backupKey`) is generated with the browser's `crypto.getRandomValues()` (Web Crypto API) directly in JS, not through leancrypto's own RNG facility. Web Crypto's CSPRNG has no unseeded boot state the way, say, a fresh Linux VM's `/dev/random` can; it is cryptographically ready the moment it is called. leancrypto's WASM entropy backend (`get_full_entropy`, backed by `getentropy()`, itself backed by `crypto.getRandomValues()`) only matters if leancrypto's own internal code calls its own RNG facility, which none of the operations this project uses (AEAD encrypt/decrypt, HKDF, hashing) do; they only consume the key and salt bytes already generated in JS.
 
 ## Key Hierarchy
 

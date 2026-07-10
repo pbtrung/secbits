@@ -19,7 +19,7 @@ InstantDB entities, links, and permission rules. Every field beyond row id and t
 
 - `keyStore.owner` <-> `$users` (one key store row per user)
 - `entries.owner` <-> `$users` (many entries to one user)
-- `entryHistory.entry` <-> `entries` (many history rows to one entry)
+- `entryHistory.entry` <-> `entries` (many history rows to one entry), `onDelete: cascade` on the entry side: deleting an `entries` row deletes its `entryHistory` rows automatically, so nothing needs to delete them separately.
 
 ## Permission rules (`instant.perms.ts`)
 
@@ -40,7 +40,7 @@ entryHistory:
 
 InstantDB treats any action left unspecified as allow, not deny, so every action on every entity above must be listed explicitly. `entryHistory.update` is `false`: history snapshots are immutable, created or deleted, never modified.
 
-`update` in InstantDB evaluates `data` against the pre update state and exposes the incoming write as `newData`, so `auth.id in data.ref('owner.id')` alone only proves the caller currently owns the row; it does not stop them reassigning `owner` to a different user's `$users` id in the same update. The `newData.owner == data.owner` clause pins the ownership link so it cannot change after creation. The exact syntax for comparing a link field (not a plain attribute) across `data`/`newData` needs to be confirmed against InstantDB's current permissions API when `instant.perms.ts` is actually written; the InstantDB docs' own example for this pattern (`newData.creatorId == data.creatorId`) uses a plain scalar attribute, not a link, so verify link comparison works the same way before relying on it.
+`update` in InstantDB evaluates `data` against the pre update state and exposes the incoming write as `newData`, so `auth.id in data.ref('owner.id')` alone only proves the caller currently owns the row; it does not stop them reassigning `owner` to a different user's `$users` id in the same update. `instant.perms.ts` pins the ownership link with `newData.ref('owner.id') == data.ref('owner.id')`. This exact link comparison syntax is unverified: InstantDB's own documented example for this pattern (`newData.creatorId == data.creatorId`) compares a plain scalar attribute, not a link, so `.ref()` on both sides is a best effort extension of that pattern, not a confirmed one. Must be checked against a real InstantDB app (see docs/testing.md, Permission rules) before relying on it.
 
 Deletion of old history rows and trashed entries is driven entirely by the client (see docs/architecture.md, Maintenance), since only the client can decrypt `createdAt`/`deletedAt` to decide what is old enough to remove. Permission rules allow it because it is still the owning user doing the deleting, not a privileged bypass.
 

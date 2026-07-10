@@ -1,0 +1,5 @@
+/*
+  Content-Security-Policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://api.instantdb.com wss://api.instantdb.com https://*.r2.cloudflarestorage.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; manifest-src 'self';
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: same-origin
