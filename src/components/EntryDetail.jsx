@@ -130,7 +130,7 @@ function EntryDetail({
   const [historyIdx, setHistoryIdx] = useState(0);
   const notesHideTimerRef = useRef(null);
 
-  const commits = entry._commits || [];
+  const commits = entry.history || [];
 
   useEffect(() => {
     setDraft(normalizeEntryForDraft(entry));

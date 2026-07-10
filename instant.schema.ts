@@ -1,56 +1,110 @@
 import { i } from '@instantdb/react';
 
-// Entities, links, and permission rules are specified in docs/data_model.md.
-// Every field beyond row id and the owner/entry link is an opaque encrypted
-// blob; InstantDB never sees plaintext content.
+// Pulled from the live app (npx instant-cli@latest pull schema) rather than
+// hand-maintained: this file drifting from what's actually live caused
+// several real bugs earlier (see docs/data_model.md, Uniqueness), so the
+// live schema is treated as the source of truth going forward. $files and
+// $usersLinkedPrimaryUser are InstantDB system entities/links this app
+// never touches directly, kept here because the query validator needs
+// local schema for anything a dot-notation where filter traverses into,
+// same reason $users itself must be declared explicitly.
+//
+// keyStoreOwner's reverse side is has: 'many', not 'one': a genuine
+// has:'one'/has:'one' one-to-one on this link produced a persistent
+// "already exists" uniqueness rejection even after confirming zero
+// existing keyStore rows, no leftover entities from diagnostic renames,
+// and correct auth. Backend enforcement was backed off; "one keyStore row
+// per user" is enforced client side instead, by ensureKeyStore in
+// src/db.js treating more than one matching row as a fatal error rather
+// than silently picking one.
 
 const _schema = i.schema({
   entities: {
-    // Declared explicitly, matching the real fields InstantDB's own pull of
-    // this app's live schema showed, even though $users is a system entity
-    // this app never writes to directly. Without this, dot-notation where
-    // filters that traverse a link into $users (e.g. 'owner.id') fail
-    // validation: the query validator has no local schema for $users to
-    // resolve the path against, even though the link to it works fine on
-    // its own.
+    $files: i.entity({
+      path: i.string().unique().indexed(),
+      url: i.string().optional(),
+    }),
     $users: i.entity({
       email: i.string().unique().indexed().optional(),
       imageURL: i.string().optional(),
       type: i.string().optional(),
     }),
-    keyStore: i.entity({
-      umkBlob: i.string(),
-      backupKeyBlob: i.string(),
-    }),
     entries: i.entity({
-      entryKey: i.string(),
       encryptedData: i.string(),
+      entryKey: i.string(),
     }),
     entryHistory: i.entity({
       encryptedSnapshot: i.string(),
     }),
+    keyStore: i.entity({
+      backupKeyBlob: i.string(),
+      umkBlob: i.string(),
+    }),
   },
-  // Links were created via the InstantDB dashboard UI instead of pushed via
-  // the CLI: pushing new links to $users hit an unresolved CLI/backend bug
-  // (see docs/data_model.md). This must mirror the live schema exactly,
-  // including the reverse label names actually created in the dashboard
-  // (init() passes this object to InstantDB, which validates queries against
-  // it, not against whatever is live on the backend), or queries silently
-  // see "no links" regardless of what the dashboard shows.
   links: {
-    keyStoreOwner: {
-      forward: { on: 'keyStore', has: 'one', label: 'owner', required: true, onDelete: 'cascade' },
-      reverse: { on: '$users', has: 'one', label: 'keyStore' },
+    $usersLinkedPrimaryUser: {
+      forward: {
+        on: '$users',
+        has: 'one',
+        label: 'linkedPrimaryUser',
+        onDelete: 'cascade',
+      },
+      reverse: {
+        on: '$users',
+        has: 'many',
+        label: 'linkedGuestUsers',
+      },
     },
     entriesOwner: {
-      forward: { on: 'entries', has: 'one', label: 'owner', required: true, onDelete: 'cascade' },
-      reverse: { on: '$users', has: 'many', label: 'entries' },
+      forward: {
+        on: 'entries',
+        has: 'one',
+        label: 'owner',
+        required: true,
+        onDelete: 'cascade',
+      },
+      reverse: {
+        on: '$users',
+        has: 'many',
+        label: 'entries',
+      },
     },
     entryHistoryEntry: {
-      forward: { on: 'entryHistory', has: 'one', label: 'entry', required: true, onDelete: 'cascade' },
-      reverse: { on: 'entries', has: 'many', label: 'entryHistory' },
+      forward: {
+        on: 'entryHistory',
+        has: 'one',
+        label: 'entry',
+        required: true,
+        onDelete: 'cascade',
+      },
+      reverse: {
+        on: 'entries',
+        has: 'many',
+        label: 'entryHistory',
+      },
+    },
+    // required: true is deliberately absent here, unlike the other two
+    // owner links: the dashboard recreation of this link (see the comment
+    // above) did not set it, and this file mirrors what is actually live,
+    // not what would ideally be set. ensureKeyStore always provides owner
+    // when creating a keyStore row regardless, so this has no functional
+    // effect today; set "Require this attribute" in the dashboard and add
+    // it back here if closing that gap ever matters.
+    keyStoreOwner: {
+      forward: {
+        on: 'keyStore',
+        has: 'one',
+        label: 'owner',
+        onDelete: 'cascade',
+      },
+      reverse: {
+        on: '$users',
+        has: 'many',
+        label: 'keyStore',
+      },
     },
   },
+  rooms: {},
 });
 
 // This idiom (re-exporting the inferred type via an empty interface) is

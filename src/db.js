@@ -23,6 +23,32 @@ import { computeCommitHash } from './lib/commitHash';
 const HISTORY_CAP = 20;
 const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days, provisional
 
+// Fields HistoryDiffModal knows how to diff; see its DIFF_FIELD_ORDER.
+const DIFFABLE_FIELDS = ['title', 'username', 'password', 'notes', 'urls', 'totpSecrets', 'tags', 'customFields'];
+
+function fieldsChanged(fromSnap, toSnap) {
+  return DIFFABLE_FIELDS.filter((f) => JSON.stringify(fromSnap?.[f]) !== JSON.stringify(toSnap?.[f]));
+}
+
+// Builds the {hash, timestamp, snapshot, changed, parent} shape
+// HistoryDiffModal and EntryDetail's version button expect, from the raw
+// decrypted snapshots (already sorted newest first). Each commit's parent
+// is the next, chronologically older, entry in the array; the oldest one
+// has no parent and no `changed` list, shown as "initial version".
+function buildCommitList(sortedSnapshots) {
+  return sortedSnapshots.map((snap, i) => {
+    const parentSnap = sortedSnapshots[i + 1] || null;
+    return {
+      id: snap.id,
+      hash: snap.commitHash,
+      timestamp: snap.updatedAt ?? snap.createdAt,
+      snapshot: snap,
+      parent: parentSnap ? parentSnap.commitHash : null,
+      changed: parentSnap ? fieldsChanged(parentSnap, snap) : undefined,
+    };
+  });
+}
+
 let db = null;
 let rootMasterKeyBytes = null;
 let umkBytes = null;
@@ -126,12 +152,14 @@ export function clearSession() {
 async function queryOwnKeyStoreRows(authId) {
   // Query from $users (whose id we already have directly) and follow the
   // forward link out to keyStore, rather than querying keyStore with a
-  // reverse dot-path where filter — a different code path in InstantDB's
-  // query engine, tried after the reverse-filter approach did not reliably
-  // find an existing row (see docs/data_model.md, Uniqueness).
+  // reverse dot-path where filter (see docs/data_model.md, Uniqueness for
+  // why: db.queryOnce()'s result is wrapped in a `data` key, e.g.
+  // { data: { $users: [...] } }, not the bare query shape. Every queryOnce
+  // call site in this file read the un-wrapped shape and so always saw
+  // empty results, regardless of which query shape was tried.
   const users = (await db.queryOnce({
     $users: { $: { where: { id: authId } }, keyStore: {} },
-  })).$users || [];
+  })).data.$users || [];
   return users[0]?.keyStore || [];
 }
 
@@ -232,7 +260,14 @@ async function saveEntrySnapshot(entryId, rawEntryKey, snapshotWithoutHash, { is
     db.tx.entryHistory[historyId].update({ encryptedSnapshot: bytesToB64(snapshotBlob) }).link({ entry: entryId }),
   ]);
 
-  return { id: entryId, ...withHash, historyId };
+  // id must come after the spread, not before: withHash can carry its own
+  // stale `id` (e.g. the UI's local-<uuid> draft id, copied in via
+  // createUserEntry's `...entry` spread), which would otherwise silently
+  // win and get returned instead of the real entryId — exactly what caused
+  // "edit an entry, save, and it creates a new entry instead of updating":
+  // the UI kept holding the draft's local id after create, so the next
+  // save looked like a new entry again.
+  return { ...withHash, id: entryId, historyId };
 }
 
 // --- vault read ---------------------------------------------------------------
@@ -244,7 +279,7 @@ export async function fetchUserEntries() {
   // Same $users-first, follow-the-link approach as queryOwnKeyStoreRows.
   const users = (await db.queryOnce({
     $users: { $: { where: { id: authId } }, entries: { entryHistory: {} } },
-  })).$users || [];
+  })).data.$users || [];
   const rows = users[0]?.entries || [];
 
   const entries = [];
@@ -257,13 +292,14 @@ export async function fetchUserEntries() {
       const decoded = await decryptEntry(b64ToBytes(row.encryptedData), rawEntryKey);
       const historyRows = row.entryHistory || [];
 
-      const history = await Promise.all(
+      const rawSnapshots = await Promise.all(
         historyRows.map(async (h) => ({
           id: h.id,
           ...(await decryptEntry(b64ToBytes(h.encryptedSnapshot), rawEntryKey)),
         })),
       );
-      history.sort((a, b) => (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0));
+      rawSnapshots.sort((a, b) => (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0));
+      const history = buildCommitList(rawSnapshots);
 
       const hydrated = { id: row.id, ...decoded, history };
       if (decoded.deletedAt) trash.push(hydrated);
@@ -292,7 +328,12 @@ export async function createUserEntry(entry) {
   const rawEntryKey = generateEntryKey();
   entryKeyCache.set(entryId, rawEntryKey);
 
-  const snapshot = { ...entry, createdAt: now, updatedAt: now, deletedAt: null };
+  // Strip the UI's local-only bookkeeping fields (draft id, _isNew flag)
+  // before they become part of the entry's actual content: they must not
+  // end up inside the encrypted blob, the commit hash, or (see
+  // saveEntrySnapshot) silently overwrite the real entryId in the result.
+  const { id: _draftId, _isNew: _draftFlag, ...content } = entry;
+  const snapshot = { ...content, createdAt: now, updatedAt: now, deletedAt: null };
   return saveEntrySnapshot(entryId, rawEntryKey, snapshot, { isCreate: true, ownerId });
 }
 
@@ -300,7 +341,8 @@ export async function updateUserEntry(entryId, entry) {
   assertUnlocked();
   const rawEntryKey = entryKeyCache.get(entryId);
   if (!rawEntryKey) throw new Error(`Unknown entry ${entryId}; call fetchUserEntries first`);
-  const snapshot = { ...entry, updatedAt: Date.now() };
+  const { id: _draftId, _isNew: _draftFlag, ...content } = entry;
+  const snapshot = { ...content, updatedAt: Date.now() };
   return saveEntrySnapshot(entryId, rawEntryKey, snapshot);
 }
 
@@ -308,7 +350,7 @@ export async function deleteUserEntry(entryId) {
   assertUnlocked();
   const rawEntryKey = entryKeyCache.get(entryId);
   if (!rawEntryKey) throw new Error(`Unknown entry ${entryId}; call fetchUserEntries first`);
-  const entries = (await db.queryOnce({ entries: { $: { where: { id: entryId } } } })).entries || [];
+  const entries = (await db.queryOnce({ entries: { $: { where: { id: entryId } } } })).data.entries || [];
   if (!entries[0]) throw new Error(`Entry ${entryId} not found`);
   const current = await decryptEntry(b64ToBytes(entries[0].encryptedData), rawEntryKey);
   const { commitHash: _drop, ...withoutHash } = current;
@@ -319,7 +361,7 @@ export async function restoreDeletedUserEntry(entryId) {
   assertUnlocked();
   const rawEntryKey = entryKeyCache.get(entryId);
   if (!rawEntryKey) throw new Error(`Unknown entry ${entryId}; call fetchUserEntries first`);
-  const entries = (await db.queryOnce({ entries: { $: { where: { id: entryId } } } })).entries || [];
+  const entries = (await db.queryOnce({ entries: { $: { where: { id: entryId } } } })).data.entries || [];
   if (!entries[0]) throw new Error(`Entry ${entryId} not found`);
   const current = await decryptEntry(b64ToBytes(entries[0].encryptedData), rawEntryKey);
   const { commitHash: _drop, ...withoutHash } = current;
@@ -331,7 +373,7 @@ async function restoreVersionByCommitHash(entryId, commitHash) {
   if (!rawEntryKey) throw new Error(`Unknown entry ${entryId}; call fetchUserEntries first`);
   const historyRows = (await db.queryOnce({
     entryHistory: { $: { where: { 'entry.id': entryId } } },
-  })).entryHistory || [];
+  })).data.entryHistory || [];
   for (const h of historyRows) {
     const snapshot = await decryptEntry(b64ToBytes(h.encryptedSnapshot), rawEntryKey);
     if (snapshot.commitHash === commitHash) {
@@ -380,7 +422,7 @@ export async function rotateUserMasterKey() {
   const authId = await requireAuthId();
   const usersForRotation = (await db.queryOnce({
     $users: { $: { where: { id: authId } }, entries: {} },
-  })).$users || [];
+  })).data.$users || [];
   const rows = usersForRotation[0]?.entries || [];
   const newUmk = generateUMK();
 
