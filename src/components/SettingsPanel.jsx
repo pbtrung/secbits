@@ -240,7 +240,8 @@ function ExportPage() {
     try {
       const { entries, trash } = await fetchUserEntries();
       const backupKeyBytes = getBackupKeyBytes();
-      const blob = await buildCloudBackupBlob({ username: getUsername(), entries, trash }, backupKeyBytes);
+      const exportObj = buildExportData({ username: getUsername(), entries, trash });
+      const blob = await buildCloudBackupBlob(exportObj, backupKeyBytes);
       const key = `secbits-backup-${new Date().toISOString().slice(0, 10)}.bin`;
       const results = await uploadAllBackupDestinations(destinations, blob, key);
       setBackupResults(results);
@@ -259,7 +260,7 @@ function ExportPage() {
       <div className="fw-semibold mb-1">Local export</div>
       <div className="text-muted small mb-2">
         Download every entry as a plain, unencrypted JSON file. No encryption is involved;
-        this file is a full decrypted copy of your vault (see docs/security.md).
+        this file is a full decrypted copy of your vault.
       </div>
       <SpinnerBtn
         className="btn btn-primary btn-sm"
@@ -272,12 +273,12 @@ function ExportPage() {
       <div className="fw-semibold mb-1 mt-4">Cloud backup</div>
       <div className="text-muted small mb-2">
         Compress and encrypt the same vault content under a dedicated backup key, then upload
-        it to Cloudflare R2 and every configured S3 compatible destination (see docs/crypto.md,
-        Cloud Backup). Each destination is uploaded independently.
+        it to Cloudflare R2 and every configured S3 compatible destination. Each destination
+        is uploaded independently.
       </div>
       {!hasCloudDestinations ? (
         <div className="text-muted small fst-italic">
-          No r2_config or s3_config configured; nothing to back up to.
+          No cloud backup destinations configured; nothing to back up to.
         </div>
       ) : (
         <SpinnerBtn
@@ -310,8 +311,7 @@ function SecurityPage() {
         <i className="bi bi-shield-lock me-2"></i>Security
       </h5>
       <p className="text-muted small mb-3">
-        Rotate the keys protecting your vault if you suspect any of them may be compromised
-        (see docs/security.md, Recovery).
+        Rotate the keys protecting your vault if you suspect any of them may be compromised.
       </p>
       <KeyRotation />
     </div>

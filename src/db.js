@@ -178,7 +178,7 @@ export async function ensureKeyStore(rmkBytes) {
 
   if (rows.length > 1) {
     throw new Error(
-      'Multiple keyStore rows found for this account. Refusing to guess which is correct; see docs/data_model.md, Uniqueness.',
+      'Multiple key store rows found for this account. Refusing to guess which is correct.',
     );
   }
 
@@ -243,8 +243,12 @@ async function purgeTrashRetention(trashEntries) {
 }
 
 async function saveEntrySnapshot(entryId, rawEntryKey, snapshotWithoutHash, { isCreate, ownerId } = {}) {
-  const commitHash = await computeCommitHash(snapshotWithoutHash);
-  const withHash = { ...snapshotWithoutHash, commitHash };
+  // Defense in depth: every caller already strips `history` from its input,
+  // but this is the one choke point all saves funnel through, so a future
+  // caller forgetting to strip it can't reintroduce the self-nesting bug.
+  const { history: _dropHistory, ...cleanSnapshot } = snapshotWithoutHash;
+  const commitHash = await computeCommitHash(cleanSnapshot);
+  const withHash = { ...cleanSnapshot, commitHash };
   const dataBlob = await encryptEntry(withHash, rawEntryKey);
   const snapshotBlob = await encryptEntry(withHash, rawEntryKey);
   const historyId = id();
@@ -345,11 +349,16 @@ export async function createUserEntry(entry) {
   const rawEntryKey = generateEntryKey();
   entryKeyCache.set(entryId, rawEntryKey);
 
-  // Strip the UI's local-only bookkeeping fields (draft id, _isNew flag)
+  // Strip the UI's local-only bookkeeping fields (draft id, _isNew flag,
+  // and the hydrated history array saveEntrySnapshot attaches on read)
   // before they become part of the entry's actual content: they must not
   // end up inside the encrypted blob, the commit hash, or (see
   // saveEntrySnapshot) silently overwrite the real entryId in the result.
-  const { id: _draftId, _isNew: _draftFlag, ...content } = entry;
+  // Letting `history` leak through here was the bug behind "history nests
+  // inside itself on every save": each save re-embedded the UI's current
+  // (already nested) history into the new snapshot, which then became part
+  // of the next read's history too, growing without bound.
+  const { id: _draftId, _isNew: _draftFlag, history: _draftHistory, ...content } = entry;
   const snapshot = { ...content, createdAt: now, updatedAt: now, deletedAt: null };
   return saveEntrySnapshot(entryId, rawEntryKey, snapshot, { isCreate: true, ownerId });
 }
@@ -358,7 +367,7 @@ export async function updateUserEntry(entryId, entry) {
   assertUnlocked();
   const rawEntryKey = entryKeyCache.get(entryId);
   if (!rawEntryKey) throw new Error(`Unknown entry ${entryId}; call fetchUserEntries first`);
-  const { id: _draftId, _isNew: _draftFlag, ...content } = entry;
+  const { id: _draftId, _isNew: _draftFlag, history: _draftHistory, ...content } = entry;
   const snapshot = { ...content, updatedAt: Date.now() };
   return saveEntrySnapshot(entryId, rawEntryKey, snapshot);
 }
@@ -370,7 +379,7 @@ export async function deleteUserEntry(entryId) {
   const entries = (await db.queryOnce({ entries: { $: { where: { id: entryId } } } })).data.entries || [];
   if (!entries[0]) throw new Error(`Entry ${entryId} not found`);
   const current = await decryptEntry(b64ToBytes(entries[0].encryptedData), rawEntryKey);
-  const { commitHash: _drop, ...withoutHash } = current;
+  const { commitHash: _drop, history: _drop2, ...withoutHash } = current;
   return saveEntrySnapshot(entryId, rawEntryKey, { ...withoutHash, deletedAt: Date.now(), updatedAt: Date.now() });
 }
 
@@ -381,7 +390,7 @@ export async function restoreDeletedUserEntry(entryId) {
   const entries = (await db.queryOnce({ entries: { $: { where: { id: entryId } } } })).data.entries || [];
   if (!entries[0]) throw new Error(`Entry ${entryId} not found`);
   const current = await decryptEntry(b64ToBytes(entries[0].encryptedData), rawEntryKey);
-  const { commitHash: _drop, ...withoutHash } = current;
+  const { commitHash: _drop, history: _drop2, ...withoutHash } = current;
   return saveEntrySnapshot(entryId, rawEntryKey, { ...withoutHash, deletedAt: null, updatedAt: Date.now() });
 }
 
@@ -394,7 +403,7 @@ async function restoreVersionByCommitHash(entryId, commitHash) {
   for (const h of historyRows) {
     const snapshot = await decryptEntry(b64ToBytes(h.encryptedSnapshot), rawEntryKey);
     if (snapshot.commitHash === commitHash) {
-      const { commitHash: _drop, ...withoutHash } = snapshot;
+      const { commitHash: _drop, history: _drop2, ...withoutHash } = snapshot;
       return saveEntrySnapshot(entryId, rawEntryKey, { ...withoutHash, updatedAt: Date.now() });
     }
   }
@@ -492,6 +501,22 @@ export function getVaultStats(entries, trash) {
   };
 }
 
+// Attaches each entry's raw entryKey only here, at export construction
+// time, rather than as part of the hydrated entries fetchUserEntries()
+// returns to the rest of the app: those objects live in React state for
+// the whole session, and there's no reason for key material to sit there
+// when only a backup needs it.
+function withEntryKey(entry) {
+  const rawEntryKey = entryKeyCache.get(entry.id);
+  return { ...entry, entryKey: rawEntryKey ? bytesToB64(rawEntryKey) : null };
+}
+
 export function buildExportData({ username, entries, trash }) {
-  return { version: 1, username, data: entries, trash };
+  return {
+    version: 1,
+    username,
+    umk: umkBytes ? bytesToB64(umkBytes) : null,
+    data: entries.map(withEntryKey),
+    trash: trash.map(withEntryKey),
+  };
 }

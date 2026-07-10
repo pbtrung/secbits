@@ -211,7 +211,7 @@ function akDecrypt(lib, encKey, encIv, ciphertext, tag, ad) {
 export function decodeRootMasterKey(rootMasterKeyB64) {
   const bytes = b64ToBytes(rootMasterKeyB64);
   if (bytes.length < 256) {
-    throw new Error('root_master_key must be at least 256 bytes when decoded');
+    throw new Error('Root master key must be at least 256 bytes when decoded');
   }
   return bytes;
 }

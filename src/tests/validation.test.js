@@ -51,17 +51,17 @@ describe('validation', () => {
   it('r2_config is only validated when present', () => {
     expect(validateConfig(validConfig())).toEqual([]);
     const bad = validateConfig(validConfig({ r2_config: { bucket: 'b' } }));
-    expect(bad).toContain('r2_config.account_id is required');
-    expect(bad).toContain('r2_config.access_key_id is required');
+    expect(bad).toContain('R2 account ID is required');
+    expect(bad).toContain('R2 access key ID is required');
   });
 
   it('s3_config must be an array, validated per destination', () => {
     const notArray = validateConfig(validConfig({ s3_config: { endpoint: 'https://x' } }));
-    expect(notArray).toContain('s3_config must be an array');
+    expect(notArray).toContain('S3 destinations must be a list');
 
     const missingFields = validateConfig(validConfig({ s3_config: [{ endpoint: 'https://x' }] }));
-    expect(missingFields).toContain('s3_config[0].region is required');
-    expect(missingFields).toContain('s3_config[0].bucket is required');
+    expect(missingFields).toContain('S3 destination 1 region is required');
+    expect(missingFields).toContain('S3 destination 1 bucket is required');
 
     const ok = validateConfig(validConfig({
       s3_config: [{
