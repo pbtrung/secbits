@@ -30,6 +30,16 @@ function fieldsChanged(fromSnap, toSnap) {
   return DIFFABLE_FIELDS.filter((f) => JSON.stringify(fromSnap?.[f]) !== JSON.stringify(toSnap?.[f]));
 }
 
+// Some entryHistory rows written before saveEntrySnapshot stripped `history`
+// from its input still carry a nested history field in their decrypted
+// snapshot forever (entryHistory rows are immutable, never rewritten), so
+// this must be stripped again here at read time, not only at write time, or
+// old rows go on looking nested no matter how many times they're re-saved.
+function stripNestedHistory(snap) {
+  const { history: _drop, ...rest } = snap;
+  return rest;
+}
+
 // Builds the {hash, timestamp, snapshot, changed, parent} shape
 // HistoryDiffModal and EntryDetail's version button expect, from the raw
 // decrypted snapshots (already sorted newest first). Each commit's parent
@@ -42,7 +52,7 @@ function buildCommitList(sortedSnapshots) {
       id: snap.id,
       hash: snap.commitHash,
       timestamp: snap.updatedAt ?? snap.createdAt,
-      snapshot: snap,
+      snapshot: stripNestedHistory(snap),
       parent: parentSnap ? parentSnap.commitHash : null,
       changed: parentSnap ? fieldsChanged(parentSnap, snap) : undefined,
     };
@@ -501,22 +511,32 @@ export function getVaultStats(entries, trash) {
   };
 }
 
-// Attaches each entry's raw entryKey only here, at export construction
+// Attaches each entry's raw entry_key only here, at export construction
 // time, rather than as part of the hydrated entries fetchUserEntries()
 // returns to the rest of the app: those objects live in React state for
 // the whole session, and there's no reason for key material to sit there
 // when only a backup needs it.
-function withEntryKey(entry) {
+//
+// entry.history includes the current version as its own newest entry (its
+// HEAD, used by HistoryDiffModal/EntryDetail to badge it and to disable
+// restoring "into itself"); a backup's per-entry history is redundant with
+// the entry's own top-level fields for that same version, so it's dropped
+// here rather than duplicated.
+function toExportEntry(entry) {
   const rawEntryKey = entryKeyCache.get(entry.id);
-  return { ...entry, entryKey: rawEntryKey ? bytesToB64(rawEntryKey) : null };
+  return {
+    ...entry,
+    entry_key: rawEntryKey ? bytesToB64(rawEntryKey) : null,
+    history: (entry.history || []).filter((commit) => commit.hash !== entry.commitHash),
+  };
 }
 
 export function buildExportData({ username, entries, trash }) {
   return {
     version: 1,
     username,
-    umk: umkBytes ? bytesToB64(umkBytes) : null,
-    data: entries.map(withEntryKey),
-    trash: trash.map(withEntryKey),
+    user_master_key: umkBytes ? bytesToB64(umkBytes) : null,
+    data: entries.map(toExportEntry),
+    trash: trash.map(toExportEntry),
   };
 }
