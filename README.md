@@ -10,6 +10,7 @@ End to end encrypted password manager. React and Vite frontend, Firebase Authent
 - Backup: on demand local export as plain JSON, and on demand cloud backup, compressed and encrypted under a dedicated backup key, to Cloudflare R2 and any S3 compatible endpoint.
 - Key rotation: rotate the root master key, the per user master key, or the backup key independently, without needing to re encrypt everything downstream.
 - Multi user, no sharing: every user's data is strictly isolated; there is no mechanism to share an entry with another user (see docs/security.md for the full threat model).
+- Display name: `username` from config is shown in the UI; cosmetic only, not used for auth or stored in InstantDB.
 
 See docs/features.md for the full, current feature surface, and what is still undecided.
 
@@ -34,7 +35,7 @@ Prerequisites: Node.js, a Firebase project with email and password authenticatio
    npx instant-cli@latest push perms
    ```
 4. For cloud backup, create a Cloudflare R2 bucket and, optionally, a bucket on any S3 compatible provider, and enable CORS on each for the app's origin (see docs/tech_stack.md).
-5. Provide a config JSON with the fields listed in CLAUDE.md, Config Contract: `instant_app_id`, `firebase_api_key`, `email`, `password`, `root_master_key`, and, if using cloud backup, `r2_config` and `s3_config`. The exact delivery mechanism for this config, environment variable, uploaded file, or something else, is not yet decided.
+5. Provide a config JSON with the fields listed in CLAUDE.md, Config Contract: `instant_app_id`, `firebase_api_key`, `email`, `password`, `root_master_key`, `username`, and, if using cloud backup, `r2_config` and `s3_config`. The exact delivery mechanism for this config, environment variable, uploaded file, or something else, is not yet decided.
 
    ```json
    {
@@ -43,6 +44,7 @@ Prerequisites: Node.js, a Firebase project with email and password authenticatio
      "email": "you@example.com",
      "password": "REPLACE_WITH_FIREBASE_PASSWORD",
      "root_master_key": "REPLACE_WITH_BASE64_ENCODED_256_PLUS_BYTE_SECRET",
+     "username": "Jane Doe",
      "r2_config": {
        "account_id": "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID",
        "bucket": "secbits-backup",

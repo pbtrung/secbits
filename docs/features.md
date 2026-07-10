@@ -35,6 +35,7 @@ What is actually decided for this rebuild so far. Anything not listed here is un
 
 - Firebase Authentication, email and password from local config, no interactive step.
 - Firebase ID token exchanged for an InstantDB session via `db.auth.signInWithIdToken` (see docs/architecture.md, Auth: Firebase through InstantDB).
+- `username` from local config is displayed in the UI; it is cosmetic only, not part of the auth flow and not stored in InstantDB.
 
 ## Multi user
 

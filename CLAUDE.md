@@ -54,6 +54,7 @@ Config JSON is required at app startup. Key fields:
 - `email`
 - `password`
 - `root_master_key`
+- `username`: shown in the UI for display only; plays no role in authentication or in scoping InstantDB rows
 - `r2_config`: account id, bucket, access key id, secret access key
 - `s3_config`: array of `{ endpoint, region, bucket, access key id, secret access key }`, one entry per S3 compatible destination
 
