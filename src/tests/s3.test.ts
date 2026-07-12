@@ -16,7 +16,7 @@ function okResponse() {
   return { ok: true };
 }
 
-function failResponse(status, text) {
+function failResponse(status: number, text: string) {
   return { ok: false, status, text: async () => text };
 }
 

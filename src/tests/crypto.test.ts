@@ -108,7 +108,9 @@ describe('encryptBlob / decryptBlob', () => {
   it('rejects non-Uint8Array key or plaintext before touching the WASM module', async () => {
     const keyBytes = crypto.getRandomValues(new Uint8Array(64));
     const plain = crypto.getRandomValues(new Uint8Array(8));
+    // @ts-expect-error intentionally wrong type, to test the runtime guard
     await expect(encryptBlob('not bytes', plain)).rejects.toThrow('encryptBlob expects byte arrays');
+    // @ts-expect-error intentionally wrong type, to test the runtime guard
     await expect(encryptBlob(keyBytes, [1, 2, 3])).rejects.toThrow('encryptBlob expects byte arrays');
   });
 });
@@ -158,7 +160,7 @@ describe('encryptEntry / decryptEntry', () => {
     const withHash = { ...snapshot, commitHash: hash };
     const key = generateEntryKey();
     const blob = await encryptEntry(withHash, key);
-    const recovered = await decryptEntry(blob, key);
+    const recovered = await decryptEntry<{ commitHash: string }>(blob, key);
     expect(recovered.commitHash).toBe(hash);
     // Verify hash is consistent: recompute from snapshot without the field
     const recomputed = await computeCommitHash(snapshot);

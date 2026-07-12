@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { filterEntries } from '../lib/entryUtils.js';
+import type { Entry } from '../types';
 
-function entry(overrides) {
+function entry(overrides: Partial<Entry>): Entry {
   return {
     title: '',
     username: '',
     urls: [],
     tags: [],
     ...overrides,
-  };
+  } as Entry;
 }
 
 const ENTRIES = [

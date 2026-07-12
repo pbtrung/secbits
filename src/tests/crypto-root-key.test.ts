@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { decodeRootMasterKey, decodeBackupMasterKey } from '../crypto.js';
 
-function makeB64(length) {
+function makeB64(length: number) {
   const bytes = new Uint8Array(length);
   let str = '';
   for (const b of bytes) str += String.fromCharCode(b);

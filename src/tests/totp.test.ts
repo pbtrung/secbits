@@ -41,7 +41,7 @@ describe('base32Decode', () => {
   const RFC_SECRET = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
   const RFC_HEX = '3132333435363738393031323334353637383930';
 
-  function toHex(bytes) {
+  function toHex(bytes: Uint8Array) {
     return Array.from(bytes)
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
@@ -50,7 +50,7 @@ describe('base32Decode', () => {
   it('decodes the RFC 6238 SHA-1 secret to the correct bytes', () => {
     const decoded = base32Decode(RFC_SECRET);
     expect(decoded).not.toBeNull();
-    expect(toHex(decoded)).toBe(RFC_HEX);
+    expect(toHex(decoded!)).toBe(RFC_HEX);
   });
 
   it('strips = padding characters silently', () => {

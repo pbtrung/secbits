@@ -8,9 +8,18 @@
 
 const leancrypto = require('../../leancrypto/leancrypto.js');
 
+// This file pokes at the raw Emscripten WASM module directly (numeric
+// memory pointers, dynamically-looked-up `_lc_*` symbol names) to run
+// third-party test vectors, rather than going through crypto.ts's
+// LeancryptoModule interface (which only covers the subset crypto.ts calls).
+// A real interface here would need an index signature and degenerate to
+// `any` for every property anyway, so this stays explicitly untyped.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Lib = any;
+
 const EBADMSG = 9;
 
-function hexToU8(hex) {
+function hexToU8(hex: string): Uint8Array {
   const clean = hex.replace(/[^0-9a-fA-F]/g, '');
   if (clean.length % 2 !== 0) throw new Error(`Invalid hex length: ${clean.length}`);
   const out = new Uint8Array(clean.length / 2);
@@ -18,34 +27,34 @@ function hexToU8(hex) {
   return out;
 }
 
-function seq(start, len) {
+function seq(start: number, len: number): Uint8Array {
   const out = new Uint8Array(len);
   for (let i = 0; i < len; i++) out[i] = (start + i) & 0xff;
   return out;
 }
 
-function repeatRange(start, len, repeats) {
+function repeatRange(start: number, len: number, repeats: number): Uint8Array {
   const block = seq(start, len);
   const out = new Uint8Array(len * repeats);
   for (let i = 0; i < repeats; i++) out.set(block, i * len);
   return out;
 }
 
-function allocAndWrite(lib, data) {
+function allocAndWrite(lib: Lib, data: Uint8Array): number {
   const ptr = lib._malloc(data.length);
   lib.HEAPU8.set(data, ptr);
   return ptr;
 }
 
-function readBytes(lib, ptr, len) {
+function readBytes(lib: Lib, ptr: number, len: number): Uint8Array {
   return lib.HEAPU8.slice(ptr, ptr + len);
 }
 
-function assertRc(name, rc, expected = 0) {
+function assertRc(name: string, rc: number, expected = 0): void {
   if (rc !== expected) throw new Error(`${name} failed: rc=${rc}, expected=${expected}`);
 }
 
-function assertEqBytes(name, got, expected) {
+function assertEqBytes(name: string, got: Uint8Array, expected: Uint8Array): void {
   if (got.length !== expected.length) throw new Error(`${name}: length mismatch ${got.length} != ${expected.length}`);
   for (let i = 0; i < got.length; i++) {
     if (got[i] !== expected[i]) {
@@ -56,12 +65,17 @@ function assertEqBytes(name, got, expected) {
   }
 }
 
-function resolveHashPtr(lib, hashSymbol) {
+function resolveHashPtr(lib: Lib, hashSymbol: number): number {
   return lib.HEAPU32[hashSymbol >> 2];
 }
 
-function listHashImpls(lib, symbolNames) {
-  const out = [];
+interface HashImpl {
+  name: string;
+  ptr: number;
+}
+
+function listHashImpls(lib: Lib, symbolNames: string[]): HashImpl[] {
+  const out: HashImpl[] = [];
   const seen = new Set();
   for (const name of symbolNames) {
     const sym = lib[name];
@@ -74,7 +88,7 @@ function listHashImpls(lib, symbolNames) {
   return out;
 }
 
-function allocCtx(lib, hashPtr, tagLen) {
+function allocCtx(lib: Lib, hashPtr: number, tagLen: number): number {
   const ctxPtrPtr = lib._malloc(4);
   try {
     const rc = lib._lc_ak_alloc_taglen(hashPtr, tagLen, ctxPtrPtr);
@@ -85,7 +99,18 @@ function allocCtx(lib, hashPtr, tagLen) {
   }
 }
 
-function runAeadVectorCase(lib, name, hashPtr, vector) {
+interface AeadVector {
+  name: string;
+  hashPtr: number;
+  pt: Uint8Array;
+  key: Uint8Array;
+  iv: Uint8Array;
+  aad?: Uint8Array;
+  expCt: Uint8Array;
+  expTag: Uint8Array;
+}
+
+function runAeadVectorCase(lib: Lib, name: string, hashPtr: number, vector: AeadVector): void {
   const { pt, iv, aad, key, expCt, expTag } = vector;
   const tagLen = expTag.length;
 
@@ -94,7 +119,7 @@ function runAeadVectorCase(lib, name, hashPtr, vector) {
     const keyPtr = allocAndWrite(lib, key);
     const ivPtr = allocAndWrite(lib, iv);
     const ptPtr = allocAndWrite(lib, pt);
-    const aadPtr = allocAndWrite(lib, aad);
+    const aadPtr = allocAndWrite(lib, aad!);
     const ctPtr = lib._malloc(pt.length);
     const tagPtr = lib._malloc(tagLen);
 
@@ -102,7 +127,7 @@ function runAeadVectorCase(lib, name, hashPtr, vector) {
       let rc = lib._lc_aead_setkey(ctx, keyPtr, key.length, ivPtr, iv.length);
       assertRc(`${name}: lc_aead_setkey (encrypt)`, rc);
 
-      rc = lib._lc_aead_encrypt(ctx, ptPtr, ctPtr, pt.length, aadPtr, aad.length, tagPtr, tagLen);
+      rc = lib._lc_aead_encrypt(ctx, ptPtr, ctPtr, pt.length, aadPtr, aad!.length, tagPtr, tagLen);
       assertRc(`${name}: lc_aead_encrypt (out-of-place)`, rc);
 
       lib._lc_aead_zero(ctx);
@@ -120,7 +145,7 @@ function runAeadVectorCase(lib, name, hashPtr, vector) {
           rc = lib._lc_aead_setkey(ctxInPlace, keyPtr, key.length, ivPtr, iv.length);
           assertRc(`${name}: lc_aead_setkey (in-place)`, rc);
 
-          rc = lib._lc_aead_encrypt(ctxInPlace, inOutPtr, inOutPtr, pt.length, aadPtr, aad.length, tag2Ptr, tagLen);
+          rc = lib._lc_aead_encrypt(ctxInPlace, inOutPtr, inOutPtr, pt.length, aadPtr, aad!.length, tag2Ptr, tagLen);
           assertRc(`${name}: lc_aead_encrypt (in-place)`, rc);
 
           const outCt2 = readBytes(lib, inOutPtr, pt.length);
@@ -133,7 +158,7 @@ function runAeadVectorCase(lib, name, hashPtr, vector) {
 
           const ptOutPtr = lib._malloc(pt.length);
           try {
-            rc = lib._lc_aead_decrypt(ctx, inOutPtr, ptOutPtr, pt.length, aadPtr, aad.length, tag2Ptr, tagLen);
+            rc = lib._lc_aead_decrypt(ctx, inOutPtr, ptOutPtr, pt.length, aadPtr, aad!.length, tag2Ptr, tagLen);
             if (rc < 0) throw new Error(`${name}: lc_aead_decrypt returned error ${rc}`);
             lib._lc_aead_zero(ctx);
 
@@ -147,7 +172,7 @@ function runAeadVectorCase(lib, name, hashPtr, vector) {
             tamperedCt[0] = (tamperedCt[0] + 1) & 0xff;
             lib.HEAPU8.set(tamperedCt, inOutPtr);
 
-            rc = lib._lc_aead_decrypt(ctx, inOutPtr, ptOutPtr, pt.length, aadPtr, aad.length, tag2Ptr, tagLen);
+            rc = lib._lc_aead_decrypt(ctx, inOutPtr, ptOutPtr, pt.length, aadPtr, aad!.length, tag2Ptr, tagLen);
             lib._lc_aead_zero(ctx);
             if (rc !== -EBADMSG) throw new Error(`${name}: expected auth failure rc=${-EBADMSG}, got ${rc}`);
           } finally {
@@ -173,8 +198,8 @@ function runAeadVectorCase(lib, name, hashPtr, vector) {
   }
 }
 
-function testAsconKeccak(lib) {
-  const vectors = [
+function testAsconKeccak(lib: Lib): void {
+  const vectors: AeadVector[] = [
     {
       name: 'ascon-keccak-512',
       hashPtr: resolveHashPtr(lib, lib._lc_sha3_512),
@@ -245,7 +270,7 @@ function testAsconKeccak(lib) {
   }
 }
 
-function testSha3_512(lib) {
+function testSha3_512(lib: Lib): void {
   const msg = new Uint8Array([0x82, 0xd9, 0x19]);
   const exp = new Uint8Array([
     0x76, 0x75, 0x52, 0x82, 0xa9, 0xc5, 0x0a, 0x67, 0xfe, 0x69, 0xbd, 0x3f, 0xce, 0xfe, 0x12, 0xe7, 0x1d, 0xe0, 0x4f,
@@ -302,7 +327,7 @@ function testSha3_512(lib) {
   }
 }
 
-function testHkdfSha3_512(lib) {
+function testHkdfSha3_512(lib: Lib): void {
   // KAT: IKM = 22 × 0x0b, salt = 0x00..0x0c, no info, 128-byte OKM.
   // Expected output computed via leancrypto _lc_hkdf with _lc_sha3_512.
   const ikm = new Uint8Array(22).fill(0x0b);
@@ -330,7 +355,7 @@ function testHkdfSha3_512(lib) {
   }
 }
 
-async function main() {
+async function main(): Promise<void> {
   const lib = await leancrypto();
   assertRc('lc_init', lib._lc_init());
 
@@ -342,11 +367,13 @@ async function main() {
 }
 
 // Dual-mode: Vitest test wrapper or standalone Node execution
-if (typeof globalThis.test === 'function') {
-  globalThis.test('leancrypto WASM vector tests', () => main(), 60_000);
+const globalTest = (globalThis as unknown as { test?: (name: string, fn: () => unknown, timeout?: number) => void })
+  .test;
+if (typeof globalTest === 'function') {
+  globalTest('leancrypto WASM vector tests', () => main(), 60_000);
 } else {
   main().catch((err) => {
-    console.error(err.stack || err.message || String(err));
+    console.error(err instanceof Error ? (err.stack ?? err.message) : String(err));
     process.exit(1);
   });
 }

@@ -7,6 +7,7 @@ import {
   ENTRY_TYPES,
   ENTRY_TYPE_META,
 } from '../lib/entryUtils.js';
+import type { Entry } from '../types';
 
 describe('formatExact', () => {
   it('formats a known timestamp as DD/MM/YYYY HH:MM:SS in local time', () => {
@@ -16,7 +17,9 @@ describe('formatExact', () => {
 
   it('returns "Unknown date" for an invalid timestamp', () => {
     expect(formatExact(NaN)).toBe('Unknown date');
+    // @ts-expect-error intentionally wrong type, to test the runtime guard
     expect(formatExact(undefined)).toBe('Unknown date');
+    // @ts-expect-error intentionally wrong type, to test the runtime guard
     expect(formatExact('not a date')).toBe('Unknown date');
   });
 });
@@ -90,7 +93,7 @@ describe('normalizeEntry', () => {
   });
 
   it('preserves existing fields rather than overwriting them', () => {
-    const entry = {
+    const entry: Partial<Entry> = {
       type: 'login',
       title: 'GitHub',
       username: 'alice',
@@ -99,14 +102,14 @@ describe('normalizeEntry', () => {
       urls: ['https://github.com'],
       totpSecrets: ['SEED'],
       tags: ['work'],
-      customFields: [{ label: 'PIN', value: '1234' }],
+      customFields: [{ id: 1, label: 'PIN', value: '1234' }],
     };
     expect(normalizeEntry(entry)).toEqual(entry);
   });
 
   it('reads legacy hiddenFields as customFields', () => {
     const entry = { hiddenFields: [{ label: 'PIN', value: '1' }] };
-    expect(normalizeEntry(entry).customFields).toEqual(entry.hiddenFields);
+    expect(normalizeEntry(entry as unknown as Partial<Entry>).customFields).toEqual(entry.hiddenFields);
   });
 });
 

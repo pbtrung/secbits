@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { validateConfig, validateRootMasterKey, isHttpsUrl, isHttpUrl } from '../lib/validation.js';
 
-function makeB64(length) {
+function makeB64(length: number) {
   const bytes = new Uint8Array(length);
   let str = '';
   for (const b of bytes) str += String.fromCharCode(b);
   return btoa(str);
 }
 
-function validConfig(overrides = {}) {
+function validConfig(overrides: Record<string, unknown> = {}) {
   return {
     instant_app_id: 'app-id',
     instant_client_name: 'firebase',

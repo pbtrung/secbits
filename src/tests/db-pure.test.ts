@@ -31,14 +31,17 @@ describe('fieldsChanged', () => {
   });
 });
 
+type RawSnapshotArg = Parameters<typeof stripNestedHistory>[0];
+type RawSnapshotListArg = Parameters<typeof buildCommitList>[0];
+
 describe('stripNestedHistory', () => {
   it('removes a nested history key while preserving everything else', () => {
-    const snap = { id: '1', title: 'x', history: [{ id: 'stale' }] };
+    const snap = { id: '1', title: 'x', history: [{ id: 'stale' }] } as unknown as RawSnapshotArg;
     expect(stripNestedHistory(snap)).toEqual({ id: '1', title: 'x' });
   });
 
   it('is a no-op when there is no history key', () => {
-    const snap = { id: '1', title: 'x' };
+    const snap = { id: '1', title: 'x' } as unknown as RawSnapshotArg;
     expect(stripNestedHistory(snap)).toEqual(snap);
   });
 });
@@ -48,7 +51,7 @@ describe('buildCommitList', () => {
     const newest = { id: 'c3', commitHash: 'h3', updatedAt: 300, title: 'v3', history: [{ id: 'stale' }] };
     const middle = { id: 'c2', commitHash: 'h2', updatedAt: 200, title: 'v2' };
     const oldest = { id: 'c1', commitHash: 'h1', createdAt: 100, title: 'v1' };
-    const list = buildCommitList([newest, middle, oldest]);
+    const list = buildCommitList([newest, middle, oldest] as unknown as RawSnapshotListArg);
 
     expect(list).toHaveLength(3);
     expect(list[0]).toMatchObject({ hash: 'h3', timestamp: 300, parent: 'h2', changed: ['title'] });
@@ -58,10 +61,13 @@ describe('buildCommitList', () => {
   });
 });
 
+type EntryArg = Parameters<typeof getVaultStats>[0][number];
+type BuildExportDataArg = Parameters<typeof buildExportData>[0];
+
 describe('getVaultStats', () => {
   it('counts entries, trash, and unique tags', () => {
-    const entries = [{ tags: ['work', 'personal'] }, { tags: ['work'] }, { tags: [] }];
-    const trash = [{}, {}];
+    const entries = [{ tags: ['work', 'personal'] }, { tags: ['work'] }, { tags: [] }] as unknown as EntryArg[];
+    const trash = [{}, {}] as unknown as EntryArg[];
     expect(getVaultStats(entries, trash)).toEqual({ entryCount: 3, trashCount: 2, tagCount: 2 });
   });
 });
@@ -76,7 +82,11 @@ describe('buildExportData', () => {
         { hash: 'older', snapshot: {} },
       ],
     };
-    const result = buildExportData({ username: 'jane', entries: [entry], trash: [] });
+    const result = buildExportData({
+      username: 'jane',
+      entries: [entry],
+      trash: [],
+    } as unknown as BuildExportDataArg);
     expect(result.data[0].history).toEqual([{ hash: 'older', snapshot: {} }]);
   });
 
@@ -87,7 +97,11 @@ describe('buildExportData', () => {
 
   it('sets entry_key to null when the entry key cache has no entry for this id', () => {
     const entry = { id: 'unknown-id', history: [] };
-    const result = buildExportData({ username: 'jane', entries: [entry], trash: [] });
+    const result = buildExportData({
+      username: 'jane',
+      entries: [entry],
+      trash: [],
+    } as unknown as BuildExportDataArg);
     expect(result.data[0].entry_key).toBeNull();
   });
 });
