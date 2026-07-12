@@ -20,7 +20,7 @@ What is actually decided for this rebuild so far. Anything not listed here is un
 ## Trash
 
 - Soft delete via an encrypted `deletedAt` timestamp inside `encryptedData`.
-- Entries past a retention window are purged client side on load. Currently 30 days (`TRASH_RETENTION_MS` in `src/db.js`), provisional and subject to change.
+- Entries past a retention window are purged client side on load. Currently 30 days (`TRASH_RETENTION_MS` in `src/db.ts`), provisional and subject to change.
 
 ## Backup
 

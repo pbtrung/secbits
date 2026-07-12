@@ -1,6 +1,6 @@
 # SecBits
 
-End to end encrypted password manager. React and Vite frontend, Firebase Authentication for login, InstantDB as the database and session layer, no custom backend.
+End to end encrypted password manager. React, Vite, and TypeScript frontend, Firebase Authentication for login, InstantDB as the database and session layer, no custom backend.
 
 ## Features
 
@@ -16,7 +16,7 @@ See docs/features.md for the full, current feature surface, and what is still un
 
 ## Architecture
 
-React and Vite frontend deployed to Cloudflare Pages. Firebase Authentication handles email and password login; the resulting ID token is exchanged for an InstantDB session. InstantDB is both the database and the session layer, the client talks to it directly, scoped by permission rules, and there is no Worker or other custom backend. See docs/architecture.md, docs/data_model.md, and docs/crypto.md for the full design.
+React, Vite, and TypeScript frontend deployed to Cloudflare Pages. Firebase Authentication handles email and password login; the resulting ID token is exchanged for an InstantDB session. InstantDB is both the database and the session layer, the client talks to it directly, scoped by permission rules, and there is no Worker or other custom backend. See docs/architecture.md, docs/data_model.md, and docs/crypto.md for the full design.
 
 ## Installation
 
@@ -99,10 +99,24 @@ npm test
 
 Runs the Vitest suite: the crypto and blob pipeline (round trips, tamper detection, wrong key rejection), the key hierarchy, commit hash computation, TOTP, entry search/filtering, config validation, and the raw leancrypto WASM vector tests. All of this runs with zero live services, no Firebase or InstantDB project needed.
 
+```bash
+npm run typecheck
+```
+
+Runs `tsc --noEmit` across the whole project. Separate from `npm test`, since Vite/Vitest transpile TypeScript through esbuild without checking types; this is the only step that actually type-checks the code.
+
 Not covered by `npm test`, and not mockable, per docs/testing.md:
-- `instant.perms.ts` needs a real InstantDB app and the two-user test matrix in docs/testing.md, Permission rules, run by hand. In particular, the `newData.ref('owner.id') == data.ref('owner.id')` ownership pinning rule is an unverified best-effort guess at InstantDB's rule syntax for comparing links, not a confirmed one.
-- `db.js`'s InstantDB-facing functions (queries, transactions, auth) need a real Firebase and InstantDB project to exercise end to end.
+- `instant.perms.ts` needs a real InstantDB app and the two-user test matrix in docs/testing.md, Permission rules, run by hand. The ownership pinning rule (`!('owner' in request.modifiedFields)` on the `entries`/`keyStore` update rules) is confirmed working against a live app, not a guess.
+- `db.ts`'s InstantDB-facing functions (queries, transactions, auth) need a real Firebase and InstantDB project to exercise end to end.
 - Cloud backup upload needs real R2 and S3 compatible buckets with CORS configured.
+
+## Code style
+
+```bash
+npm run format
+```
+
+Formats the whole repo with Prettier. `npm run format:check` verifies without writing. See CLAUDE.md, Code style, for the formatting and function-length conventions.
 
 ## Docs
 

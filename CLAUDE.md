@@ -3,21 +3,28 @@
 End to end encrypted password manager.
 
 Stack:
-- Frontend: React + Vite, deployed to Cloudflare Pages
+- Frontend: React + Vite + TypeScript, deployed to Cloudflare Pages
 - Auth: Firebase Authentication (email/password) exchanged for an InstantDB session via `db.auth.signInWithIdToken`
 - Database: InstantDB (client writes directly, scoped by permission rules)
 
 There is no custom backend. The frontend talks directly to Firebase (auth) and InstantDB (session and data); all maintenance (history cap, trash purge) runs client side since every field, including timestamps, is encrypted and the server never holds decryption keys.
 
+## Code style
+
+- TypeScript throughout `src/`; `strict` mode, no unchecked `any` at API boundaries (see docs/tech_stack.md for `tsconfig.json`/`npm run typecheck`).
+- Prettier formats the whole repo, TS/JS/JSX/CSS/JSON/Markdown alike; `npm run format` to apply, `npm run format:check` to verify.
+- Keep function bodies at 15 lines or fewer; extract a named helper rather than let a function grow past that. Applies to logic (handlers, data/crypto functions, helpers) — React component render bodies are exempt, since their length is markup, not logic, and splitting JSX purely to hit a line count scatters related UI across arbitrary fragments.
+
 ## Layout
 
 ```text
 src/
-  App.jsx          root state and session flow
-  db.js            InstantDB client init and queries
-  crypto.js        per-entry encrypt/decrypt pipeline
-  components/      UI components
-  tests/           Vitest test suites
+  App.tsx          root state and session flow
+  db.ts            InstantDB client init and queries
+  crypto.ts        per-entry encrypt/decrypt pipeline
+  types.ts         shared domain types (Entry, ExportData, ConfigContract, ...)
+  components/      UI components (.tsx)
+  tests/           Vitest test suites (.test.ts)
 instant.schema.ts  InstantDB entity and link definitions
 instant.perms.ts   InstantDB permission rules
 ```
