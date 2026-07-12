@@ -1,10 +1,18 @@
 import { NOTES_MAX } from '../lib/limits.js';
 import { SectionLabel } from './FieldSection';
 
+interface NotesFieldProps {
+  isEditing: boolean;
+  value: string;
+  onChange: (value: string) => void;
+  visible: boolean;
+  onToggleVisible: () => void;
+}
+
 // Shared notes section used by all entry types.
 // `visible` and `onToggleVisible` are controlled by the parent (which owns the
 // auto-hide timer and window-blur cleanup logic).
-function NotesField({ isEditing, value, onChange, visible, onToggleVisible }) {
+function NotesField({ isEditing, value, onChange, visible, onToggleVisible }: NotesFieldProps) {
   return (
     <div className="mb-3">
       <div className="d-flex align-items-center justify-content-between mb-1">

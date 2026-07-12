@@ -1,5 +1,14 @@
+import type { ReactNode } from 'react';
+
+interface PanelHeaderProps {
+  icon?: string;
+  title?: ReactNode;
+  trailing?: ReactNode;
+  uppercase?: boolean;
+}
+
 // Reusable list-panel header. Pass `trailing` for content on the right side.
-function PanelHeader({ icon, title, trailing, uppercase = true }) {
+function PanelHeader({ icon, title, trailing, uppercase = true }: PanelHeaderProps) {
   return (
     <div className="px-3 border-bottom d-flex justify-content-between align-items-center" style={{ height: '3.5rem' }}>
       <h6 className={`${uppercase ? 'text-uppercase ' : ''}text-muted mb-0 fw-bold`} style={{ fontSize: '1.05rem' }}>

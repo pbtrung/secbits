@@ -1,12 +1,17 @@
 import { useCallback, useRef, useState } from 'react';
+import type { MouseEvent, RefObject } from 'react';
 
-function setColumnDragCursor(active) {
+function setColumnDragCursor(active: boolean): void {
   document.body.style.cursor = active ? 'col-resize' : '';
   document.body.style.userSelect = active ? 'none' : '';
 }
 
-function attachDragListeners(startXRef, onResize, onDragEnd) {
-  const onMouseMove = (e) => {
+function attachDragListeners(
+  startXRef: RefObject<number>,
+  onResize: (delta: number) => void,
+  onDragEnd: () => void,
+): void {
+  const onMouseMove = (e: globalThis.MouseEvent) => {
     const delta = e.clientX - startXRef.current;
     startXRef.current = e.clientX;
     onResize(delta);
@@ -20,12 +25,16 @@ function attachDragListeners(startXRef, onResize, onDragEnd) {
   document.addEventListener('mouseup', onMouseUp);
 }
 
-function ResizeHandle({ onResize }) {
+interface ResizeHandleProps {
+  onResize: (delta: number) => void;
+}
+
+function ResizeHandle({ onResize }: ResizeHandleProps) {
   const [dragging, setDragging] = useState(false);
   const startX = useRef(0);
 
   const onMouseDown = useCallback(
-    (e) => {
+    (e: MouseEvent<HTMLDivElement>) => {
       e.preventDefault();
       startX.current = e.clientX;
       setDragging(true);

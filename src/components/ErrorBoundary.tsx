@@ -1,12 +1,16 @@
-import { Component } from 'react';
+import { Component, type PropsWithChildren } from 'react';
 
-class ErrorBoundary extends Component {
-  constructor(props) {
+interface ErrorBoundaryState {
+  error: Error | null;
+}
+
+class ErrorBoundary extends Component<PropsWithChildren, ErrorBoundaryState> {
+  constructor(props: PropsWithChildren) {
     super(props);
     this.state = { error: null };
   }
 
-  static getDerivedStateFromError(error) {
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { error };
   }
 

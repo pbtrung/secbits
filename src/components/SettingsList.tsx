@@ -1,6 +1,12 @@
 import SidebarPanel, { SidebarItem } from './SidebarPanel';
 
-function SettingsList({ selectedPage, onSelectPage, mobile }) {
+interface SettingsListProps {
+  selectedPage: string | null;
+  onSelectPage: (page: string) => void;
+  mobile?: boolean;
+}
+
+function SettingsList({ selectedPage, onSelectPage, mobile }: SettingsListProps) {
   const items = [
     { id: 'export', label: 'Export', icon: 'bi-download' },
     { id: 'security', label: 'Security', icon: 'bi-shield-lock' },

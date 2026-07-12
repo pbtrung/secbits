@@ -1,5 +1,21 @@
 import SidebarPanel, { SidebarItem } from './SidebarPanel';
 
+interface TagsSidebarProps {
+  tags: string[];
+  allCount?: number;
+  tagCounts?: Record<string, number>;
+  selectedTag: string | null;
+  onSelectTag: (tag: string | null) => void;
+  onOpenTrash: () => void;
+  trashCount?: number;
+  trashMode?: boolean;
+  mobile?: boolean;
+  userName?: string | null;
+  onSettings: () => void;
+  onLogout?: () => void;
+  settingsMode: boolean;
+}
+
 function TagsSidebar({
   tags,
   allCount = 0,
@@ -14,7 +30,7 @@ function TagsSidebar({
   onSettings,
   onLogout,
   settingsMode,
-}) {
+}: TagsSidebarProps) {
   const footer = userName && (
     <div className="border-top p-3 d-flex align-items-center text-muted small">
       <i className="bi bi-person-circle me-2 fs-5"></i>
