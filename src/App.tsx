@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import type { ChangeEvent, FormEvent } from 'react';
 import AppSetup from './components/AppSetup';
 import TagsSidebar from './components/TagsSidebar';
 import EntryList from './components/EntryList';
@@ -18,8 +19,9 @@ import {
   permanentlyDeleteUserEntry,
 } from './db';
 import { filterEntries, normalizeEntry } from './lib/entryUtils';
+import type { Entry, EntryType } from './types';
 
-function useIsMobile() {
+function useIsMobile(): boolean {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 768);
@@ -29,10 +31,18 @@ function useIsMobile() {
   return isMobile;
 }
 
-function App() {
-  const [session, setSession] = useState(null);
+interface Session {
+  userId: string;
+  userName: string;
+  initialEntries: Entry[];
+  initialTrash: Entry[];
+  initialSyncError: string;
+}
 
-  const handleReady = useCallback(async (userId, userName) => {
+function App() {
+  const [session, setSession] = useState<Session | null>(null);
+
+  const handleReady = useCallback(async (userId: string, userName: string) => {
     const { entries: data, trash, failedCount } = await fetchUserEntries();
     const filtered = data.map(normalizeEntry);
     const deleted = trash.map(normalizeEntry);
@@ -63,9 +73,9 @@ function App() {
   );
 }
 
-const isLocalEntryId = (id) => String(id).startsWith('local-');
+const isLocalEntryId = (id: string) => String(id).startsWith('local-');
 
-function buildBlankEntry(type, selectedTag) {
+function buildBlankEntry(type: EntryType, selectedTag: string | null): Entry {
   return {
     id: `local-${crypto.randomUUID()}`,
     _isNew: true,
@@ -78,11 +88,14 @@ function buildBlankEntry(type, selectedTag) {
     customFields: [],
     notes: '',
     tags: selectedTag ? [selectedTag] : [],
+    createdAt: 0,
+    updatedAt: 0,
+    deletedAt: null,
     ...(type === 'card' ? { cardholderName: '', cardNumber: '', cardExpiry: '', cardCvv: '' } : {}),
   };
 }
 
-function persistEntryUpdate(updated, wasNew) {
+function persistEntryUpdate(updated: Entry, wasNew: boolean): Promise<Entry> {
   return wasNew ? createUserEntry(updated) : updateUserEntry(updated.id, updated);
 }
 
@@ -90,42 +103,53 @@ function persistEntryUpdate(updated, wasNew) {
 // only needs confirmation if it's actually been touched (dirtyRef). An
 // already-saved entry being edited always goes through the normal
 // unsaved-changes confirmation instead.
-function canDiscardEdit(editingId, isDirty, confirmUnsavedChanges) {
-  if (isLocalEntryId(editingId)) {
+function canDiscardEdit(editingId: string | null, isDirty: boolean, confirmUnsavedChanges: () => boolean): boolean {
+  if (editingId && isLocalEntryId(editingId)) {
     return !isDirty || window.confirm('Discard this new entry?');
   }
   return confirmUnsavedChanges();
 }
 
-function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncError, onLogout }) {
+type MobileView = 'tags' | 'entries' | 'detail';
+type SettingsPageId = 'export' | 'security' | 'about';
+
+interface MainAppProps {
+  initialUserName: string;
+  initialEntries: Entry[];
+  initialTrash: Entry[];
+  initialSyncError: string;
+  onLogout: () => void;
+}
+
+function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncError, onLogout }: MainAppProps) {
   const RESIZE_HANDLE_WIDTH = 5;
-  const [entries, setEntries] = useState(initialEntries || []);
-  const [trashEntries, setTrashEntries] = useState(initialTrash || []);
+  const [entries, setEntries] = useState<Entry[]>(initialEntries || []);
+  const [trashEntries, setTrashEntries] = useState<Entry[]>(initialTrash || []);
   const [trashMode, setTrashMode] = useState(false);
   const [syncError, setSyncError] = useState(initialSyncError || '');
-  const [selectedTag, setSelectedTag] = useState(null);
-  const [selectedEntryId, setSelectedEntryId] = useState(null);
-  const [editingId, setEditingId] = useState(null);
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [settingsMode, setSettingsMode] = useState(false);
-  const [settingsPage, setSettingsPage] = useState(null);
+  const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
   const [tagsWidth, setTagsWidth] = useState(220);
   const [entriesWidth, setEntriesWidth] = useState(320);
   const userName = initialUserName;
   // Mobile navigation: 'tags' | 'entries' | 'detail'
-  const [mobileView, setMobileView] = useState('tags');
+  const [mobileView, setMobileView] = useState<MobileView>('tags');
 
   const isMobile = useIsMobile();
   const dirtyRef = useRef(false);
-  const selectedEntryIdRef = useRef(null);
-  const prevSelectedIdRef = useRef(null);
+  const selectedEntryIdRef = useRef<string | null>(null);
+  const prevSelectedIdRef = useRef<string | null>(null);
   useEffect(() => {
     selectedEntryIdRef.current = selectedEntryId;
   }, [selectedEntryId]);
 
-  const handleDirtyChange = useCallback((dirty) => {
+  const handleDirtyChange = useCallback((dirty: boolean) => {
     dirtyRef.current = dirty;
   }, []);
 
@@ -136,29 +160,29 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
 
   useEffect(() => {
     if (!editingId) return;
-    const handler = (e) => {
+    const handler = (e: BeforeUnloadEvent) => {
       if (dirtyRef.current) e.preventDefault();
     };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [editingId]);
 
-  const handleResizeTags = useCallback((delta) => {
+  const handleResizeTags = useCallback((delta: number) => {
     setTagsWidth((w) => Math.max(140, Math.min(400, w + delta)));
   }, []);
 
-  const handleResizeEntries = useCallback((delta) => {
+  const handleResizeEntries = useCallback((delta: number) => {
     setEntriesWidth((w) => Math.max(200, Math.min(600, w + delta)));
   }, []);
 
   const allTags = useMemo(() => {
-    const tagSet = new Set();
+    const tagSet = new Set<string>();
     entries.forEach((e) => e.tags.forEach((t) => tagSet.add(t)));
     return Array.from(tagSet).sort();
   }, [entries]);
 
   const tagCounts = useMemo(() => {
-    const counts = {};
+    const counts: Record<string, number> = {};
     entries.forEach((entry) => {
       entry.tags.forEach((tag) => {
         counts[tag] = (counts[tag] || 0) + 1;
@@ -175,7 +199,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
   const selectedEntry = (trashMode ? trashEntries : entries).find((e) => e.id === selectedEntryId) || null;
 
   const handleSelectTag = useCallback(
-    (tag) => {
+    (tag: string | null) => {
       if (!confirmUnsavedChanges()) return;
       setTrashMode(false);
       setSelectedTag(tag);
@@ -189,7 +213,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
   );
 
   const handleSelectEntry = useCallback(
-    (id) => {
+    (id: string) => {
       if (!confirmUnsavedChanges()) return;
       setSelectedEntryId(id);
       setEditingId(null);
@@ -211,7 +235,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
   }, [trashEntries.length, isMobile, confirmUnsavedChanges]);
 
   const handleNewEntry = useCallback(
-    (type) => {
+    (type: EntryType) => {
       if (trashMode) return;
       if (!confirmUnsavedChanges()) return;
       prevSelectedIdRef.current = selectedEntryIdRef.current;
@@ -225,11 +249,11 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
   );
 
   const handleSave = useCallback(
-    async (updated) => {
+    async (updated: Entry) => {
       if (trashMode) return;
       setSyncError('');
       setSaving(true);
-      const wasNew = isLocalEntryId(updated.id) || updated._isNew;
+      const wasNew = isLocalEntryId(updated.id) || Boolean(updated._isNew);
 
       try {
         const saved = await persistEntryUpdate(updated, wasNew);
@@ -237,7 +261,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
         if (wasNew) setSelectedEntryId(saved.id);
         setEditingId(null);
       } catch (err) {
-        setSyncError(err?.message || 'Failed to save entry.');
+        setSyncError(err instanceof Error ? err.message : 'Failed to save entry.');
       } finally {
         setSaving(false);
       }
@@ -245,7 +269,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
     [trashMode],
   );
 
-  const handleRestore = useCallback(async (entryId, commitHash) => {
+  const handleRestore = useCallback(async (entryId: string, commitHash: string) => {
     setSyncError('');
     setSaving(true);
     try {
@@ -253,7 +277,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
       setEntries((prev) => prev.map((e) => (e.id === entryId ? normalizeEntry(restored) : e)));
       return true;
     } catch (err) {
-      setSyncError(err?.message || 'Failed to restore entry.');
+      setSyncError(err instanceof Error ? err.message : 'Failed to restore entry.');
       return false;
     } finally {
       setSaving(false);
@@ -262,7 +286,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
 
   // Shared by handleRestoreDeletedVersion/handleRestoreDeletedEntry: both
   // move a just-restored entry out of the trash list and into the live one.
-  const restoreEntryFromTrash = useCallback((entryId, restored) => {
+  const restoreEntryFromTrash = useCallback((entryId: string, restored: Entry) => {
     setTrashEntries((prev) => prev.filter((e) => e.id !== entryId));
     setEntries((prev) => [restored, ...prev.filter((e) => e.id !== restored.id)]);
     setTrashMode(false);
@@ -270,7 +294,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
   }, []);
 
   const handleRestoreDeletedVersion = useCallback(
-    async (entryId, commitHash) => {
+    async (entryId: string, commitHash: string) => {
       setSyncError('');
       setSaving(true);
       try {
@@ -278,7 +302,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
         restoreEntryFromTrash(entryId, restored);
         return true;
       } catch (err) {
-        setSyncError(err?.message || 'Failed to restore deleted entry version.');
+        setSyncError(err instanceof Error ? err.message : 'Failed to restore deleted entry version.');
         return false;
       } finally {
         setSaving(false);
@@ -288,7 +312,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
   );
 
   const handleRestoreDeletedEntry = useCallback(
-    async (entryId) => {
+    async (entryId: string) => {
       setSyncError('');
       setSaving(true);
       try {
@@ -296,10 +320,8 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
         restoreEntryFromTrash(entryId, restored);
         setEditingId(null);
         if (isMobile) setMobileView('detail');
-        return true;
       } catch (err) {
-        setSyncError(err?.message || 'Failed to restore deleted entry.');
-        return false;
+        setSyncError(err instanceof Error ? err.message : 'Failed to restore deleted entry.');
       } finally {
         setSaving(false);
       }
@@ -311,7 +333,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
   // trash, soft-deleted into trash from the live list, or (for an unsaved
   // local draft) just discarded outright.
   const removeEntryByMode = useCallback(
-    async (id) => {
+    async (id: string) => {
       if (trashMode) {
         await permanentlyDeleteUserEntry(id);
         setTrashEntries((prev) => prev.filter((e) => e.id !== id));
@@ -329,7 +351,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
   );
 
   const handleDelete = useCallback(
-    async (id) => {
+    async (id: string) => {
       setSyncError('');
       setDeleting(true);
       try {
@@ -338,7 +360,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
         setEditingId(null);
         if (isMobile) setMobileView('entries');
       } catch (err) {
-        setSyncError(err?.message || 'Failed to delete entry.');
+        setSyncError(err instanceof Error ? err.message : 'Failed to delete entry.');
       } finally {
         setDeleting(false);
       }
@@ -347,7 +369,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
   );
 
   const handleEdit = useCallback(
-    (id) => {
+    (id: string) => {
       if (trashMode) return;
       setEditingId(id);
     },
@@ -368,8 +390,8 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
     });
   }, [confirmUnsavedChanges, isMobile]);
 
-  const handleSelectSetting = useCallback((page) => {
-    setSettingsPage(page);
+  const handleSelectSetting = useCallback((page: string) => {
+    setSettingsPage(page as SettingsPageId);
   }, []);
 
   const handleCancelEdit = useCallback(() => {
@@ -397,6 +419,9 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
     if (!confirmUnsavedChanges()) return;
     onLogout();
   }, [onLogout, confirmUnsavedChanges]);
+
+  const handleSearchChange = (e: ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value);
+  const preventSubmit = (e: FormEvent<HTMLFormElement>) => e.preventDefault();
 
   const detailPane = selectedEntry ? (
     <EntryDetail
@@ -444,7 +469,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
                 minWidth: 0,
                 width: mobileView !== 'tags' ? 'calc(100% - 42px)' : '100%',
               }}
-              onSubmit={(e) => e.preventDefault()}
+              onSubmit={preventSubmit}
             >
               <div className="input-group input-group-sm">
                 <span className="input-group-text bg-secondary border-secondary text-light">
@@ -455,7 +480,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
                   className="form-control bg-secondary border-secondary text-light"
                   placeholder="Search..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={handleSearchChange}
                   maxLength={256}
                   disabled={settingsMode || editingId !== null}
                 />
@@ -479,7 +504,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
             </div>
             <div style={{ width: RESIZE_HANDLE_WIDTH, flexShrink: 0 }}></div>
             <div className="d-flex align-items-center" style={{ width: entriesWidth, flexShrink: 0 }}>
-              <form className="w-100 m-0" onSubmit={(e) => e.preventDefault()}>
+              <form className="w-100 m-0" onSubmit={preventSubmit}>
                 <div className="input-group input-group-sm">
                   <span className="input-group-text bg-secondary border-secondary text-light">
                     <i className="bi bi-search"></i>
@@ -489,7 +514,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
                     className="form-control bg-secondary border-secondary text-light"
                     placeholder="Search..."
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={handleSearchChange}
                     maxLength={256}
                     disabled={settingsMode || editingId !== null}
                   />

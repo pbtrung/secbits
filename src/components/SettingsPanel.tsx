@@ -437,7 +437,7 @@ function SecurityPage() {
   );
 }
 
-type SettingsPage = 'export' | 'security' | 'about' | undefined;
+type SettingsPage = 'export' | 'security' | 'about' | null | undefined;
 
 function SettingsPanel({ page }: { page: SettingsPage }) {
   if (page === 'export') return <ExportPage />;
