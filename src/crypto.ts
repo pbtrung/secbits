@@ -1,11 +1,68 @@
 import { BLOB_MAGIC, BLOB_SALT_LEN, BLOB_TAG_LEN, BLOB_VERSION, buildBlob, parseBlob } from './lib/blob';
+import type { BrotliWasmType } from 'brotli-wasm';
 
 const ENC_KEY_LEN = 64;
 const ENC_IV_LEN = 64;
 const HKDF_OUT_LEN = ENC_KEY_LEN + ENC_IV_LEN;
 const ENTRY_KEY_LEN = 64;
 
-export function b64ToBytes(b64) {
+// Minimal typing of the leancrypto Emscripten WASM module: only the members
+// this file actually touches, not a full binding-generation effort. Numeric
+// fields like `_lc_sha3_512` are exported C global addresses (a pointer to
+// a hash algorithm descriptor), not functions; the `_lc_*` methods are
+// exported C functions operating on WASM linear memory pointers (numbers).
+export interface LeancryptoModule {
+  _lc_init(): void;
+  _malloc(size: number): number;
+  _free(ptr: number): void;
+  _lc_sha3_512: number;
+  _lc_sha3_256: number;
+  _lc_hkdf(
+    hashPtr: number,
+    ikmPtr: number,
+    ikmLen: number,
+    saltPtr: number,
+    saltLen: number,
+    infoPtr: number,
+    infoLen: number,
+    okmPtr: number,
+    okmLen: number,
+  ): number;
+  _lc_ak_alloc_taglen(hashPtr: number, tagLen: number, ctxPtrPtr: number): number;
+  _lc_aead_setkey(ctx: number, keyPtr: number, keyLen: number, ivPtr: number, ivLen: number): number;
+  _lc_aead_encrypt(
+    ctx: number,
+    ptPtr: number,
+    ctPtr: number,
+    ptLen: number,
+    adPtr: number,
+    adLen: number,
+    tagPtr: number,
+    tagLen: number,
+  ): number;
+  _lc_aead_decrypt(
+    ctx: number,
+    ctPtr: number,
+    ptPtr: number,
+    ctLen: number,
+    adPtr: number,
+    adLen: number,
+    tagPtr: number,
+    tagLen: number,
+  ): number;
+  _lc_aead_zero_free(ctx: number): void;
+  _lc_hash(hashPtr: number, inPtr: number, inLen: number, outPtr: number): number;
+  HEAPU8: Uint8Array;
+  HEAPU32: Uint32Array;
+  HEAP32: Int32Array;
+}
+
+declare global {
+  // eslint-disable-next-line no-var
+  var leancrypto: (() => Promise<LeancryptoModule>) | undefined;
+}
+
+export function b64ToBytes(b64: string): Uint8Array {
   try {
     const bin = atob(b64);
     const bytes = new Uint8Array(bin.length);
@@ -16,17 +73,17 @@ export function b64ToBytes(b64) {
   }
 }
 
-export function bytesToB64(bytes) {
+export function bytesToB64(bytes: Uint8Array): string {
   let bin = '';
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
   return btoa(bin);
 }
 
-function getRandomBytes(n) {
+function getRandomBytes(n: number): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(n));
 }
 
-function concat(...arrays) {
+function concat(...arrays: Uint8Array[]): Uint8Array {
   const len = arrays.reduce((s, a) => s + a.length, 0);
   const out = new Uint8Array(len);
   let off = 0;
@@ -37,10 +94,10 @@ function concat(...arrays) {
   return out;
 }
 
-let lcPromise = null;
-let lcScriptPromise = null;
+let lcPromise: Promise<LeancryptoModule> | null = null;
+let lcScriptPromise: Promise<void> | null = null;
 
-function loadLeancryptoScript() {
+function loadLeancryptoScript(): Promise<void> {
   return new Promise((resolve, reject) => {
     const existing = document.querySelector('script[data-leancrypto="1"]');
     if (existing) {
@@ -59,7 +116,7 @@ function loadLeancryptoScript() {
   });
 }
 
-async function ensureLeancryptoScript() {
+async function ensureLeancryptoScript(): Promise<void> {
   if (typeof globalThis.leancrypto === 'function') return;
   if (typeof document === 'undefined') {
     throw new Error('leancrypto global loader not available');
@@ -71,10 +128,10 @@ async function ensureLeancryptoScript() {
   }
 }
 
-async function getLc() {
+async function getLc(): Promise<LeancryptoModule> {
   if (!lcPromise) {
     lcPromise = ensureLeancryptoScript()
-      .then(() => globalThis.leancrypto())
+      .then(() => globalThis.leancrypto!())
       .then((lib) => {
         lib._lc_init();
         return lib;
@@ -83,34 +140,47 @@ async function getLc() {
   return lcPromise;
 }
 
-function resolveHashPtr(lib, sym) {
+function resolveHashPtr(lib: LeancryptoModule, sym: number): number {
   return lib.HEAPU32[sym >> 2];
 }
 
-function writeBytes(lib, data) {
+function writeBytes(lib: LeancryptoModule, data: Uint8Array): number {
   const ptr = lib._malloc(data.length);
   lib.HEAPU8.set(data, ptr);
   return ptr;
 }
 
-function readBytes(lib, ptr, len) {
+function readBytes(lib: LeancryptoModule, ptr: number, len: number): Uint8Array {
   return lib.HEAPU8.slice(ptr, ptr + len);
 }
 
-function toHex(bytes) {
+function toHex(bytes: Uint8Array): string {
   return Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 }
 
-function deriveHkdfKeyIv(lib, hashPtr, ikmPtr, ikmLen, saltPtr, saltLen, okmPtr) {
+interface HkdfKeyIv {
+  encKey: Uint8Array;
+  encIv: Uint8Array;
+}
+
+function deriveHkdfKeyIv(
+  lib: LeancryptoModule,
+  hashPtr: number,
+  ikmPtr: number,
+  ikmLen: number,
+  saltPtr: number,
+  saltLen: number,
+  okmPtr: number,
+): HkdfKeyIv {
   const rc = lib._lc_hkdf(hashPtr, ikmPtr, ikmLen, saltPtr, saltLen, 0, 0, okmPtr, HKDF_OUT_LEN);
   if (rc !== 0) throw new Error(`hkdf failed: rc=${rc}`);
   const okm = readBytes(lib, okmPtr, HKDF_OUT_LEN);
   return { encKey: okm.slice(0, ENC_KEY_LEN), encIv: okm.slice(ENC_KEY_LEN) };
 }
 
-function hkdfSync(lib, keyBytes, salt) {
+function hkdfSync(lib: LeancryptoModule, keyBytes: Uint8Array, salt: Uint8Array): HkdfKeyIv {
   const hashPtr = resolveHashPtr(lib, lib._lc_sha3_512);
   const ikmPtr = writeBytes(lib, keyBytes);
   const saltPtr = writeBytes(lib, salt);
@@ -126,7 +196,7 @@ function hkdfSync(lib, keyBytes, salt) {
 
 // Shared by akEncrypt/akDecrypt: both need an AEAD context sized for the
 // same tag length, allocated the same way.
-function allocAeadCtx(lib) {
+function allocAeadCtx(lib: LeancryptoModule): number {
   const sha3_512_ptr = resolveHashPtr(lib, lib._lc_sha3_512);
   const ctxPtrPtr = lib._malloc(4);
   try {
@@ -138,7 +208,29 @@ function allocAeadCtx(lib) {
   }
 }
 
-function runAeadEncrypt(lib, ctx, ptrs, keyLen, ivLen, ptLen, adLen) {
+interface AeadEncryptPtrs {
+  keyPtr: number;
+  ivPtr: number;
+  ptPtr: number;
+  ctPtr: number;
+  tagPtr: number;
+  adPtr: number;
+}
+
+interface AeadResult {
+  ciphertext: Uint8Array;
+  tag: Uint8Array;
+}
+
+function runAeadEncrypt(
+  lib: LeancryptoModule,
+  ctx: number,
+  ptrs: AeadEncryptPtrs,
+  keyLen: number,
+  ivLen: number,
+  ptLen: number,
+  adLen: number,
+): AeadResult {
   let rc = lib._lc_aead_setkey(ctx, ptrs.keyPtr, keyLen, ptrs.ivPtr, ivLen);
   if (rc !== 0) throw new Error(`lc_aead_setkey failed: rc=${rc}`);
 
@@ -151,7 +243,13 @@ function runAeadEncrypt(lib, ctx, ptrs, keyLen, ivLen, ptLen, adLen) {
   };
 }
 
-function akEncrypt(lib, encKey, encIv, plainBytes, ad) {
+function akEncrypt(
+  lib: LeancryptoModule,
+  encKey: Uint8Array,
+  encIv: Uint8Array,
+  plainBytes: Uint8Array,
+  ad: Uint8Array,
+): AeadResult {
   const ctx = allocAeadCtx(lib);
   const keyPtr = writeBytes(lib, encKey);
   const ivPtr = writeBytes(lib, encIv);
@@ -180,7 +278,24 @@ function akEncrypt(lib, encKey, encIv, plainBytes, ad) {
   }
 }
 
-function runAeadDecrypt(lib, ctx, ptrs, keyLen, ivLen, ctLen, adLen) {
+interface AeadDecryptPtrs {
+  keyPtr: number;
+  ivPtr: number;
+  ctPtr: number;
+  ptPtr: number;
+  tagPtr: number;
+  adPtr: number;
+}
+
+function runAeadDecrypt(
+  lib: LeancryptoModule,
+  ctx: number,
+  ptrs: AeadDecryptPtrs,
+  keyLen: number,
+  ivLen: number,
+  ctLen: number,
+  adLen: number,
+): Uint8Array {
   let rc = lib._lc_aead_setkey(ctx, ptrs.keyPtr, keyLen, ptrs.ivPtr, ivLen);
   if (rc !== 0) throw new Error(`lc_aead_setkey failed: rc=${rc}`);
 
@@ -190,7 +305,14 @@ function runAeadDecrypt(lib, ctx, ptrs, keyLen, ivLen, ctLen, adLen) {
   return readBytes(lib, ptrs.ptPtr, ctLen);
 }
 
-function akDecrypt(lib, encKey, encIv, ciphertext, tag, ad) {
+function akDecrypt(
+  lib: LeancryptoModule,
+  encKey: Uint8Array,
+  encIv: Uint8Array,
+  ciphertext: Uint8Array,
+  tag: Uint8Array,
+  ad: Uint8Array,
+): Uint8Array {
   const ctx = allocAeadCtx(lib);
   const keyPtr = writeBytes(lib, encKey);
   const ivPtr = writeBytes(lib, encIv);
@@ -224,7 +346,7 @@ function akDecrypt(lib, encKey, encIv, ciphertext, tag, ad) {
  * Shared by root_master_key and backup_master_key, which have identical
  * format requirements. Returns decoded bytes or throws.
  */
-function decodeMasterKey(masterKeyB64, label) {
+function decodeMasterKey(masterKeyB64: string, label: string): Uint8Array {
   const bytes = b64ToBytes(masterKeyB64);
   if (bytes.length < 256) {
     throw new Error(`${label} must be at least 256 bytes when decoded`);
@@ -232,7 +354,7 @@ function decodeMasterKey(masterKeyB64, label) {
   return bytes;
 }
 
-export function decodeRootMasterKey(rootMasterKeyB64) {
+export function decodeRootMasterKey(rootMasterKeyB64: string): Uint8Array {
   return decodeMasterKey(rootMasterKeyB64, 'Root master key');
 }
 
@@ -240,19 +362,19 @@ export function decodeRootMasterKey(rootMasterKeyB64) {
 // it never touches InstantDB in any form, wrapped or not, so a cloud backup
 // stays decryptable using only the config file even if InstantDB itself is
 // completely lost. See docs/crypto.md, Cloud Backup.
-export function decodeBackupMasterKey(backupMasterKeyB64) {
+export function decodeBackupMasterKey(backupMasterKeyB64: string): Uint8Array {
   return decodeMasterKey(backupMasterKeyB64, 'Backup master key');
 }
 
-export function generateEntryKey() {
+export function generateEntryKey(): Uint8Array {
   return getRandomBytes(ENTRY_KEY_LEN);
 }
 
-export function generateUMK() {
+export function generateUMK(): Uint8Array {
   return getRandomBytes(ENTRY_KEY_LEN);
 }
 
-export async function encryptBlob(keyBytes, plainBytes) {
+export async function encryptBlob(keyBytes: Uint8Array, plainBytes: Uint8Array): Promise<Uint8Array> {
   if (!(keyBytes instanceof Uint8Array) || !(plainBytes instanceof Uint8Array)) {
     throw new Error('encryptBlob expects byte arrays');
   }
@@ -264,28 +386,28 @@ export async function encryptBlob(keyBytes, plainBytes) {
   return buildBlob({ salt, ciphertext, tag });
 }
 
-export async function decryptBlob(keyBytes, blobBytes) {
+export async function decryptBlob(keyBytes: Uint8Array, blobBytes: Uint8Array): Promise<Uint8Array> {
   const { salt, ciphertext, tag, ad } = parseBlob(blobBytes);
   const lib = await getLc();
   const { encKey, encIv } = hkdfSync(lib, keyBytes, salt);
   return akDecrypt(lib, encKey, encIv, ciphertext, tag, ad);
 }
 
-export async function encryptUMK(rawUmkBytes, rootMasterKeyBytes) {
+export async function encryptUMK(rawUmkBytes: Uint8Array, rootMasterKeyBytes: Uint8Array): Promise<Uint8Array> {
   return encryptBlob(rootMasterKeyBytes, rawUmkBytes);
 }
 
-export async function decryptUMK(umkBlobBytes, rootMasterKeyBytes) {
+export async function decryptUMK(umkBlobBytes: Uint8Array, rootMasterKeyBytes: Uint8Array): Promise<Uint8Array> {
   const raw = await decryptBlob(rootMasterKeyBytes, umkBlobBytes);
   if (raw.length !== ENTRY_KEY_LEN) throw new Error('Invalid UMK');
   return raw;
 }
 
-export async function encryptEntryKey(rawEntryKeyBytes, umkBytes) {
+export async function encryptEntryKey(rawEntryKeyBytes: Uint8Array, umkBytes: Uint8Array): Promise<Uint8Array> {
   return encryptBlob(umkBytes, rawEntryKeyBytes);
 }
 
-export async function decryptEntryKey(entryKeyBlobBytes, umkBytes) {
+export async function decryptEntryKey(entryKeyBlobBytes: Uint8Array, umkBytes: Uint8Array): Promise<Uint8Array> {
   const raw = await decryptBlob(umkBytes, entryKeyBlobBytes);
   if (raw.length !== ENTRY_KEY_LEN) throw new Error('Invalid entry key');
   return raw;
@@ -294,37 +416,37 @@ export async function decryptEntryKey(entryKeyBlobBytes, umkBytes) {
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-let brotliPromise = null;
-async function getBrotli() {
+let brotliPromise: Promise<BrotliWasmType> | null = null;
+async function getBrotli(): Promise<BrotliWasmType> {
   if (!brotliPromise) {
-    brotliPromise = import('brotli-wasm').then((m) => m.default || m);
+    brotliPromise = import('brotli-wasm').then((m) => m.default || m) as unknown as Promise<BrotliWasmType>;
   }
   return brotliPromise;
 }
 
-export async function compressJson(value) {
+export async function compressJson(value: unknown): Promise<Uint8Array> {
   const brotli = await getBrotli();
   const json = textEncoder.encode(JSON.stringify(value));
   return brotli.compress(json);
 }
 
-export async function decompressJson(bytes) {
+export async function decompressJson<T = unknown>(bytes: Uint8Array): Promise<T> {
   const brotli = await getBrotli();
   const plain = brotli.decompress(bytes);
-  return JSON.parse(textDecoder.decode(plain));
+  return JSON.parse(textDecoder.decode(plain)) as T;
 }
 
-export async function encryptEntry(entry, entryKeyBytes) {
+export async function encryptEntry(entry: unknown, entryKeyBytes: Uint8Array): Promise<Uint8Array> {
   const compressed = await compressJson(entry);
   return encryptBlob(entryKeyBytes, compressed);
 }
 
-export async function decryptEntry(entryBlobBytes, entryKeyBytes) {
+export async function decryptEntry<T = unknown>(entryBlobBytes: Uint8Array, entryKeyBytes: Uint8Array): Promise<T> {
   const compressed = await decryptBlob(entryKeyBytes, entryBlobBytes);
-  return decompressJson(compressed);
+  return decompressJson<T>(compressed);
 }
 
-function runSha3_256Hex(lib, inputBytes) {
+function runSha3_256Hex(lib: LeancryptoModule, inputBytes: Uint8Array): string {
   const hashPtr = resolveHashPtr(lib, lib._lc_sha3_256);
   const inPtr = writeBytes(lib, inputBytes);
   const outLen = 32;
@@ -339,7 +461,7 @@ function runSha3_256Hex(lib, inputBytes) {
   }
 }
 
-export async function sha3_256Hex(inputBytes) {
+export async function sha3_256Hex(inputBytes: Uint8Array): Promise<string> {
   if (!(inputBytes instanceof Uint8Array)) {
     throw new Error('sha3_256Hex expects byte array');
   }

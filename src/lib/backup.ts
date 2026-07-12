@@ -1,4 +1,5 @@
 import { encryptEntry } from '../crypto';
+import type { ExportData } from '../types';
 
 // Reuses encryptEntry as-is: it already does exactly "Brotli compress then
 // AEAD encrypt any JSON value", which is the whole cloud backup pipeline
@@ -11,6 +12,9 @@ import { encryptEntry } from '../crypto';
 // than reassembling its own shape, so local export and cloud backup can
 // never drift apart.
 
-export async function buildCloudBackupBlob(exportObj, backupMasterKeyBytes) {
+export async function buildCloudBackupBlob(
+  exportObj: ExportData,
+  backupMasterKeyBytes: Uint8Array,
+): Promise<Uint8Array> {
   return encryptEntry(exportObj, backupMasterKeyBytes);
 }

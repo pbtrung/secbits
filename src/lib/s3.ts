@@ -1,11 +1,33 @@
 import { AwsClient } from 'aws4fetch';
+import type { BackupDestinations, R2Config, S3DestinationConfig } from '../types';
 
-async function putObject({ endpoint, region, bucket, accessKeyId, secretAccessKey }, key, bodyBytes) {
+export interface UploadResult {
+  destination: string;
+  ok: boolean;
+  error?: string;
+}
+
+interface Destination {
+  endpoint: string;
+  region: string;
+  bucket: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+}
+
+async function putObject(
+  { endpoint, region, bucket, accessKeyId, secretAccessKey }: Destination,
+  key: string,
+  bodyBytes: Uint8Array,
+): Promise<void> {
   const client = new AwsClient({ accessKeyId, secretAccessKey, region, service: 's3' });
   const url = `${endpoint.replace(/\/$/, '')}/${bucket}/${encodeURIComponent(key)}`;
   const res = await client.fetch(url, {
     method: 'PUT',
-    body: bodyBytes,
+    // @types/node's Uint8Array override isn't structurally identical to
+    // DOM lib's BodyInit union; Uint8Array is a valid fetch body at
+    // runtime regardless, so this is a type-only mismatch.
+    body: bodyBytes as BodyInit,
     headers: { 'Content-Type': 'application/octet-stream' },
   });
   if (!res.ok) {
@@ -14,7 +36,7 @@ async function putObject({ endpoint, region, bucket, accessKeyId, secretAccessKe
   }
 }
 
-async function uploadToR2(r2Config, key, bodyBytes) {
+async function uploadToR2(r2Config: R2Config, key: string, bodyBytes: Uint8Array): Promise<void> {
   await putObject(
     {
       endpoint: `https://${r2Config.account_id}.r2.cloudflarestorage.com`,
@@ -28,7 +50,7 @@ async function uploadToR2(r2Config, key, bodyBytes) {
   );
 }
 
-async function uploadToS3(s3DestinationConfig, key, bodyBytes) {
+async function uploadToS3(s3DestinationConfig: S3DestinationConfig, key: string, bodyBytes: Uint8Array): Promise<void> {
   await putObject(
     {
       endpoint: s3DestinationConfig.endpoint,
@@ -42,20 +64,24 @@ async function uploadToS3(s3DestinationConfig, key, bodyBytes) {
   );
 }
 
-async function reportUpload(destination, uploadFn) {
+async function reportUpload(destination: string, uploadFn: () => Promise<void>): Promise<UploadResult> {
   try {
     await uploadFn();
     return { destination, ok: true };
   } catch (err) {
-    return { destination, ok: false, error: err?.message || String(err) };
+    return { destination, ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
 // Every destination is uploaded and reported independently: a failure at one
 // must never block or roll back the others (see docs/crypto.md, Cloud
 // Backup and docs/testing.md).
-export async function uploadAllBackupDestinations({ r2_config, s3_config }, bodyBytes, key) {
-  const results = [];
+export async function uploadAllBackupDestinations(
+  { r2_config, s3_config }: BackupDestinations,
+  bodyBytes: Uint8Array,
+  key: string,
+): Promise<UploadResult[]> {
+  const results: UploadResult[] = [];
 
   if (r2_config) {
     results.push(await reportUpload('r2', () => uploadToR2(r2_config, key, bodyBytes)));

@@ -1,7 +1,7 @@
 import { hmac } from '@noble/hashes/hmac.js';
 import { sha1 } from '@noble/hashes/legacy.js';
 
-export function base32Decode(str) {
+export function base32Decode(str: string): Uint8Array | null {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
   str = str.replace(/[\s=_-]+/g, '').toUpperCase();
   let bits = '';
@@ -17,7 +17,7 @@ export function base32Decode(str) {
   return bytes;
 }
 
-function counterToBytes(counter) {
+function counterToBytes(counter: number): Uint8Array {
   const counterBytes = new Uint8Array(8);
   let tmp = counter;
   for (let i = 7; i >= 0; i--) {
@@ -27,7 +27,7 @@ function counterToBytes(counter) {
   return counterBytes;
 }
 
-function hotpTruncate(mac) {
+function hotpTruncate(mac: Uint8Array): string {
   const offset = mac[mac.length - 1] & 0x0f;
   const code =
     ((mac[offset] & 0x7f) << 24) |
@@ -37,7 +37,7 @@ function hotpTruncate(mac) {
   return String(code % 1000000).padStart(6, '0');
 }
 
-export function generateTOTPForCounter(secret, counter) {
+export function generateTOTPForCounter(secret: string, counter: number): string | null {
   try {
     const key = base32Decode(secret);
     if (!Number.isFinite(counter) || counter < 0) return null;
@@ -49,6 +49,6 @@ export function generateTOTPForCounter(secret, counter) {
   }
 }
 
-export function generateTOTP(secret) {
+export function generateTOTP(secret: string): string | null {
   return generateTOTPForCounter(secret, Math.floor(Date.now() / 1000 / 30));
 }

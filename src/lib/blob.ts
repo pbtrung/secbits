@@ -6,7 +6,18 @@ const BLOB_HEADER_LEN = BLOB_MAGIC.length + BLOB_VERSION.length;
 export const BLOB_AD_LEN = BLOB_HEADER_LEN + BLOB_SALT_LEN;
 export const BLOB_MIN_LEN = BLOB_HEADER_LEN + BLOB_SALT_LEN + BLOB_TAG_LEN;
 
-function concat(...arrays) {
+export interface BlobParts {
+  version: Uint8Array;
+  salt: Uint8Array;
+  ciphertext: Uint8Array;
+  tag: Uint8Array;
+}
+
+export interface ParsedBlob extends BlobParts {
+  ad: Uint8Array;
+}
+
+function concat(...arrays: Uint8Array[]): Uint8Array {
   const len = arrays.reduce((s, a) => s + a.length, 0);
   const out = new Uint8Array(len);
   let off = 0;
@@ -17,7 +28,12 @@ function concat(...arrays) {
   return out;
 }
 
-export function buildBlob({ version = BLOB_VERSION, salt, ciphertext, tag }) {
+export function buildBlob({
+  version = BLOB_VERSION,
+  salt,
+  ciphertext,
+  tag,
+}: Partial<BlobParts> & Pick<BlobParts, 'salt' | 'ciphertext' | 'tag'>): Uint8Array {
   if (!(salt instanceof Uint8Array) || salt.length !== BLOB_SALT_LEN) {
     throw new Error('Invalid blob salt');
   }
@@ -34,7 +50,7 @@ export function buildBlob({ version = BLOB_VERSION, salt, ciphertext, tag }) {
   return concat(ad, ciphertext, tag);
 }
 
-function verifyBlobMagic(blobBytes) {
+function verifyBlobMagic(blobBytes: Uint8Array): void {
   for (let i = 0; i < BLOB_MAGIC.length; i++) {
     if (blobBytes[i] !== BLOB_MAGIC[i]) {
       throw new Error('Invalid encrypted value');
@@ -46,13 +62,13 @@ function verifyBlobMagic(blobBytes) {
 // must refuse rather than misdecode; minor bumps are additive and safe to
 // accept (see docs/crypto.md, Versioning Strategy). Only the major byte is
 // checked, so a future v1.x minor bump keeps decoding under this same path.
-function verifyBlobVersion(version) {
+function verifyBlobVersion(version: Uint8Array): void {
   if (version[0] !== BLOB_VERSION[0]) {
     throw new Error(`Unsupported blob version: ${version[0]}.${version[1]}`);
   }
 }
 
-export function parseBlob(blobBytes) {
+export function parseBlob(blobBytes: Uint8Array): ParsedBlob {
   if (!(blobBytes instanceof Uint8Array) || blobBytes.length < BLOB_MIN_LEN) {
     throw new Error('Invalid encrypted value');
   }
