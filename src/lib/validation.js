@@ -66,18 +66,16 @@ function validateR2Config(c) {
 function validateS3Configs(c) {
   if (c.s3_config === undefined) return [];
   if (!Array.isArray(c.s3_config)) return ['S3 destinations must be a list'];
-  return c.s3_config.flatMap((entry, i) => validateS3DestinationConfig(
-    entry && typeof entry === 'object' ? entry : {},
-    `S3 destination ${i + 1}`,
-  ));
+  return c.s3_config.flatMap((entry, i) =>
+    validateS3DestinationConfig(entry && typeof entry === 'object' ? entry : {}, `S3 destination ${i + 1}`),
+  );
 }
 
 // Same format requirement as root_master_key (base64, >=256 bytes); only
 // required when a cloud destination is actually configured, since it's
 // otherwise unused.
 function validateBackupMasterKeyRequirement(c) {
-  const wantsCloudBackup = c.r2_config !== undefined
-    || (Array.isArray(c.s3_config) && c.s3_config.length > 0);
+  const wantsCloudBackup = c.r2_config !== undefined || (Array.isArray(c.s3_config) && c.s3_config.length > 0);
   if (!wantsCloudBackup || validateRootMasterKey(c.backup_master_key || '')) return [];
   return ['Backup master key must be base64 and at least 256 bytes decoded'];
 }

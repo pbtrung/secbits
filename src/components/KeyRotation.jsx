@@ -81,7 +81,8 @@ function KeyRotation() {
           />
           <div className="d-flex gap-2 mt-2">
             <button className="btn btn-outline-secondary btn-sm" onClick={handleCopy} disabled={anyLoading}>
-              <i className={`bi ${copied ? 'bi-check' : 'bi-clipboard'} me-1`}></i>{copied ? 'Copied' : 'Copy'}
+              <i className={`bi ${copied ? 'bi-check' : 'bi-clipboard'} me-1`}></i>
+              {copied ? 'Copied' : 'Copy'}
             </button>
             <button className="btn btn-outline-secondary btn-sm" onClick={generateKey} disabled={anyLoading}>
               <i className="bi bi-arrow-clockwise me-1"></i>Regenerate
@@ -125,10 +126,9 @@ function KeyRotation() {
         </div>
 
         <p className="text-muted small mt-3 mb-0">
-          The backup master key lives only in your config file; there is
-          nothing stored to rotate here. To rotate it, change the value in
-          your config file directly. As with the other keys, this only
-          protects future cloud backups, not ones already uploaded.
+          The backup master key lives only in your config file; there is nothing stored to rotate here. To rotate it,
+          change the value in your config file directly. As with the other keys, this only protects future cloud
+          backups, not ones already uploaded.
         </p>
 
         {status && <div className={`alert alert-${status.type} small py-2 mt-3 mb-0`}>{status.msg}</div>}

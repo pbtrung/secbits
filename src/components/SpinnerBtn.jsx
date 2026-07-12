@@ -4,9 +4,15 @@ function SpinnerBtn({ busy, busyLabel, icon, children, ...props }) {
   return (
     <button type="button" {...props} disabled={props.disabled || busy}>
       {busy ? (
-        <><span className="spinner-border spinner-border-sm me-1"></span>{busyLabel}</>
+        <>
+          <span className="spinner-border spinner-border-sm me-1"></span>
+          {busyLabel}
+        </>
       ) : icon ? (
-        <><i className={`bi ${icon} me-1`}></i>{children}</>
+        <>
+          <i className={`bi ${icon} me-1`}></i>
+          {children}
+        </>
       ) : (
         children
       )}

@@ -57,7 +57,7 @@ describe('encryptBlob / decryptBlob', () => {
 
     const tag = c.slice(c.length - TAG_LEN);
     expect(tag.length).toBe(TAG_LEN);
-    expect(tag.some(b => b !== 0)).toBe(true);
+    expect(tag.some((b) => b !== 0)).toBe(true);
   });
 
   it('rejects tampered ciphertext with authentication failure', async () => {
@@ -126,9 +126,23 @@ describe('compressJson / decompressJson', () => {
 describe('encryptEntry / decryptEntry', () => {
   it('round-trips all three entry types', async () => {
     const entries = [
-      { type: 'login', title: 'GitHub', username: 'alice', password: 's3cr3t', urls: ['https://github.com'], tags: ['work'] },
+      {
+        type: 'login',
+        title: 'GitHub',
+        username: 'alice',
+        password: 's3cr3t',
+        urls: ['https://github.com'],
+        tags: ['work'],
+      },
       { type: 'note', title: 'Meeting notes', notes: 'discussed roadmap' },
-      { type: 'card', title: 'Visa', cardholderName: 'Alice', cardNumber: '4111111111111111', cardExpiry: '12/28', cardCvv: '123' },
+      {
+        type: 'card',
+        title: 'Visa',
+        cardholderName: 'Alice',
+        cardNumber: '4111111111111111',
+        cardExpiry: '12/28',
+        cardCvv: '123',
+      },
     ];
     for (const entry of entries) {
       const key = generateEntryKey();

@@ -45,7 +45,11 @@ function TagsSidebar({
           active={!settingsMode && !trashMode && selectedTag === null}
           onClick={() => onSelectTag(null)}
           style={{ height: '2.5rem' }}
-          left={<span><i className="bi bi-collection me-2"></i>All</span>}
+          left={
+            <span>
+              <i className="bi bi-collection me-2"></i>All
+            </span>
+          }
           right={<span className="badge rounded-pill text-bg-light">{allCount}</span>}
         />
         {tags.map((tag) => (
@@ -54,7 +58,12 @@ function TagsSidebar({
             active={!settingsMode && !trashMode && selectedTag === tag}
             onClick={() => onSelectTag(tag)}
             style={{ height: '2.5rem' }}
-            left={<span className="text-truncate me-2 ps-3"><i className="bi bi-tag me-2"></i>{tag}</span>}
+            left={
+              <span className="text-truncate me-2 ps-3">
+                <i className="bi bi-tag me-2"></i>
+                {tag}
+              </span>
+            }
             right={<span className="badge rounded-pill text-bg-light">{tagCounts[tag] || 0}</span>}
           />
         ))}
@@ -63,7 +72,11 @@ function TagsSidebar({
           disabled={trashCount === 0}
           onClick={onOpenTrash}
           style={{ height: '2.5rem' }}
-          left={<span><i className="bi bi-trash me-2"></i>Trash</span>}
+          left={
+            <span>
+              <i className="bi bi-trash me-2"></i>Trash
+            </span>
+          }
           right={<span className="badge rounded-pill text-bg-light">{trashCount}</span>}
         />
       </div>

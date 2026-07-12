@@ -24,23 +24,21 @@ function ResizeHandle({ onResize }) {
   const [dragging, setDragging] = useState(false);
   const startX = useRef(0);
 
-  const onMouseDown = useCallback((e) => {
-    e.preventDefault();
-    startX.current = e.clientX;
-    setDragging(true);
-    setColumnDragCursor(true);
-    attachDragListeners(startX, onResize, () => {
-      setDragging(false);
-      setColumnDragCursor(false);
-    });
-  }, [onResize]);
-
-  return (
-    <div
-      className={`resize-handle${dragging ? ' active' : ''}`}
-      onMouseDown={onMouseDown}
-    />
+  const onMouseDown = useCallback(
+    (e) => {
+      e.preventDefault();
+      startX.current = e.clientX;
+      setDragging(true);
+      setColumnDragCursor(true);
+      attachDragListeners(startX, onResize, () => {
+        setDragging(false);
+        setColumnDragCursor(false);
+      });
+    },
+    [onResize],
   );
+
+  return <div className={`resize-handle${dragging ? ' active' : ''}`} onMouseDown={onMouseDown} />;
 }
 
 export default ResizeHandle;

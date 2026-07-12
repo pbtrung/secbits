@@ -36,9 +36,10 @@ function App() {
     const { entries: data, trash, failedCount } = await fetchUserEntries();
     const filtered = data.map(normalizeEntry);
     const deleted = trash.map(normalizeEntry);
-    const initialSyncError = failedCount > 0
-      ? `${failedCount} entry(ies) could not be decrypted and were skipped. Check your master key.`
-      : '';
+    const initialSyncError =
+      failedCount > 0
+        ? `${failedCount} entry(ies) could not be decrypted and were skipped. Check your master key.`
+        : '';
     setSession({ userId, userName, initialEntries: filtered, initialTrash: deleted, initialSyncError });
   }, []);
 
@@ -120,7 +121,9 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
   const dirtyRef = useRef(false);
   const selectedEntryIdRef = useRef(null);
   const prevSelectedIdRef = useRef(null);
-  useEffect(() => { selectedEntryIdRef.current = selectedEntryId; }, [selectedEntryId]);
+  useEffect(() => {
+    selectedEntryIdRef.current = selectedEntryId;
+  }, [selectedEntryId]);
 
   const handleDirtyChange = useCallback((dirty) => {
     dirtyRef.current = dirty;
@@ -171,23 +174,29 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
 
   const selectedEntry = (trashMode ? trashEntries : entries).find((e) => e.id === selectedEntryId) || null;
 
-  const handleSelectTag = useCallback((tag) => {
-    if (!confirmUnsavedChanges()) return;
-    setTrashMode(false);
-    setSelectedTag(tag);
-    setSelectedEntryId(null);
-    setEditingId(null);
-    setSettingsMode(false);
-    setSettingsPage(null);
-    if (isMobile) setMobileView('entries');
-  }, [isMobile, confirmUnsavedChanges]);
+  const handleSelectTag = useCallback(
+    (tag) => {
+      if (!confirmUnsavedChanges()) return;
+      setTrashMode(false);
+      setSelectedTag(tag);
+      setSelectedEntryId(null);
+      setEditingId(null);
+      setSettingsMode(false);
+      setSettingsPage(null);
+      if (isMobile) setMobileView('entries');
+    },
+    [isMobile, confirmUnsavedChanges],
+  );
 
-  const handleSelectEntry = useCallback((id) => {
-    if (!confirmUnsavedChanges()) return;
-    setSelectedEntryId(id);
-    setEditingId(null);
-    if (isMobile) setMobileView('detail');
-  }, [isMobile, confirmUnsavedChanges]);
+  const handleSelectEntry = useCallback(
+    (id) => {
+      if (!confirmUnsavedChanges()) return;
+      setSelectedEntryId(id);
+      setEditingId(null);
+      if (isMobile) setMobileView('detail');
+    },
+    [isMobile, confirmUnsavedChanges],
+  );
 
   const handleOpenTrash = useCallback(() => {
     if (!trashEntries.length) return;
@@ -201,34 +210,40 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
     if (isMobile) setMobileView('entries');
   }, [trashEntries.length, isMobile, confirmUnsavedChanges]);
 
-  const handleNewEntry = useCallback((type) => {
-    if (trashMode) return;
-    if (!confirmUnsavedChanges()) return;
-    prevSelectedIdRef.current = selectedEntryIdRef.current;
-    const newEntry = buildBlankEntry(type, selectedTag);
-    setEntries((prev) => [newEntry, ...prev]);
-    setSelectedEntryId(newEntry.id);
-    setEditingId(newEntry.id);
-    if (isMobile) setMobileView('detail');
-  }, [selectedTag, isMobile, trashMode, confirmUnsavedChanges]);
+  const handleNewEntry = useCallback(
+    (type) => {
+      if (trashMode) return;
+      if (!confirmUnsavedChanges()) return;
+      prevSelectedIdRef.current = selectedEntryIdRef.current;
+      const newEntry = buildBlankEntry(type, selectedTag);
+      setEntries((prev) => [newEntry, ...prev]);
+      setSelectedEntryId(newEntry.id);
+      setEditingId(newEntry.id);
+      if (isMobile) setMobileView('detail');
+    },
+    [selectedTag, isMobile, trashMode, confirmUnsavedChanges],
+  );
 
-  const handleSave = useCallback(async (updated) => {
-    if (trashMode) return;
-    setSyncError('');
-    setSaving(true);
-    const wasNew = isLocalEntryId(updated.id) || updated._isNew;
+  const handleSave = useCallback(
+    async (updated) => {
+      if (trashMode) return;
+      setSyncError('');
+      setSaving(true);
+      const wasNew = isLocalEntryId(updated.id) || updated._isNew;
 
-    try {
-      const saved = await persistEntryUpdate(updated, wasNew);
-      setEntries((prev) => prev.map((e) => (e.id === updated.id ? saved : e)));
-      if (wasNew) setSelectedEntryId(saved.id);
-      setEditingId(null);
-    } catch (err) {
-      setSyncError(err?.message || 'Failed to save entry.');
-    } finally {
-      setSaving(false);
-    }
-  }, [trashMode]);
+      try {
+        const saved = await persistEntryUpdate(updated, wasNew);
+        setEntries((prev) => prev.map((e) => (e.id === updated.id ? saved : e)));
+        if (wasNew) setSelectedEntryId(saved.id);
+        setEditingId(null);
+      } catch (err) {
+        setSyncError(err?.message || 'Failed to save entry.');
+      } finally {
+        setSaving(false);
+      }
+    },
+    [trashMode],
+  );
 
   const handleRestore = useCallback(async (entryId, commitHash) => {
     setSyncError('');
@@ -254,75 +269,90 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
     setSelectedEntryId(restored.id);
   }, []);
 
-  const handleRestoreDeletedVersion = useCallback(async (entryId, commitHash) => {
-    setSyncError('');
-    setSaving(true);
-    try {
-      const restored = normalizeEntry(await restoreDeletedEntryVersion(entryId, commitHash));
-      restoreEntryFromTrash(entryId, restored);
-      return true;
-    } catch (err) {
-      setSyncError(err?.message || 'Failed to restore deleted entry version.');
-      return false;
-    } finally {
-      setSaving(false);
-    }
-  }, [restoreEntryFromTrash]);
+  const handleRestoreDeletedVersion = useCallback(
+    async (entryId, commitHash) => {
+      setSyncError('');
+      setSaving(true);
+      try {
+        const restored = normalizeEntry(await restoreDeletedEntryVersion(entryId, commitHash));
+        restoreEntryFromTrash(entryId, restored);
+        return true;
+      } catch (err) {
+        setSyncError(err?.message || 'Failed to restore deleted entry version.');
+        return false;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [restoreEntryFromTrash],
+  );
 
-  const handleRestoreDeletedEntry = useCallback(async (entryId) => {
-    setSyncError('');
-    setSaving(true);
-    try {
-      const restored = normalizeEntry(await restoreDeletedUserEntry(entryId));
-      restoreEntryFromTrash(entryId, restored);
-      setEditingId(null);
-      if (isMobile) setMobileView('detail');
-      return true;
-    } catch (err) {
-      setSyncError(err?.message || 'Failed to restore deleted entry.');
-      return false;
-    } finally {
-      setSaving(false);
-    }
-  }, [isMobile, restoreEntryFromTrash]);
+  const handleRestoreDeletedEntry = useCallback(
+    async (entryId) => {
+      setSyncError('');
+      setSaving(true);
+      try {
+        const restored = normalizeEntry(await restoreDeletedUserEntry(entryId));
+        restoreEntryFromTrash(entryId, restored);
+        setEditingId(null);
+        if (isMobile) setMobileView('detail');
+        return true;
+      } catch (err) {
+        setSyncError(err?.message || 'Failed to restore deleted entry.');
+        return false;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [isMobile, restoreEntryFromTrash],
+  );
 
   // Removes an entry from wherever it currently lives: permanently from
   // trash, soft-deleted into trash from the live list, or (for an unsaved
   // local draft) just discarded outright.
-  const removeEntryByMode = useCallback(async (id) => {
-    if (trashMode) {
-      await permanentlyDeleteUserEntry(id);
-      setTrashEntries((prev) => prev.filter((e) => e.id !== id));
-      return;
-    }
-    if (!isLocalEntryId(id)) {
-      const trashed = await deleteUserEntry(id);
+  const removeEntryByMode = useCallback(
+    async (id) => {
+      if (trashMode) {
+        await permanentlyDeleteUserEntry(id);
+        setTrashEntries((prev) => prev.filter((e) => e.id !== id));
+        return;
+      }
+      if (!isLocalEntryId(id)) {
+        const trashed = await deleteUserEntry(id);
+        setEntries((prev) => prev.filter((e) => e.id !== id));
+        setTrashEntries((prev) => [trashed, ...prev.filter((e) => e.id !== trashed.id)]);
+        return;
+      }
       setEntries((prev) => prev.filter((e) => e.id !== id));
-      setTrashEntries((prev) => [trashed, ...prev.filter((e) => e.id !== trashed.id)]);
-      return;
-    }
-    setEntries((prev) => prev.filter((e) => e.id !== id));
-  }, [trashMode]);
+    },
+    [trashMode],
+  );
 
-  const handleDelete = useCallback(async (id) => {
-    setSyncError('');
-    setDeleting(true);
-    try {
-      await removeEntryByMode(id);
-      setSelectedEntryId((prev) => (prev === id ? null : prev));
-      setEditingId(null);
-      if (isMobile) setMobileView('entries');
-    } catch (err) {
-      setSyncError(err?.message || 'Failed to delete entry.');
-    } finally {
-      setDeleting(false);
-    }
-  }, [isMobile, removeEntryByMode]);
+  const handleDelete = useCallback(
+    async (id) => {
+      setSyncError('');
+      setDeleting(true);
+      try {
+        await removeEntryByMode(id);
+        setSelectedEntryId((prev) => (prev === id ? null : prev));
+        setEditingId(null);
+        if (isMobile) setMobileView('entries');
+      } catch (err) {
+        setSyncError(err?.message || 'Failed to delete entry.');
+      } finally {
+        setDeleting(false);
+      }
+    },
+    [isMobile, removeEntryByMode],
+  );
 
-  const handleEdit = useCallback((id) => {
-    if (trashMode) return;
-    setEditingId(id);
-  }, [trashMode]);
+  const handleEdit = useCallback(
+    (id) => {
+      if (trashMode) return;
+      setEditingId(id);
+    },
+    [trashMode],
+  );
 
   const handleSettings = useCallback(() => {
     if (!confirmUnsavedChanges()) return;
@@ -390,7 +420,9 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
     <div className="d-flex align-items-center justify-content-center h-100 text-muted">
       <div className="text-center">
         <i className={`bi ${trashMode ? 'bi-trash' : 'bi-shield-lock'}`} style={{ fontSize: '4rem' }}></i>
-        <p className="mt-3">{trashMode ? 'Select a deleted entry to view details' : 'Select an entry to view details'}</p>
+        <p className="mt-3">
+          {trashMode ? 'Select a deleted entry to view details' : 'Select an entry to view details'}
+        </p>
       </div>
     </div>
   );
@@ -402,10 +434,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
         {isMobile ? (
           <div className="d-flex align-items-center w-100 px-2">
             {mobileView !== 'tags' && (
-              <button
-                className="btn btn-outline-light btn-sm flex-shrink-0 me-2"
-                onClick={handleMobileBack}
-              >
+              <button className="btn btn-outline-light btn-sm flex-shrink-0 me-2" onClick={handleMobileBack}>
                 <i className="bi bi-chevron-left"></i>
               </button>
             )}
@@ -508,11 +537,14 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
                 mobile
               />
             )}
-            {mobileView === 'entries' && (
-              settingsMode ? (
+            {mobileView === 'entries' &&
+              (settingsMode ? (
                 <SettingsList
                   selectedPage={settingsPage}
-                  onSelectPage={(page) => { handleSelectSetting(page); setMobileView('detail'); }}
+                  onSelectPage={(page) => {
+                    handleSelectSetting(page);
+                    setMobileView('detail');
+                  }}
                   mobile
                 />
               ) : (
@@ -525,15 +557,10 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
                   trashMode={trashMode}
                   mobile
                 />
-              )
-            )}
+              ))}
             {mobileView === 'detail' && (
               <div className="h-100 overflow-auto bg-light">
-                {settingsMode ? (
-                  <SettingsPanel page={settingsPage} />
-                ) : (
-                  detailPane
-                )}
+                {settingsMode ? <SettingsPanel page={settingsPage} /> : detailPane}
               </div>
             )}
           </div>
@@ -559,10 +586,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
             <ResizeHandle onResize={handleResizeTags} />
             <div className="d-flex flex-column bg-white" style={{ width: entriesWidth, flexShrink: 0 }}>
               {settingsMode ? (
-                <SettingsList
-                  selectedPage={settingsPage}
-                  onSelectPage={handleSelectSetting}
-                />
+                <SettingsList selectedPage={settingsPage} onSelectPage={handleSelectSetting} />
               ) : (
                 <EntryList
                   entries={filteredEntries}
@@ -576,11 +600,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
             </div>
             <ResizeHandle onResize={handleResizeEntries} />
             <div className="flex-grow-1 overflow-auto bg-light" style={{ minWidth: 300 }}>
-              {settingsMode ? (
-                <SettingsPanel page={settingsPage} />
-              ) : (
-                detailPane
-              )}
+              {settingsMode ? <SettingsPanel page={settingsPage} /> : detailPane}
             </div>
           </div>
         )}

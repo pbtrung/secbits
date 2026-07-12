@@ -3,7 +3,17 @@ import { fieldsChanged, stripNestedHistory, buildCommitList, getVaultStats, buil
 
 describe('fieldsChanged', () => {
   it('returns only the diffable fields that actually differ', () => {
-    const from = { title: 'a', username: 'u', password: 'p', notes: 'n', urls: [], totpSecrets: [], tags: [], customFields: [], createdAt: 1 };
+    const from = {
+      title: 'a',
+      username: 'u',
+      password: 'p',
+      notes: 'n',
+      urls: [],
+      totpSecrets: [],
+      tags: [],
+      customFields: [],
+      createdAt: 1,
+    };
     const to = { ...from, title: 'b', createdAt: 2 };
     expect(fieldsChanged(from, to)).toEqual(['title']);
   });
@@ -50,11 +60,7 @@ describe('buildCommitList', () => {
 
 describe('getVaultStats', () => {
   it('counts entries, trash, and unique tags', () => {
-    const entries = [
-      { tags: ['work', 'personal'] },
-      { tags: ['work'] },
-      { tags: [] },
-    ];
+    const entries = [{ tags: ['work', 'personal'] }, { tags: ['work'] }, { tags: [] }];
     const trash = [{}, {}];
     expect(getVaultStats(entries, trash)).toEqual({ entryCount: 3, trashCount: 2, tagCount: 2 });
   });

@@ -43,7 +43,7 @@ No jsdom, no `@testing-library/react`, so every `.tsx` file is out of reach for 
   - User A cannot update one of their own rows to reassign `owner` to User B; `!('owner' in request.modifiedFields)` rejects any update that touches `owner` at all.
   - No user can update an `entryHistory` row; only create or delete succeed.
   - User A can delete their own `entryHistory` rows through the `entry.owner` ref chain, not just direct ownership.
-- **Cloud backup upload** against real R2 and each configured S3 compatible destination: SigV4 signing and CORS are both real failure points for a client direct upload, with no server to fall back on if either is wrong; this can't be verified against a mock. (The independent-per-destination orchestration around this *is* covered, mocked, per above; only the "did the bytes actually reach the bucket" question is live-only.)
+- **Cloud backup upload** against real R2 and each configured S3 compatible destination: SigV4 signing and CORS are both real failure points for a client direct upload, with no server to fall back on if either is wrong; this can't be verified against a mock. (The independent-per-destination orchestration around this _is_ covered, mocked, per above; only the "did the bytes actually reach the bucket" question is live-only.)
 - **Firebase/InstantDB auth and session flow**: `signIn`'s Firebase exchange, `ensureKeyStore`'s first-run multi-tab race handling, all need a real Firebase project and InstantDB app.
 
 ## Not covered

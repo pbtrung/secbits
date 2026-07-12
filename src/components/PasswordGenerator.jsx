@@ -49,7 +49,7 @@ const CHARSETS = {
   lowercase: { label: 'a-z', chars: 'abcdefghijklmnopqrstuvwxyz' },
   uppercase: { label: 'A-Z', chars: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' },
   digits: { label: '0-9', chars: '0123456789' },
-  symbols: { label: '!@#', chars: '!@#$%^&*()_+-=[]{}|;:,.<>?/~`\'' },
+  symbols: { label: '!@#', chars: "!@#$%^&*()_+-=[]{}|;:,.<>?/~`'" },
 };
 
 function generatePassword(length, enabledSets) {
@@ -106,11 +106,7 @@ export function PasswordGenerator({ onGenerate, onCopy }) {
 
   return (
     <div className="mt-2">
-      <button
-        className="btn btn-sm btn-outline-secondary"
-        onClick={handleToggle}
-        type="button"
-      >
+      <button className="btn btn-sm btn-outline-secondary" onClick={handleToggle} type="button">
         <i className="bi bi-arrow-repeat me-1"></i>
         Generate Password
       </button>
@@ -153,27 +149,11 @@ export function PasswordGenerator({ onGenerate, onCopy }) {
 
           {/* Preview + buttons */}
           <div className="input-group input-group-sm">
-            <input
-              type="text"
-              className="form-control"
-              value={preview}
-              readOnly
-              style={{ fontFamily: 'monospace' }}
-            />
-            <button
-              className="btn btn-outline-secondary"
-              onClick={() => onCopy(preview)}
-              title="Copy"
-              type="button"
-            >
+            <input type="text" className="form-control" value={preview} readOnly style={{ fontFamily: 'monospace' }} />
+            <button className="btn btn-outline-secondary" onClick={() => onCopy(preview)} title="Copy" type="button">
               <i className="bi bi-clipboard"></i>
             </button>
-            <button
-              className="btn btn-outline-secondary"
-              onClick={regenerate}
-              title="Regenerate"
-              type="button"
-            >
+            <button className="btn btn-outline-secondary" onClick={regenerate} title="Regenerate" type="button">
               <i className="bi bi-arrow-repeat"></i>
             </button>
             <button

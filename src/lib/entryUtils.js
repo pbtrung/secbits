@@ -11,7 +11,7 @@ export function formatDeletedLabel(ts) {
   const exact = formatExact(ts);
   const now = new Date();
   const dayMs = 24 * 60 * 60 * 1000;
-  const startNow    = new Date(now.getFullYear(),     now.getMonth(),     now.getDate());
+  const startNow = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const startDeleted = new Date(deletedAt.getFullYear(), deletedAt.getMonth(), deletedAt.getDate());
   const dayDiff = Math.floor((startNow - startDeleted) / dayMs);
   const [date, time] = exact.split(' ');
@@ -27,14 +27,12 @@ export function formatDeletedLabel(ts) {
 // ENTRY_TYPES  — iterate for rendering (dropdown, lists).
 // ENTRY_TYPE_META — O(1) lookup by type key.
 export const ENTRY_TYPES = [
-  { type: 'login', icon: 'bi-person-badge', label: 'Login',       desc: 'Username, password, URLs, TOTP' },
-  { type: 'note',  icon: 'bi-sticky',       label: 'Secure Note', desc: 'Encrypted free-form text'       },
-  { type: 'card',  icon: 'bi-credit-card',  label: 'Credit Card', desc: 'Card number, expiry, CVV'       },
+  { type: 'login', icon: 'bi-person-badge', label: 'Login', desc: 'Username, password, URLs, TOTP' },
+  { type: 'note', icon: 'bi-sticky', label: 'Secure Note', desc: 'Encrypted free-form text' },
+  { type: 'card', icon: 'bi-credit-card', label: 'Credit Card', desc: 'Card number, expiry, CVV' },
 ];
 
-export const ENTRY_TYPE_META = Object.fromEntries(
-  ENTRY_TYPES.map(({ type, icon, label }) => [type, { icon, label }])
-);
+export const ENTRY_TYPE_META = Object.fromEntries(ENTRY_TYPES.map(({ type, icon, label }) => [type, { icon, label }]));
 
 // customFields replaced the older `hiddenFields` name; entries saved under
 // the old name still need to read as customFields everywhere an entry gets

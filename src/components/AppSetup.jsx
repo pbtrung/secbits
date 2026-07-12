@@ -1,5 +1,14 @@
 import { useState, useRef } from 'react';
-import { initDb, signIn, ensureKeyStore, setUsername, setBackupDestinations, setBackupMasterKey, getUserId, clearSession } from '../db';
+import {
+  initDb,
+  signIn,
+  ensureKeyStore,
+  setUsername,
+  setBackupDestinations,
+  setBackupMasterKey,
+  getUserId,
+  clearSession,
+} from '../db';
 import { decodeRootMasterKey, decodeBackupMasterKey } from '../crypto';
 import { validateConfig } from '../lib/validation';
 
@@ -114,18 +123,12 @@ function AppSetup({ onReady }) {
               style={{ cursor: 'pointer', borderStyle: dragOver ? 'solid' : 'dashed' }}
               onClick={() => fileRef.current.click()}
             >
-              <i className={`bi ${dragOver ? 'bi-cloud-arrow-down' : 'bi-file-earmark-arrow-up'} fs-2 ${dragOver ? 'text-primary' : 'text-muted'}`}></i>
-              <p className="mb-1 mt-2">
-                {dragOver ? 'Drop here' : 'Drag & drop your config JSON'}
-              </p>
+              <i
+                className={`bi ${dragOver ? 'bi-cloud-arrow-down' : 'bi-file-earmark-arrow-up'} fs-2 ${dragOver ? 'text-primary' : 'text-muted'}`}
+              ></i>
+              <p className="mb-1 mt-2">{dragOver ? 'Drop here' : 'Drag & drop your config JSON'}</p>
               <p className="text-muted small mb-0">or click to browse</p>
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".json"
-                className="d-none"
-                onChange={handleFileChange}
-              />
+              <input ref={fileRef} type="file" accept=".json" className="d-none" onChange={handleFileChange} />
             </div>
           )}
 
@@ -139,7 +142,7 @@ function AppSetup({ onReady }) {
           <div className="mt-4">
             <p className="text-muted small mb-2">Expected JSON format:</p>
             <pre className="bg-light rounded p-2 small mb-0" style={{ fontSize: '0.75rem' }}>
-{`{
+              {`{
   "instant_app_id": "<instantdb-app-id>",
   "instant_client_name": "<instantdb-client-name>",
   "firebase_api_key": "<firebase-web-api-key>",

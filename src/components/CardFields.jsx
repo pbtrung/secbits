@@ -1,19 +1,12 @@
 import CopyBtn from './CopyBtn';
 import EyeToggleBtn from './EyeToggleBtn';
 import FieldSection from './FieldSection';
-import {
-  CARD_HOLDER_MAX, CARD_NUMBER_MAX, CARD_EXPIRY_MAX, CARD_CVV_MAX,
-} from '../lib/limits.js';
+import { CARD_HOLDER_MAX, CARD_NUMBER_MAX, CARD_EXPIRY_MAX, CARD_CVV_MAX } from '../lib/limits.js';
 
 function MaskedReadOnlyField({ value, visible, onToggle, copied, onCopy, label, style }) {
   return (
     <div className="input-group" style={style}>
-      <input
-        type={visible ? 'text' : 'password'}
-        className="form-control"
-        value={value}
-        readOnly
-      />
+      <input type={visible ? 'text' : 'password'} className="form-control" value={value} readOnly />
       <EyeToggleBtn visible={visible} onToggle={onToggle} />
       <CopyBtn text={value} label={label} copied={copied} onCopy={onCopy} />
     </div>

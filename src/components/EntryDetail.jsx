@@ -10,13 +10,28 @@ import { formatDeletedLabel, ENTRY_TYPE_META, normalizeCustomFields } from '../l
 import {
   TITLE_MAX,
   TAG_MAX,
-  USERNAME_MAX, PASSWORD_MAX,
-  URL_MAX, TOTP_SECRET_MAX,
-  CUSTOM_FIELD_LABEL_MAX, CUSTOM_FIELD_VALUE_MAX,
-  CARD_HOLDER_MAX, CARD_NUMBER_MAX, CARD_EXPIRY_MAX, CARD_CVV_MAX,
+  USERNAME_MAX,
+  PASSWORD_MAX,
+  URL_MAX,
+  TOTP_SECRET_MAX,
+  CUSTOM_FIELD_LABEL_MAX,
+  CUSTOM_FIELD_VALUE_MAX,
+  CARD_HOLDER_MAX,
+  CARD_NUMBER_MAX,
+  CARD_EXPIRY_MAX,
+  CARD_CVV_MAX,
 } from '../lib/limits.js';
 
-const SCALAR_DRAFT_FIELDS = ['title', 'username', 'password', 'notes', 'cardholderName', 'cardNumber', 'cardExpiry', 'cardCvv'];
+const SCALAR_DRAFT_FIELDS = [
+  'title',
+  'username',
+  'password',
+  'notes',
+  'cardholderName',
+  'cardNumber',
+  'cardExpiry',
+  'cardCvv',
+];
 const ARRAY_DRAFT_FIELDS = ['urls', 'totpSecrets', 'customFields'];
 
 function scalarDraftFieldsChanged(draft, entry) {
@@ -48,9 +63,11 @@ function draftTagsChanged(draft, entry, tagCurrentInput) {
 }
 
 function hasDraftChanges(draft, entry, tagCurrentInput) {
-  return scalarDraftFieldsChanged(draft, entry)
-    || arrayDraftFieldsChanged(draft, entry)
-    || draftTagsChanged(draft, entry, tagCurrentInput);
+  return (
+    scalarDraftFieldsChanged(draft, entry) ||
+    arrayDraftFieldsChanged(draft, entry) ||
+    draftTagsChanged(draft, entry, tagCurrentInput)
+  );
 }
 
 function normalizeEntryForDraft(entry) {
@@ -64,9 +81,9 @@ function normalizeEntryForDraft(entry) {
   };
   if (safe.type === 'card') {
     result.cardholderName = typeof safe.cardholderName === 'string' ? safe.cardholderName : '';
-    result.cardNumber     = typeof safe.cardNumber     === 'string' ? safe.cardNumber     : '';
-    result.cardExpiry     = typeof safe.cardExpiry     === 'string' ? safe.cardExpiry     : '';
-    result.cardCvv        = typeof safe.cardCvv        === 'string' ? safe.cardCvv        : '';
+    result.cardNumber = typeof safe.cardNumber === 'string' ? safe.cardNumber : '';
+    result.cardExpiry = typeof safe.cardExpiry === 'string' ? safe.cardExpiry : '';
+    result.cardCvv = typeof safe.cardCvv === 'string' ? safe.cardCvv : '';
   }
   return result;
 }
@@ -172,9 +189,15 @@ function EntryDetail({
   useEffect(() => {
     const clearClipboard = () => navigator.clipboard.writeText('').catch(() => {});
     const hideNotes = () => setNotesVisible(false);
-    const onBlur = () => { hideNotes(); clearClipboard(); };
+    const onBlur = () => {
+      hideNotes();
+      clearClipboard();
+    };
     const onVisibilityChange = () => {
-      if (document.hidden) { hideNotes(); clearClipboard(); }
+      if (document.hidden) {
+        hideNotes();
+        clearClipboard();
+      }
     };
     window.addEventListener('blur', onBlur);
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -210,7 +233,9 @@ function EntryDetail({
 
   useEffect(() => {
     if (!showHistory) return;
-    const handler = (e) => { if (e.key === 'Escape' && !saving) setShowHistory(false); };
+    const handler = (e) => {
+      if (e.key === 'Escape' && !saving) setShowHistory(false);
+    };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [showHistory, saving]);
@@ -257,7 +282,7 @@ function EntryDetail({
   };
 
   const addHiddenField = () => {
-    const maxId = draft.customFields.reduce((max, f) => Number.isFinite(f.id) ? Math.max(max, f.id) : max, 0);
+    const maxId = draft.customFields.reduce((max, f) => (Number.isFinite(f.id) ? Math.max(max, f.id) : max), 0);
     setDraft({
       ...draft,
       customFields: [...draft.customFields, { id: maxId + 1, label: '', value: '' }],
@@ -267,7 +292,7 @@ function EntryDetail({
   const updateHiddenField = (id, key, value) => {
     setDraft({
       ...draft,
-      customFields: draft.customFields.map((f) => f.id === id ? { ...f, [key]: value } : f),
+      customFields: draft.customFields.map((f) => (f.id === id ? { ...f, [key]: value } : f)),
     });
   };
 
@@ -278,7 +303,11 @@ function EntryDetail({
   const validateUrl = (index, value) => {
     const error = getUrlError(value);
     if (!error) {
-      setUrlErrors((prev) => { const next = { ...prev }; delete next[index]; return next; });
+      setUrlErrors((prev) => {
+        const next = { ...prev };
+        delete next[index];
+        return next;
+      });
       return;
     }
     setUrlErrors((prev) => ({ ...prev, [index]: error }));
@@ -313,34 +342,45 @@ function EntryDetail({
     if (restored) setShowHistory(false);
   };
 
-  const isNote  = entry.type === 'note';
-  const isCard  = entry.type === 'card';
+  const isNote = entry.type === 'note';
+  const isCard = entry.type === 'card';
   const isLogin = !isNote && !isCard;
 
   const hasInvalidFields =
     draft.title.length > TITLE_MAX ||
     draft.tags.some((t) => t.length > TAG_MAX) ||
-    (isLogin && (
-      Object.values(totpErrors).some(Boolean) ||
-      Object.values(urlErrors).some(Boolean) ||
-      draft.username.length > USERNAME_MAX ||
-      draft.password.length > PASSWORD_MAX ||
-      draft.urls.some((u) => u.length > URL_MAX) ||
-      draft.totpSecrets.some((s) => s.length > TOTP_SECRET_MAX) ||
-      draft.customFields.some((f) => f.label.length > CUSTOM_FIELD_LABEL_MAX || f.value.length > CUSTOM_FIELD_VALUE_MAX)
-    )) ||
-    (isCard && (
-      (draft.cardholderName?.length || 0) > CARD_HOLDER_MAX ||
-      (draft.cardNumber?.length || 0) > CARD_NUMBER_MAX ||
-      (draft.cardExpiry?.length || 0) > CARD_EXPIRY_MAX ||
-      (draft.cardCvv?.length || 0) > CARD_CVV_MAX
-    ));
+    (isLogin &&
+      (Object.values(totpErrors).some(Boolean) ||
+        Object.values(urlErrors).some(Boolean) ||
+        draft.username.length > USERNAME_MAX ||
+        draft.password.length > PASSWORD_MAX ||
+        draft.urls.some((u) => u.length > URL_MAX) ||
+        draft.totpSecrets.some((s) => s.length > TOTP_SECRET_MAX) ||
+        draft.customFields.some(
+          (f) => f.label.length > CUSTOM_FIELD_LABEL_MAX || f.value.length > CUSTOM_FIELD_VALUE_MAX,
+        ))) ||
+    (isCard &&
+      ((draft.cardholderName?.length || 0) > CARD_HOLDER_MAX ||
+        (draft.cardNumber?.length || 0) > CARD_NUMBER_MAX ||
+        (draft.cardExpiry?.length || 0) > CARD_EXPIRY_MAX ||
+        (draft.cardCvv?.length || 0) > CARD_CVV_MAX));
 
   const allFieldsEmpty = isNote
     ? !draft.title.trim() && !draft.notes.trim()
     : isCard
-      ? !draft.title.trim() && !draft.cardholderName?.trim() && !draft.cardNumber?.trim() && !draft.cardExpiry?.trim() && !draft.cardCvv?.trim() && !draft.notes.trim()
-      : !draft.title.trim() && !draft.username.trim() && !draft.password.trim() && !draft.notes.trim() && !draft.urls.some((u) => u.trim()) && draft.totpSecrets.length === 0 && draft.customFields.length === 0;
+      ? !draft.title.trim() &&
+        !draft.cardholderName?.trim() &&
+        !draft.cardNumber?.trim() &&
+        !draft.cardExpiry?.trim() &&
+        !draft.cardCvv?.trim() &&
+        !draft.notes.trim()
+      : !draft.title.trim() &&
+        !draft.username.trim() &&
+        !draft.password.trim() &&
+        !draft.notes.trim() &&
+        !draft.urls.some((u) => u.trim()) &&
+        draft.totpSecrets.length === 0 &&
+        draft.customFields.length === 0;
 
   const saveDisabled = hasInvalidFields || allFieldsEmpty;
 
@@ -348,180 +388,196 @@ function EntryDetail({
 
   return (
     <>
-    <fieldset disabled={saving || deleting} className="p-4" style={{ maxWidth: 700 }}>
-      {/* Title */}
-      <div className="d-flex justify-content-between align-items-start mb-4">
-        <div className="flex-grow-1">
-          {isEditing ? (
-            <input
-              className="form-control form-control-lg fw-bold"
-              value={draft.title}
-              onChange={(e) => updateDraft('title', e.target.value)}
-              placeholder="Entry Title"
-              maxLength={TITLE_MAX}
-              autoFocus
-            />
-          ) : (
-            <h3 className="fw-bold mb-0">{data.title}</h3>
-          )}
-          {entry.type && ENTRY_TYPE_META[entry.type] && (
-            <div className="small text-muted mt-1">
-              <i className={`bi ${ENTRY_TYPE_META[entry.type].icon} me-1`}></i>
-              {ENTRY_TYPE_META[entry.type].label}
-            </div>
-          )}
-          {isTrashView && (
-            <div className="small text-muted mt-1" title={formatDeletedLabel(entry.deletedAt).exact}>
-              <i className="bi bi-trash me-1"></i>
-              {formatDeletedLabel(entry.deletedAt).text}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Type-specific fields */}
-      {isLogin && (
-        <LoginFields
-          draft={draft}
-          data={data}
-          isEditing={isEditing}
-          visiblePasswords={visiblePasswords}
-          onToggle={toggleVisibility}
-          copied={copied}
-          onCopy={copyToClipboard}
-          onUpdate={updateDraft}
-          onAddUrl={addUrl}
-          onUpdateUrl={updateUrl}
-          onRemoveUrl={removeUrl}
-          onValidateUrl={validateUrl}
-          urlErrors={urlErrors}
-          onAddTotp={addTotpSecret}
-          onUpdateTotp={updateTotpSecret}
-          onRemoveTotp={removeTotpSecret}
-          onValidateTotp={validateTotpSecret}
-          totpErrors={totpErrors}
-          onAddCustomField={addHiddenField}
-          onUpdateCustomField={updateHiddenField}
-          onRemoveCustomField={removeHiddenField}
-        />
-      )}
-      {isCard && (
-        <CardFields
-          draft={draft}
-          data={data}
-          isEditing={isEditing}
-          visiblePasswords={visiblePasswords}
-          onToggle={toggleVisibility}
-          copied={copied}
-          onCopy={copyToClipboard}
-          onUpdate={updateDraft}
-        />
-      )}
-
-      {/* Notes — all types */}
-      <NotesField
-        isEditing={isEditing}
-        value={data.notes}
-        onChange={(val) => updateDraft('notes', val)}
-        visible={notesVisible}
-        onToggleVisible={() => setNotesVisible((v) => !v)}
-      />
-
-      {/* Tags — all types */}
-      <TagsField
-        key={entry.id}
-        tags={draft.tags}
-        onTagsChange={(newTags) => setDraft((prev) => ({ ...prev, tags: newTags }))}
-        isEditing={isEditing}
-        allTags={allTags}
-        onCurrentInputChange={setTagCurrentInput}
-      />
-
-      {/* Action Buttons */}
-      <div className="d-flex gap-2 align-items-center border-top pt-3 flex-wrap">
-        {isTrashView ? (
-          <>
-            <SpinnerBtn
-              className="btn btn-success"
-              onClick={handleRestoreEntry}
-              disabled={saving || deleting}
-              busy={saving}
-              busyLabel="Restoring..."
-              icon="bi-arrow-counterclockwise"
-            >Restore</SpinnerBtn>
-            {commits.length > 0 && (
-              <button
-                type="button"
-                className="btn btn-sm btn-outline-secondary"
-                onClick={() => { setHistoryIdx(0); setShowHistory(true); }}
-              >
-                <i className="bi bi-git me-1"></i>
-                {commits.length} version{commits.length !== 1 ? 's' : ''}
-              </button>
+      <fieldset disabled={saving || deleting} className="p-4" style={{ maxWidth: 700 }}>
+        {/* Title */}
+        <div className="d-flex justify-content-between align-items-start mb-4">
+          <div className="flex-grow-1">
+            {isEditing ? (
+              <input
+                className="form-control form-control-lg fw-bold"
+                value={draft.title}
+                onChange={(e) => updateDraft('title', e.target.value)}
+                placeholder="Entry Title"
+                maxLength={TITLE_MAX}
+                autoFocus
+              />
+            ) : (
+              <h3 className="fw-bold mb-0">{data.title}</h3>
             )}
+            {entry.type && ENTRY_TYPE_META[entry.type] && (
+              <div className="small text-muted mt-1">
+                <i className={`bi ${ENTRY_TYPE_META[entry.type].icon} me-1`}></i>
+                {ENTRY_TYPE_META[entry.type].label}
+              </div>
+            )}
+            {isTrashView && (
+              <div className="small text-muted mt-1" title={formatDeletedLabel(entry.deletedAt).exact}>
+                <i className="bi bi-trash me-1"></i>
+                {formatDeletedLabel(entry.deletedAt).text}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Type-specific fields */}
+        {isLogin && (
+          <LoginFields
+            draft={draft}
+            data={data}
+            isEditing={isEditing}
+            visiblePasswords={visiblePasswords}
+            onToggle={toggleVisibility}
+            copied={copied}
+            onCopy={copyToClipboard}
+            onUpdate={updateDraft}
+            onAddUrl={addUrl}
+            onUpdateUrl={updateUrl}
+            onRemoveUrl={removeUrl}
+            onValidateUrl={validateUrl}
+            urlErrors={urlErrors}
+            onAddTotp={addTotpSecret}
+            onUpdateTotp={updateTotpSecret}
+            onRemoveTotp={removeTotpSecret}
+            onValidateTotp={validateTotpSecret}
+            totpErrors={totpErrors}
+            onAddCustomField={addHiddenField}
+            onUpdateCustomField={updateHiddenField}
+            onRemoveCustomField={removeHiddenField}
+          />
+        )}
+        {isCard && (
+          <CardFields
+            draft={draft}
+            data={data}
+            isEditing={isEditing}
+            visiblePasswords={visiblePasswords}
+            onToggle={toggleVisibility}
+            copied={copied}
+            onCopy={copyToClipboard}
+            onUpdate={updateDraft}
+          />
+        )}
+
+        {/* Notes — all types */}
+        <NotesField
+          isEditing={isEditing}
+          value={data.notes}
+          onChange={(val) => updateDraft('notes', val)}
+          visible={notesVisible}
+          onToggleVisible={() => setNotesVisible((v) => !v)}
+        />
+
+        {/* Tags — all types */}
+        <TagsField
+          key={entry.id}
+          tags={draft.tags}
+          onTagsChange={(newTags) => setDraft((prev) => ({ ...prev, tags: newTags }))}
+          isEditing={isEditing}
+          allTags={allTags}
+          onCurrentInputChange={setTagCurrentInput}
+        />
+
+        {/* Action Buttons */}
+        <div className="d-flex gap-2 align-items-center border-top pt-3 flex-wrap">
+          {isTrashView ? (
+            <>
+              <SpinnerBtn
+                className="btn btn-success"
+                onClick={handleRestoreEntry}
+                disabled={saving || deleting}
+                busy={saving}
+                busyLabel="Restoring..."
+                icon="bi-arrow-counterclockwise"
+              >
+                Restore
+              </SpinnerBtn>
+              {commits.length > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-secondary"
+                  onClick={() => {
+                    setHistoryIdx(0);
+                    setShowHistory(true);
+                  }}
+                >
+                  <i className="bi bi-git me-1"></i>
+                  {commits.length} version{commits.length !== 1 ? 's' : ''}
+                </button>
+              )}
+              <SpinnerBtn
+                className="btn btn-danger ms-auto"
+                onClick={handleDelete}
+                disabled={saving || deleting}
+                busy={deleting}
+                busyLabel="Deleting..."
+                icon="bi-trash"
+              >
+                Delete
+              </SpinnerBtn>
+            </>
+          ) : isEditing ? (
+            <>
+              <SpinnerBtn
+                className="btn btn-success"
+                onClick={handleSave}
+                disabled={saveDisabled}
+                busy={saving}
+                busyLabel="Saving..."
+                icon="bi-check-lg"
+              >
+                Save
+              </SpinnerBtn>
+              <button className="btn btn-secondary" onClick={onCancel}>
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button className="btn btn-primary" onClick={() => onEdit(entry.id)}>
+              <i className="bi bi-pencil me-1"></i>Edit
+            </button>
+          )}
+
+          {!isTrashView && commits.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-secondary"
+              onClick={() => {
+                setHistoryIdx(0);
+                setShowHistory(true);
+              }}
+            >
+              <i className="bi bi-git me-1"></i>
+              {commits.length} version{commits.length !== 1 ? 's' : ''}
+            </button>
+          )}
+
+          {!entry._isNew && !isTrashView && (
             <SpinnerBtn
-              className="btn btn-danger ms-auto"
+              className="btn btn-outline-danger ms-auto"
               onClick={handleDelete}
-              disabled={saving || deleting}
               busy={deleting}
               busyLabel="Deleting..."
               icon="bi-trash"
-            >Delete</SpinnerBtn>
-          </>
-        ) : isEditing ? (
-          <>
-            <SpinnerBtn
-              className="btn btn-success"
-              onClick={handleSave}
-              disabled={saveDisabled}
-              busy={saving}
-              busyLabel="Saving..."
-              icon="bi-check-lg"
-            >Save</SpinnerBtn>
-            <button className="btn btn-secondary" onClick={onCancel}>
-              Cancel
-            </button>
-          </>
-        ) : (
-          <button className="btn btn-primary" onClick={() => onEdit(entry.id)}>
-            <i className="bi bi-pencil me-1"></i>Edit
-          </button>
-        )}
+            >
+              Delete
+            </SpinnerBtn>
+          )}
+        </div>
+      </fieldset>
 
-        {!isTrashView && commits.length > 0 && (
-          <button
-            type="button"
-            className="btn btn-sm btn-outline-secondary"
-            onClick={() => { setHistoryIdx(0); setShowHistory(true); }}
-          >
-            <i className="bi bi-git me-1"></i>
-            {commits.length} version{commits.length !== 1 ? 's' : ''}
-          </button>
-        )}
-
-        {!entry._isNew && !isTrashView && (
-          <SpinnerBtn
-            className="btn btn-outline-danger ms-auto"
-            onClick={handleDelete}
-            busy={deleting}
-            busyLabel="Deleting..."
-            icon="bi-trash"
-          >Delete</SpinnerBtn>
-        )}
-      </div>
-    </fieldset>
-
-    {showHistory && (
-      <HistoryDiffModal
-        commits={commits}
-        idx={historyIdx}
-        onIdxChange={setHistoryIdx}
-        onRestore={handleRestoreFromModal}
-        onClose={() => { if (!saving) setShowHistory(false); }}
-        saving={saving}
-        isMobile={isMobile}
-      />
-    )}
+      {showHistory && (
+        <HistoryDiffModal
+          commits={commits}
+          idx={historyIdx}
+          onIdxChange={setHistoryIdx}
+          onRestore={handleRestoreFromModal}
+          onClose={() => {
+            if (!saving) setShowHistory(false);
+          }}
+          saving={saving}
+          isMobile={isMobile}
+        />
+      )}
     </>
   );
 }

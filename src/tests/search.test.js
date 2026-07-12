@@ -12,10 +12,10 @@ function entry(overrides) {
 }
 
 const ENTRIES = [
-  entry({ id: 'e1', title: 'GitHub', username: 'alice',  tags: ['dev'],     urls: ['https://github.com'] }),
-  entry({ id: 'e2', title: 'Gmail',  username: 'alice',  tags: ['email'],   urls: ['https://mail.google.com'] }),
-  entry({ id: 'e3', title: 'AWS',    username: 'bob',    tags: ['dev'],     urls: ['https://console.aws.amazon.com'] }),
-  entry({ id: 'e4', title: 'Bank',   username: 'alice',  tags: ['finance'], urls: ['https://bank.example.com'] }),
+  entry({ id: 'e1', title: 'GitHub', username: 'alice', tags: ['dev'], urls: ['https://github.com'] }),
+  entry({ id: 'e2', title: 'Gmail', username: 'alice', tags: ['email'], urls: ['https://mail.google.com'] }),
+  entry({ id: 'e3', title: 'AWS', username: 'bob', tags: ['dev'], urls: ['https://console.aws.amazon.com'] }),
+  entry({ id: 'e4', title: 'Bank', username: 'alice', tags: ['finance'], urls: ['https://bank.example.com'] }),
 ];
 
 describe('filterEntries — search query', () => {

@@ -106,6 +106,7 @@ npm run typecheck
 Runs `tsc --noEmit` across the whole project. Separate from `npm test`, since Vite/Vitest transpile TypeScript through esbuild without checking types; this is the only step that actually type-checks the code.
 
 Not covered by `npm test`, and not mockable, per docs/testing.md:
+
 - `instant.perms.ts` needs a real InstantDB app and the two-user test matrix in docs/testing.md, Permission rules, run by hand. The ownership pinning rule (`!('owner' in request.modifiedFields)` on the `entries`/`keyStore` update rules) is confirmed working against a live app, not a guess.
 - `db.ts`'s InstantDB-facing functions (queries, transactions, auth) need a real Firebase and InstantDB project to exercise end to end.
 - Cloud backup upload needs real R2 and S3 compatible buckets with CORS configured.

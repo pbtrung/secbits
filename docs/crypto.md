@@ -2,13 +2,13 @@
 
 AEAD: Ascon-Keccak-512 via leancrypto WASM. All parameters are 512 bits (64 bytes).
 
-| Parameter      | Size                                |
-| -------------- | ------------------------------------ |
-| SALT_LEN       | 64 bytes                             |
-| ENC_KEY_LEN    | 64 bytes                             |
-| ENC_IV_LEN     | 64 bytes                             |
-| TAG_LEN        | 64 bytes                             |
-| HKDF_OUT_LEN   | 128 bytes (ENC_KEY_LEN + ENC_IV_LEN) |
+| Parameter    | Size                                 |
+| ------------ | ------------------------------------ |
+| SALT_LEN     | 64 bytes                             |
+| ENC_KEY_LEN  | 64 bytes                             |
+| ENC_IV_LEN   | 64 bytes                             |
+| TAG_LEN      | 64 bytes                             |
+| HKDF_OUT_LEN | 128 bytes (ENC_KEY_LEN + ENC_IV_LEN) |
 
 These sizes are the leancrypto WASM bundle's actual API for this Ascon-Keccak-512 variant and must be confirmed against the bundled `leancrypto.js` API before implementation. A 64 byte key and, especially, a 64 byte nonce/IV are atypical for AEAD generally (standard Ascon parameter sets use 128 or 160 bit keys and a 128 bit nonce; AES-GCM and ChaCha20-Poly1305 use a 96 bit nonce), so a size mismatch here would be a straightforward but silent correctness bug if not checked explicitly. Ascon-Keccak-512 is also not a NIST-standardized construction; using it is a deliberate tradeoff, not a default, given it has had far less public cryptanalysis than AES-GCM, ChaCha20-Poly1305, or standard Ascon.
 
@@ -70,7 +70,7 @@ magic (2) || version (2) || salt (64) || ciphertext (var) || tag (64)
 ```
 
 | Field      | Size     | Value                                       |
-| ---------- | -------- | -------------------------------------------- |
+| ---------- | -------- | ------------------------------------------- |
 | magic      | 2 bytes  | `0x53 0x42` ("SB")                          |
 | version    | 2 bytes  | major · minor (e.g. `0x01 0x00` = v1.0)     |
 | salt       | 64 bytes | random per blob HKDF input salt             |
@@ -84,8 +84,8 @@ Minimum valid blob length: 2 + 2 + 64 + 0 + 64 = 132 bytes.
 Each byte encodes one component (major · minor):
 
 | Version bytes | Meaning              |
-| -------------- | -------------------- |
-| `0x01 0x00`    | v1.0, current format |
+| ------------- | -------------------- |
+| `0x01 0x00`   | v1.0, current format |
 
 Bump minor for additive changes. Bump major for breaking layout or cipher changes.
 

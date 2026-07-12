@@ -1,11 +1,4 @@
-import {
-  BLOB_MAGIC,
-  BLOB_SALT_LEN,
-  BLOB_TAG_LEN,
-  BLOB_VERSION,
-  buildBlob,
-  parseBlob,
-} from './lib/blob';
+import { BLOB_MAGIC, BLOB_SALT_LEN, BLOB_TAG_LEN, BLOB_VERSION, buildBlob, parseBlob } from './lib/blob';
 
 const ENC_KEY_LEN = 64;
 const ENC_IV_LEN = 64;
@@ -105,7 +98,9 @@ function readBytes(lib, ptr, len) {
 }
 
 function toHex(bytes) {
-  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 function deriveHkdfKeyIv(lib, hashPtr, ikmPtr, ikmLen, saltPtr, saltLen, okmPtr) {
@@ -165,7 +160,15 @@ function akEncrypt(lib, encKey, encIv, plainBytes, ad) {
   const tagPtr = lib._malloc(BLOB_TAG_LEN);
   const adPtr = ad.length > 0 ? writeBytes(lib, ad) : 0;
   try {
-    return runAeadEncrypt(lib, ctx, { keyPtr, ivPtr, ptPtr, ctPtr, tagPtr, adPtr }, encKey.length, encIv.length, plainBytes.length, ad.length);
+    return runAeadEncrypt(
+      lib,
+      ctx,
+      { keyPtr, ivPtr, ptPtr, ctPtr, tagPtr, adPtr },
+      encKey.length,
+      encIv.length,
+      plainBytes.length,
+      ad.length,
+    );
   } finally {
     lib._free(keyPtr);
     lib._free(ivPtr);
@@ -196,7 +199,15 @@ function akDecrypt(lib, encKey, encIv, ciphertext, tag, ad) {
   const tagPtr = writeBytes(lib, tag);
   const adPtr = ad.length > 0 ? writeBytes(lib, ad) : 0;
   try {
-    return runAeadDecrypt(lib, ctx, { keyPtr, ivPtr, ctPtr, ptPtr, tagPtr, adPtr }, encKey.length, encIv.length, ciphertext.length, ad.length);
+    return runAeadDecrypt(
+      lib,
+      ctx,
+      { keyPtr, ivPtr, ctPtr, ptPtr, tagPtr, adPtr },
+      encKey.length,
+      encIv.length,
+      ciphertext.length,
+      ad.length,
+    );
   } finally {
     lib._free(keyPtr);
     lib._free(ivPtr);

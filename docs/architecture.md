@@ -21,6 +21,7 @@ InstantDB's Firebase integration is used instead of InstantDB's native magic cod
 ## Maintenance: client side
 
 Because every field is encrypted, nothing server side can read timestamps or trash state, so there is no cron job. Instead, the client does this work itself during normal use:
+
 - History cap: after adding a new history row, decrypt the entry's linked history rows, sort by their embedded timestamp, delete any past the most recent 20.
 - Trash purge: on load, decrypt trashed entries' embedded `deletedAt`, permanently delete any past the retention window.
 

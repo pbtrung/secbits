@@ -48,14 +48,24 @@ describe('blob build/parse', () => {
   it('accepts a minor version bump under the same major version', () => {
     const salt = crypto.getRandomValues(new Uint8Array(BLOB_SALT_LEN));
     const tag = crypto.getRandomValues(new Uint8Array(BLOB_TAG_LEN));
-    const blob = buildBlob({ version: new Uint8Array([BLOB_VERSION[0], 0x05]), salt, ciphertext: new Uint8Array(0), tag });
+    const blob = buildBlob({
+      version: new Uint8Array([BLOB_VERSION[0], 0x05]),
+      salt,
+      ciphertext: new Uint8Array(0),
+      tag,
+    });
     expect(() => parseBlob(blob)).not.toThrow();
   });
 
   it('rejects an unrecognized major version rather than misdecoding it', () => {
     const salt = crypto.getRandomValues(new Uint8Array(BLOB_SALT_LEN));
     const tag = crypto.getRandomValues(new Uint8Array(BLOB_TAG_LEN));
-    const blob = buildBlob({ version: new Uint8Array([BLOB_VERSION[0] + 1, 0x00]), salt, ciphertext: new Uint8Array(0), tag });
+    const blob = buildBlob({
+      version: new Uint8Array([BLOB_VERSION[0] + 1, 0x00]),
+      salt,
+      ciphertext: new Uint8Array(0),
+      tag,
+    });
     expect(() => parseBlob(blob)).toThrow('Unsupported blob version');
   });
 

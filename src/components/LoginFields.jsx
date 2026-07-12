@@ -6,10 +6,15 @@ import FieldSection from './FieldSection';
 import { generateTOTP } from '../lib/totp.js';
 import { isHttpUrl } from '../lib/validation.js';
 import {
-  USERNAME_MAX, PASSWORD_MAX,
-  URL_MAX, TOTP_SECRET_MAX,
-  CUSTOM_FIELD_LABEL_MAX, CUSTOM_FIELD_VALUE_MAX,
-  MAX_URLS, MAX_TOTP_SECRETS, MAX_CUSTOM_FIELDS,
+  USERNAME_MAX,
+  PASSWORD_MAX,
+  URL_MAX,
+  TOTP_SECRET_MAX,
+  CUSTOM_FIELD_LABEL_MAX,
+  CUSTOM_FIELD_VALUE_MAX,
+  MAX_URLS,
+  MAX_TOTP_SECRETS,
+  MAX_CUSTOM_FIELDS,
 } from '../lib/limits.js';
 
 function TotpCode({ secret, onCopy, copiedLabel }) {
@@ -39,7 +44,10 @@ function TotpCode({ secret, onCopy, copiedLabel }) {
       <svg width="22" height="22" viewBox="0 0 24 24" className="flex-shrink-0">
         <circle cx="12" cy="12" r="10" fill="none" stroke="#dee2e6" strokeWidth="2.5" />
         <circle
-          cx="12" cy="12" r="10" fill="none"
+          cx="12"
+          cy="12"
+          r="10"
+          fill="none"
           stroke={secondsLeft <= 5 ? '#dc3545' : '#0d6efd'}
           strokeWidth="2.5"
           strokeDasharray={`${progress * circumference} ${circumference}`}
@@ -48,11 +56,7 @@ function TotpCode({ secret, onCopy, copiedLabel }) {
           style={{ transition: 'stroke-dasharray 1s linear, stroke 0.3s' }}
         />
       </svg>
-      <button
-        className="btn btn-sm btn-outline-secondary border-0 p-1"
-        onClick={() => onCopy(code)}
-        title="Copy code"
-      >
+      <button className="btn btn-sm btn-outline-secondary border-0 p-1" onClick={() => onCopy(code)} title="Copy code">
         <i className={`bi ${copiedLabel ? 'bi-check-lg text-success' : 'bi-clipboard'}`}></i>
       </button>
     </div>
@@ -79,7 +83,16 @@ function AddWithCounter({ count, max, onAdd, label }) {
   );
 }
 
-function MaskedValueField({ value, visible, onToggle, readOnly = false, onChange, maxLength, invalid = false, className = 'form-control' }) {
+function MaskedValueField({
+  value,
+  visible,
+  onToggle,
+  readOnly = false,
+  onChange,
+  maxLength,
+  invalid = false,
+  className = 'form-control',
+}) {
   return (
     <div className="input-group">
       <input
@@ -96,11 +109,27 @@ function MaskedValueField({ value, visible, onToggle, readOnly = false, onChange
 }
 
 function LoginFields({
-  draft, data, isEditing,
-  visiblePasswords, onToggle, copied, onCopy, onUpdate,
-  onAddUrl, onUpdateUrl, onRemoveUrl, onValidateUrl, urlErrors,
-  onAddTotp, onUpdateTotp, onRemoveTotp, onValidateTotp, totpErrors,
-  onAddCustomField, onUpdateCustomField, onRemoveCustomField,
+  draft,
+  data,
+  isEditing,
+  visiblePasswords,
+  onToggle,
+  copied,
+  onCopy,
+  onUpdate,
+  onAddUrl,
+  onUpdateUrl,
+  onRemoveUrl,
+  onValidateUrl,
+  urlErrors,
+  onAddTotp,
+  onUpdateTotp,
+  onRemoveTotp,
+  onValidateTotp,
+  totpErrors,
+  onAddCustomField,
+  onUpdateCustomField,
+  onRemoveCustomField,
 }) {
   return (
     <>
@@ -132,10 +161,7 @@ function LoginFields({
               className="form-control"
             />
             <PasswordStrengthBar password={draft.password} />
-            <PasswordGenerator
-              onGenerate={(pw) => onUpdate('password', pw)}
-              onCopy={(pw) => onCopy(pw, 'password')}
-            />
+            <PasswordGenerator onGenerate={(pw) => onUpdate('password', pw)} onCopy={(pw) => onCopy(pw, 'password')} />
           </>
         ) : (
           <div className="input-group">
@@ -227,19 +253,16 @@ function LoginFields({
                 {urlErrors[i] && <div className="text-danger small mt-1">{urlErrors[i]}</div>}
               </div>
             ))}
-            <AddWithCounter
-              count={draft.urls.length}
-              max={MAX_URLS}
-              onAdd={onAddUrl}
-              label="URL"
-            />
+            <AddWithCounter count={draft.urls.length} max={MAX_URLS} onAdd={onAddUrl} label="URL" />
           </>
         ) : (
           <div>
             {data.urls.filter(Boolean).map((url, i) => (
               <div key={i} className="mb-1">
                 {isHttpUrl(url) ? (
-                  <a href={url} target="_blank" rel="noopener noreferrer">{url}</a>
+                  <a href={url} target="_blank" rel="noopener noreferrer">
+                    {url}
+                  </a>
                 ) : (
                   <span className="text-muted">{url}</span>
                 )}
@@ -270,7 +293,10 @@ function LoginFields({
                     onChange={(e) => onUpdateCustomField(field.id, 'value', e.target.value)}
                     maxLength={CUSTOM_FIELD_VALUE_MAX}
                   />
-                  <EyeToggleBtn visible={visiblePasswords[`hf-${field.id}`]} onToggle={() => onToggle(`hf-${field.id}`)} />
+                  <EyeToggleBtn
+                    visible={visiblePasswords[`hf-${field.id}`]}
+                    onToggle={() => onToggle(`hf-${field.id}`)}
+                  />
                 </div>
                 <button className="btn btn-sm btn-outline-danger" onClick={() => onRemoveCustomField(field.id)}>
                   <i className="bi bi-trash"></i>
@@ -278,7 +304,9 @@ function LoginFields({
               </div>
             ) : (
               <div className="d-flex align-items-center">
-                <span className="fw-semibold small me-2" style={{ minWidth: 120 }}>{field.label}</span>
+                <span className="fw-semibold small me-2" style={{ minWidth: 120 }}>
+                  {field.label}
+                </span>
                 <div className="input-group input-group-sm flex-grow-1">
                   <input
                     type={visiblePasswords[`hf-${field.id}`] ? 'text' : 'password'}
@@ -286,7 +314,10 @@ function LoginFields({
                     value={field.value}
                     readOnly
                   />
-                  <EyeToggleBtn visible={visiblePasswords[`hf-${field.id}`]} onToggle={() => onToggle(`hf-${field.id}`)} />
+                  <EyeToggleBtn
+                    visible={visiblePasswords[`hf-${field.id}`]}
+                    onToggle={() => onToggle(`hf-${field.id}`)}
+                  />
                   <CopyBtn text={field.value} label={`hf-${field.id}`} copied={copied} onCopy={onCopy} />
                 </div>
               </div>

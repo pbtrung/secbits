@@ -69,17 +69,33 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
         <ul
           ref={dropdownMenuRef}
           className="dropdown-menu show mt-1"
-          style={typeDropdownAlign === 'start'
-            ? { left: 0, right: 'auto', maxWidth: 'calc(100vw - 1rem)', visibility: dropdownReady ? 'visible' : 'hidden' }
-            : { right: 0, left: 'auto', maxWidth: 'calc(100vw - 1rem)', visibility: dropdownReady ? 'visible' : 'hidden' }}
+          style={
+            typeDropdownAlign === 'start'
+              ? {
+                  left: 0,
+                  right: 'auto',
+                  maxWidth: 'calc(100vw - 1rem)',
+                  visibility: dropdownReady ? 'visible' : 'hidden',
+                }
+              : {
+                  right: 0,
+                  left: 'auto',
+                  maxWidth: 'calc(100vw - 1rem)',
+                  visibility: dropdownReady ? 'visible' : 'hidden',
+                }
+          }
         >
           {ENTRY_TYPES.map(({ type, icon, label }) => (
             <li key={type}>
               <button
                 className="dropdown-item"
-                onClick={() => { setTypeDropdownOpen(false); onNewEntry(type); }}
+                onClick={() => {
+                  setTypeDropdownOpen(false);
+                  onNewEntry(type);
+                }}
               >
-                <i className={`bi ${icon} me-2`}></i>{label}
+                <i className={`bi ${icon} me-2`}></i>
+                {label}
               </button>
             </li>
           ))}
@@ -91,8 +107,8 @@ function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, select
   return (
     <SidebarPanel
       mobile={mobile}
-      headerIcon={trashMode ? 'bi-trash' : (selectedTag ? 'bi-tag' : 'bi-collection')}
-      headerTitle={trashMode ? 'Trash' : (selectedTag || 'All')}
+      headerIcon={trashMode ? 'bi-trash' : selectedTag ? 'bi-tag' : 'bi-collection'}
+      headerTitle={trashMode ? 'Trash' : selectedTag || 'All'}
       headerUppercase={false}
       headerTrailing={newEntryButton}
     >

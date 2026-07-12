@@ -1,0 +1,5 @@
+node_modules
+dist
+dummy-non-existing-folder
+leancrypto
+package-lock.json

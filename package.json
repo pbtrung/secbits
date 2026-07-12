@@ -14,7 +14,12 @@
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",
+    "prettier": "^3.9.5",
+    "typescript": "^7.0.2",
     "vite": "^8.0.16",
     "vite-plugin-wasm": "^3.6.0",
     "vitest": "^4.1.8"
@@ -23,6 +28,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   }
 }

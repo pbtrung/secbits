@@ -32,9 +32,7 @@ describe('generateTOTPForCounter', () => {
 
   it('adjacent 30-second windows (consecutive counters) differ', () => {
     const counter = 37037036;
-    expect(generateTOTPForCounter(SECRET_BASE32, counter)).not.toBe(
-      generateTOTPForCounter(SECRET_BASE32, counter + 1),
-    );
+    expect(generateTOTPForCounter(SECRET_BASE32, counter)).not.toBe(generateTOTPForCounter(SECRET_BASE32, counter + 1));
   });
 });
 
@@ -61,7 +59,14 @@ describe('base32Decode', () => {
   });
 
   it('strips space, dash, and underscore separators', () => {
-    const mixed = RFC_SECRET.slice(0, 8) + ' ' + RFC_SECRET.slice(8, 16) + '-' + RFC_SECRET.slice(16, 24) + '_' + RFC_SECRET.slice(24);
+    const mixed =
+      RFC_SECRET.slice(0, 8) +
+      ' ' +
+      RFC_SECRET.slice(8, 16) +
+      '-' +
+      RFC_SECRET.slice(16, 24) +
+      '_' +
+      RFC_SECRET.slice(24);
     expect(base32Decode(mixed)).toEqual(base32Decode(RFC_SECRET));
   });
 

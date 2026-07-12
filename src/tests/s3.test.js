@@ -35,8 +35,20 @@ describe('uploadAllBackupDestinations', () => {
       {
         r2_config: { account_id: 'acct', bucket: 'good-bucket', access_key_id: 'k', secret_access_key: 's' },
         s3_config: [
-          { endpoint: 'https://s3.us-west-1.amazonaws.com', region: 'us-west-1', bucket: 'good-bucket', access_key_id: 'k', secret_access_key: 's' },
-          { endpoint: 'https://s3.us-west-1.amazonaws.com', region: 'us-west-1', bucket: 'bad-bucket', access_key_id: 'k', secret_access_key: 's' },
+          {
+            endpoint: 'https://s3.us-west-1.amazonaws.com',
+            region: 'us-west-1',
+            bucket: 'good-bucket',
+            access_key_id: 'k',
+            secret_access_key: 's',
+          },
+          {
+            endpoint: 'https://s3.us-west-1.amazonaws.com',
+            region: 'us-west-1',
+            bucket: 'bad-bucket',
+            access_key_id: 'k',
+            secret_access_key: 's',
+          },
         ],
       },
       new Uint8Array([1, 2, 3]),

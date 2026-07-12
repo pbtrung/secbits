@@ -185,9 +185,12 @@ async function queryOwnKeyStoreRows(authId) {
   // { data: { $users: [...] } }, not the bare query shape. Every queryOnce
   // call site in this file read the un-wrapped shape and so always saw
   // empty results, regardless of which query shape was tried.
-  const users = (await db.queryOnce({
-    $users: { $: { where: { id: authId } }, keyStore: {} },
-  })).data.$users || [];
+  const users =
+    (
+      await db.queryOnce({
+        $users: { $: { where: { id: authId } }, keyStore: {} },
+      })
+    ).data.$users || [];
   return users[0]?.keyStore || [];
 }
 
@@ -202,9 +205,7 @@ async function findOwnKeyStoreRow(authId) {
   }
 
   if (rows.length > 1) {
-    throw new Error(
-      'Multiple key store rows found for this account. Refusing to guess which is correct.',
-    );
+    throw new Error('Multiple key store rows found for this account. Refusing to guess which is correct.');
   }
   return rows[0] || null;
 }
@@ -215,11 +216,7 @@ async function createKeyStoreRow() {
   const newId = id();
   const ownerId = await requireAuthId();
 
-  await db.transact([
-    db.tx.keyStore[newId]
-      .update({ umkBlob: bytesToB64(umkBlobBytes) })
-      .link({ owner: ownerId }),
-  ]);
+  await db.transact([db.tx.keyStore[newId].update({ umkBlob: bytesToB64(umkBlobBytes) }).link({ owner: ownerId })]);
 
   return { umk: newUmk, keyStoreId: newId };
 }
@@ -257,7 +254,9 @@ async function pruneHistoryForEntry(entryId, rawEntryKey, historyRows) {
       snapshot: await decryptEntry(b64ToBytes(h.encryptedSnapshot), rawEntryKey),
     })),
   );
-  decorated.sort((a, b) => (a.snapshot.updatedAt ?? a.snapshot.createdAt ?? 0) - (b.snapshot.updatedAt ?? b.snapshot.createdAt ?? 0));
+  decorated.sort(
+    (a, b) => (a.snapshot.updatedAt ?? a.snapshot.createdAt ?? 0) - (b.snapshot.updatedAt ?? b.snapshot.createdAt ?? 0),
+  );
   const toDelete = decorated.slice(0, decorated.length - HISTORY_CAP);
   if (toDelete.length === 0) return;
   await db.transact(toDelete.map((h) => db.tx.entryHistory[h.id].delete()));
@@ -272,9 +271,13 @@ async function purgeTrashRetention(trashEntries) {
 }
 
 async function fetchEntryHistoryRows(entryId) {
-  return (await db.queryOnce({
-    entryHistory: { $: { where: { 'entry.id': entryId } } },
-  })).data.entryHistory || [];
+  return (
+    (
+      await db.queryOnce({
+        entryHistory: { $: { where: { 'entry.id': entryId } } },
+      })
+    ).data.entryHistory || []
+  );
 }
 
 // Shared by fetchUserEntries and saveEntrySnapshot: decrypt every history
@@ -304,9 +307,7 @@ async function rebuildEntryHistory(entryId, rawEntryKey) {
 async function buildEntriesTxChunk(entryId, rawEntryKey, blob, { isCreate, ownerId }) {
   if (!isCreate) return db.tx.entries[entryId].update({ encryptedData: blob });
   const entryKeyBlob = bytesToB64(await encryptEntryKey(rawEntryKey, umkBytes));
-  return db.tx.entries[entryId]
-    .update({ entryKey: entryKeyBlob, encryptedData: blob })
-    .link({ owner: ownerId });
+  return db.tx.entries[entryId].update({ entryKey: entryKeyBlob, encryptedData: blob }).link({ owner: ownerId });
 }
 
 async function saveEntrySnapshot(entryId, rawEntryKey, snapshotWithoutHash, { isCreate, ownerId } = {}) {
@@ -346,9 +347,12 @@ async function saveEntrySnapshot(entryId, rawEntryKey, snapshotWithoutHash, { is
 // Shared by fetchUserEntries and rotateUserMasterKey: same $users-first,
 // follow-the-link approach as queryOwnKeyStoreRows (see its comment for why).
 async function queryOwnUserRow(authId, entriesSubquery = {}) {
-  const users = (await db.queryOnce({
-    $users: { $: { where: { id: authId } }, entries: entriesSubquery },
-  })).data.$users || [];
+  const users =
+    (
+      await db.queryOnce({
+        $users: { $: { where: { id: authId } }, entries: entriesSubquery },
+      })
+    ).data.$users || [];
   return users[0] || null;
 }
 
@@ -446,9 +450,12 @@ export async function restoreDeletedUserEntry(entryId) {
 async function restoreVersionByCommitHash(entryId, commitHash) {
   const rawEntryKey = entryKeyCache.get(entryId);
   if (!rawEntryKey) throw new Error(`Unknown entry ${entryId}; call fetchUserEntries first`);
-  const historyRows = (await db.queryOnce({
-    entryHistory: { $: { where: { 'entry.id': entryId } } },
-  })).data.entryHistory || [];
+  const historyRows =
+    (
+      await db.queryOnce({
+        entryHistory: { $: { where: { 'entry.id': entryId } } },
+      })
+    ).data.entryHistory || [];
   for (const h of historyRows) {
     const snapshot = await decryptEntry(b64ToBytes(h.encryptedSnapshot), rawEntryKey);
     if (snapshot.commitHash === commitHash) {
@@ -482,9 +489,7 @@ export async function permanentlyDeleteUserEntry(entryId) {
 export async function rotateRootMasterKey(newRootMasterKeyBytes) {
   assertUnlocked();
   const newUmkBlob = await encryptUMK(umkBytes, newRootMasterKeyBytes);
-  await db.transact([
-    db.tx.keyStore[keyStoreId].update({ umkBlob: bytesToB64(newUmkBlob) }),
-  ]);
+  await db.transact([db.tx.keyStore[keyStoreId].update({ umkBlob: bytesToB64(newUmkBlob) })]);
   rootMasterKeyBytes = newRootMasterKeyBytes;
 }
 

@@ -6,9 +6,7 @@ function buildLcsTable(as, bs) {
   const dp = Array.from({ length: as.length + 1 }, () => new Int32Array(bs.length + 1));
   for (let i = 1; i <= as.length; i++) {
     for (let j = 1; j <= bs.length; j++) {
-      dp[i][j] = as[i - 1] === bs[j - 1]
-        ? dp[i - 1][j - 1] + 1
-        : Math.max(dp[i - 1][j], dp[i][j - 1]);
+      dp[i][j] = as[i - 1] === bs[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
     }
   }
   return dp;
@@ -180,14 +178,16 @@ function DiffLine({ line }) {
   if (line.type === 'del') {
     return (
       <div className="px-2 bg-danger bg-opacity-10" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-        <span className="text-danger fw-bold me-1">-</span>{line.v}
+        <span className="text-danger fw-bold me-1">-</span>
+        {line.v}
       </div>
     );
   }
   if (line.type === 'add') {
     return (
       <div className="px-2 bg-success bg-opacity-10" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-        <span className="text-success fw-bold me-1">+</span>{line.v}
+        <span className="text-success fw-bold me-1">+</span>
+        {line.v}
       </div>
     );
   }
@@ -203,19 +203,27 @@ function CommitListItem({ commit, idx, selectedIdx, onSelect }) {
       style={{ cursor: 'pointer' }}
     >
       <div className="d-flex align-items-center gap-1 mb-1">
-        <code style={{ fontSize: '0.75em', letterSpacing: '0.02em' }} title={commit.hash}>{commit.hash ? `${commit.hash.slice(0, 12)}…` : ''}</code>
+        <code style={{ fontSize: '0.75em', letterSpacing: '0.02em' }} title={commit.hash}>
+          {commit.hash ? `${commit.hash.slice(0, 12)}…` : ''}
+        </code>
         {idx === 0 && (
-          <span className="badge bg-success ms-1" style={{ fontSize: '0.6em' }}>HEAD</span>
+          <span className="badge bg-success ms-1" style={{ fontSize: '0.6em' }}>
+            HEAD
+          </span>
         )}
       </div>
       {commit.changed && commit.changed.length > 0 ? (
         <div className="d-flex flex-wrap gap-1 mb-1">
           {commit.changed.map((f) => (
-            <span key={f} className="badge bg-secondary" style={{ fontSize: '0.6em' }}>{f}</span>
+            <span key={f} className="badge bg-secondary" style={{ fontSize: '0.6em' }}>
+              {f}
+            </span>
           ))}
         </div>
       ) : (
-        <div className="text-muted mb-1" style={{ fontSize: '0.72em' }}>initial version</div>
+        <div className="text-muted mb-1" style={{ fontSize: '0.72em' }}>
+          initial version
+        </div>
       )}
       <div className="text-muted" style={{ fontSize: '0.7em' }}>
         {formatExact(commit.timestamp)}
@@ -226,9 +234,7 @@ function CommitListItem({ commit, idx, selectedIdx, onSelect }) {
 
 function CommitDiff({ commits, idx }) {
   const commit = commits[idx];
-  const parentCommit = commit?.parent
-    ? commits.find((c) => c.hash === commit.parent)
-    : null;
+  const parentCommit = commit?.parent ? commits.find((c) => c.hash === commit.parent) : null;
   // Array.prototype.find yields undefined, never null, when nothing matches,
   // so a parent hash pruned out of history by HISTORY_CAP must be detected
   // as undefined here, not null; comparing against null let this never fire.
@@ -236,11 +242,7 @@ function CommitDiff({ commits, idx }) {
 
   if (!commit) return null;
 
-  const sections = buildDiffSections(
-    parentCommit?.snapshot ?? null,
-    commit.snapshot,
-    commit.changed,
-  );
+  const sections = buildDiffSections(parentCommit?.snapshot ?? null, commit.snapshot, commit.changed);
 
   if (sections.length === 0 && !parentEvicted) {
     return <p className="text-muted small mb-0">No content changes in this commit.</p>;
@@ -258,8 +260,13 @@ function CommitDiff({ commits, idx }) {
           <div className="text-muted mb-1 small fw-semibold" style={{ fontFamily: 'sans-serif' }}>
             {field}
           </div>
-          <div className="border rounded overflow-hidden" style={{ fontFamily: 'monospace', fontSize: '0.78rem', lineHeight: 1.55 }}>
-            {lines.map((line, i) => <DiffLine key={i} line={line} />)}
+          <div
+            className="border rounded overflow-hidden"
+            style={{ fontFamily: 'monospace', fontSize: '0.78rem', lineHeight: 1.55 }}
+          >
+            {lines.map((line, i) => (
+              <DiffLine key={i} line={line} />
+            ))}
           </div>
         </div>
       ))}
@@ -283,7 +290,9 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
       className="modal d-block history-modal"
       tabIndex="-1"
       style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1055 }}
-      onMouseDown={(e) => { if (e.target === e.currentTarget && !saving) onClose(); }}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && !saving) onClose();
+      }}
     >
       <div
         className={`modal-dialog modal-dialog-scrollable ${isMobile ? 'modal-fullscreen-sm-down' : 'modal-xl'}`}
@@ -315,7 +324,10 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
             </div>
           </div>
 
-          <div className={`modal-body p-0 overflow-hidden ${isMobile ? '' : 'd-flex'}`} style={{ flex: 1, minHeight: 0 }}>
+          <div
+            className={`modal-body p-0 overflow-hidden ${isMobile ? '' : 'd-flex'}`}
+            style={{ flex: 1, minHeight: 0 }}
+          >
             {showList && (
               <div
                 className={`bg-light ${isMobile ? '' : 'border-end'}`}
@@ -343,9 +355,7 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
                     <div className="d-flex align-items-center gap-2 mb-3 pb-2 border-bottom">
                       <code className="small">{selectedCommit.hash}</code>
                       {idx === 0 && <span className="badge bg-success">HEAD</span>}
-                      <span className="text-muted small ms-auto">
-                        {formatExact(selectedCommit.timestamp)}
-                      </span>
+                      <span className="text-muted small ms-auto">{formatExact(selectedCommit.timestamp)}</span>
                     </div>
                     <CommitDiff commits={commits} idx={idx} />
                   </>
@@ -367,7 +377,9 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
                 busy={saving}
                 busyLabel="Restoring..."
                 icon="bi-arrow-counterclockwise"
-              >Restore this version</SpinnerBtn>
+              >
+                Restore this version
+              </SpinnerBtn>
             )}
             <button type="button" className="btn btn-sm btn-secondary" onClick={onClose} disabled={saving}>
               Close

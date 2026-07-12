@@ -1,17 +1,17 @@
 #!/usr/bin/env node
-"use strict";
+'use strict';
 
 // Trimmed from the old project's leancrypto.test.js: this now covers only
 // the primitives crypto.js actually uses (Ascon-Keccak AEAD, SHA3-512,
 // HKDF-SHA3-512). The ML-KEM+X448 keypair and SPHINCS+ signature vector
 // coverage was dropped along with the peer-sharing feature they backed.
 
-const leancrypto = require("../../leancrypto/leancrypto.js");
+const leancrypto = require('../../leancrypto/leancrypto.js');
 
 const EBADMSG = 9;
 
 function hexToU8(hex) {
-  const clean = hex.replace(/[^0-9a-fA-F]/g, "");
+  const clean = hex.replace(/[^0-9a-fA-F]/g, '');
   if (clean.length % 2 !== 0) throw new Error(`Invalid hex length: ${clean.length}`);
   const out = new Uint8Array(clean.length / 2);
   for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
@@ -49,7 +49,9 @@ function assertEqBytes(name, got, expected) {
   if (got.length !== expected.length) throw new Error(`${name}: length mismatch ${got.length} != ${expected.length}`);
   for (let i = 0; i < got.length; i++) {
     if (got[i] !== expected[i]) {
-      throw new Error(`${name}: mismatch at ${i}, got=0x${got[i].toString(16).padStart(2, "0")}, expected=0x${expected[i].toString(16).padStart(2, "0")}`);
+      throw new Error(
+        `${name}: mismatch at ${i}, got=0x${got[i].toString(16).padStart(2, '0')}, expected=0x${expected[i].toString(16).padStart(2, '0')}`,
+      );
     }
   }
 }
@@ -63,7 +65,7 @@ function listHashImpls(lib, symbolNames) {
   const seen = new Set();
   for (const name of symbolNames) {
     const sym = lib[name];
-    if (typeof sym !== "number" || sym === 0) continue;
+    if (typeof sym !== 'number' || sym === 0) continue;
     const ptr = resolveHashPtr(lib, sym);
     if (!ptr || seen.has(ptr)) continue;
     seen.add(ptr);
@@ -76,7 +78,7 @@ function allocCtx(lib, hashPtr, tagLen) {
   const ctxPtrPtr = lib._malloc(4);
   try {
     const rc = lib._lc_ak_alloc_taglen(hashPtr, tagLen, ctxPtrPtr);
-    assertRc("lc_ak_alloc_taglen", rc);
+    assertRc('lc_ak_alloc_taglen', rc);
     return lib.HEAP32[ctxPtrPtr >> 2];
   } finally {
     lib._free(ctxPtrPtr);
@@ -174,7 +176,7 @@ function runAeadVectorCase(lib, name, hashPtr, vector) {
 function testAsconKeccak(lib) {
   const vectors = [
     {
-      name: "ascon-keccak-512",
+      name: 'ascon-keccak-512',
       hashPtr: resolveHashPtr(lib, lib._lc_sha3_512),
       pt: repeatRange(0x00, 0x40, 3),
       key: seq(0x00, 64),
@@ -187,10 +189,10 @@ function testAsconKeccak(lib) {
         88ef7c4b75567d58bd8172247e551b5c1f359d1da1f3292811abb5ea56d0942f
         15720a58f84b8e61b9cfddcc42edf0e16e5d85e7357420bb3e792f59e3f45f54
       `),
-      expTag: hexToU8("b56333419ada82c1badccd70e798fae5"),
+      expTag: hexToU8('b56333419ada82c1badccd70e798fae5'),
     },
     {
-      name: "ascon-keccak-512-large-iv-tag",
+      name: 'ascon-keccak-512-large-iv-tag',
       hashPtr: resolveHashPtr(lib, lib._lc_sha3_512),
       pt: repeatRange(0x00, 0x40, 3),
       key: seq(0x00, 64),
@@ -209,7 +211,7 @@ function testAsconKeccak(lib) {
       `),
     },
     {
-      name: "ascon-keccak-256",
+      name: 'ascon-keccak-256',
       hashPtr: resolveHashPtr(lib, lib._lc_sha3_256),
       pt: seq(0x00, 64),
       key: seq(0x80, 32),
@@ -218,10 +220,10 @@ function testAsconKeccak(lib) {
         bfdfeb808488bed1dadb85dae23918fc1420f10bc4d2afc31cee970fad52a0fa
         a61a580b563ff6e8034943f1120d5eb08269e2fdde02c212d6913b313d205463
       `),
-      expTag: hexToU8("c5723477a060460dc17421176a28bb70"),
+      expTag: hexToU8('c5723477a060460dc17421176a28bb70'),
     },
     {
-      name: "ascon-keccak-256-large-iv-tag",
+      name: 'ascon-keccak-256-large-iv-tag',
       hashPtr: resolveHashPtr(lib, lib._lc_sha3_256),
       pt: seq(0x00, 64),
       key: seq(0x80, 32),
@@ -246,22 +248,22 @@ function testAsconKeccak(lib) {
 function testSha3_512(lib) {
   const msg = new Uint8Array([0x82, 0xd9, 0x19]);
   const exp = new Uint8Array([
-    0x76, 0x75, 0x52, 0x82, 0xa9, 0xc5, 0x0a, 0x67, 0xfe, 0x69, 0xbd, 0x3f, 0xce, 0xfe, 0x12, 0xe7,
-    0x1d, 0xe0, 0x4f, 0xa2, 0x51, 0xc6, 0x7e, 0x9c, 0xc8, 0x5c, 0x7f, 0xab, 0xc6, 0xcc, 0x89, 0xca,
-    0x9b, 0x28, 0x88, 0x3b, 0x2a, 0xdb, 0x22, 0x84, 0x69, 0x5d, 0xd0, 0x43, 0x77, 0x55, 0x32, 0x19,
-    0xc8, 0xfd, 0x07, 0xa9, 0x4c, 0x29, 0xd7, 0x46, 0xcc, 0xef, 0xb1, 0x09, 0x6e, 0xde, 0x42, 0x91,
+    0x76, 0x75, 0x52, 0x82, 0xa9, 0xc5, 0x0a, 0x67, 0xfe, 0x69, 0xbd, 0x3f, 0xce, 0xfe, 0x12, 0xe7, 0x1d, 0xe0, 0x4f,
+    0xa2, 0x51, 0xc6, 0x7e, 0x9c, 0xc8, 0x5c, 0x7f, 0xab, 0xc6, 0xcc, 0x89, 0xca, 0x9b, 0x28, 0x88, 0x3b, 0x2a, 0xdb,
+    0x22, 0x84, 0x69, 0x5d, 0xd0, 0x43, 0x77, 0x55, 0x32, 0x19, 0xc8, 0xfd, 0x07, 0xa9, 0x4c, 0x29, 0xd7, 0x46, 0xcc,
+    0xef, 0xb1, 0x09, 0x6e, 0xde, 0x42, 0x91,
   ]);
 
   const impls = listHashImpls(lib, [
-    "_lc_sha3_512",
-    "_lc_sha3_512_c",
-    "_lc_sha3_512_arm_asm",
-    "_lc_sha3_512_arm_ce",
-    "_lc_sha3_512_arm_neon",
-    "_lc_sha3_512_avx2",
-    "_lc_sha3_512_avx512",
-    "_lc_sha3_512_riscv_asm",
-    "_lc_sha3_512_riscv_asm_zbb",
+    '_lc_sha3_512',
+    '_lc_sha3_512_c',
+    '_lc_sha3_512_arm_asm',
+    '_lc_sha3_512_arm_ce',
+    '_lc_sha3_512_arm_neon',
+    '_lc_sha3_512_avx2',
+    '_lc_sha3_512_avx512',
+    '_lc_sha3_512_riscv_asm',
+    '_lc_sha3_512_riscv_asm_zbb',
   ]);
 
   for (const impl of impls) {
@@ -318,9 +320,9 @@ function testHkdfSha3_512(lib) {
   const outPtr = lib._malloc(exp.length);
   try {
     const rc = lib._lc_hkdf(sha3_512_ptr, ikmPtr, ikm.length, saltPtr, salt.length, 0, 0, outPtr, exp.length);
-    assertRc("hkdf_sha3_512 oneshot", rc);
-    assertEqBytes("hkdf_sha3_512 oneshot", readBytes(lib, outPtr, exp.length), exp);
-    console.log("PASS hkdf_sha3_512");
+    assertRc('hkdf_sha3_512 oneshot', rc);
+    assertEqBytes('hkdf_sha3_512 oneshot', readBytes(lib, outPtr, exp.length), exp);
+    console.log('PASS hkdf_sha3_512');
   } finally {
     lib._free(ikmPtr);
     lib._free(saltPtr);
@@ -330,13 +332,13 @@ function testHkdfSha3_512(lib) {
 
 async function main() {
   const lib = await leancrypto();
-  assertRc("lc_init", lib._lc_init());
+  assertRc('lc_init', lib._lc_init());
 
   testAsconKeccak(lib);
   testSha3_512(lib);
   testHkdfSha3_512(lib);
 
-  console.log("All leancrypto WASM vector tests passed");
+  console.log('All leancrypto WASM vector tests passed');
 }
 
 // Dual-mode: Vitest test wrapper or standalone Node execution

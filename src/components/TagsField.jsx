@@ -77,7 +77,10 @@ function TagsField({ tags, onTagsChange, isEditing, allTags, onCurrentInputChang
     }
 
     const parts = value.split(',');
-    const toCommit = parts.slice(0, -1).map((p) => p.trim().toLowerCase()).filter(Boolean);
+    const toCommit = parts
+      .slice(0, -1)
+      .map((p) => p.trim().toLowerCase())
+      .filter(Boolean);
     const remaining = parts[parts.length - 1];
     commitTagsFromParts(toCommit);
     updateInput(remaining);
@@ -88,7 +91,10 @@ function TagsField({ tags, onTagsChange, isEditing, allTags, onCurrentInputChang
     const trimmed = currentInput.trim().toLowerCase();
     if (trimmed && !(tags || []).includes(trimmed)) {
       if ((tags || []).length >= MAX_TAGS) setTagError(`Maximum ${MAX_TAGS} tags allowed`);
-      else { onTagsChange([...(tags || []), trimmed]); setTagError(''); }
+      else {
+        onTagsChange([...(tags || []), trimmed]);
+        setTagError('');
+      }
     }
     resetTagInput();
   };
@@ -139,8 +145,13 @@ function TagsField({ tags, onTagsChange, isEditing, allTags, onCurrentInputChang
                     type="button"
                     className="btn p-0 border-0 bg-transparent text-white lh-1"
                     aria-label={`Remove ${t}`}
-                    onMouseDown={(e) => { e.preventDefault(); removeTag(t); }}
-                  ><i className="bi bi-x" /></button>
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      removeTag(t);
+                    }}
+                  >
+                    <i className="bi bi-x" />
+                  </button>
                 </span>
               ))}
               <input
@@ -152,17 +163,30 @@ function TagsField({ tags, onTagsChange, isEditing, allTags, onCurrentInputChang
                 onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
                 placeholder={(tags || []).length === 0 ? 'Add tags...' : ''}
                 maxLength={TAG_MAX}
-                style={{ border: 'none', outline: 'none', flex: '1', minWidth: '80px', padding: '0', background: 'transparent' }}
+                style={{
+                  border: 'none',
+                  outline: 'none',
+                  flex: '1',
+                  minWidth: '80px',
+                  padding: '0',
+                  background: 'transparent',
+                }}
               />
             </div>
             {showSuggestions && (
-              <ul className="dropdown-menu show position-absolute w-100 mt-1" style={{ zIndex: 1000, maxHeight: 200, overflowY: 'auto' }}>
+              <ul
+                className="dropdown-menu show position-absolute w-100 mt-1"
+                style={{ zIndex: 1000, maxHeight: 200, overflowY: 'auto' }}
+              >
                 {suggestions.slice(0, 8).map((t) => (
                   <li key={t}>
                     <button
                       className="dropdown-item"
                       type="button"
-                      onMouseDown={(e) => { e.preventDefault(); selectTagSuggestion(t); }}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        selectTagSuggestion(t);
+                      }}
                     >
                       {t}
                     </button>
@@ -172,9 +196,7 @@ function TagsField({ tags, onTagsChange, isEditing, allTags, onCurrentInputChang
             )}
           </div>
           <div className="d-flex justify-content-between mt-1">
-            {tagError
-              ? <span className="text-danger small">{tagError}</span>
-              : <span />}
+            {tagError ? <span className="text-danger small">{tagError}</span> : <span />}
             {(tags || []).length > 0 && (
               <span className={`small ${(tags || []).length >= MAX_TAGS ? 'text-danger' : 'text-muted'}`}>
                 {(tags || []).length} / {MAX_TAGS} tags
@@ -185,7 +207,9 @@ function TagsField({ tags, onTagsChange, isEditing, allTags, onCurrentInputChang
       ) : (
         <div>
           {(tags || []).map((t) => (
-            <span key={t} className="badge bg-primary me-1">{t}</span>
+            <span key={t} className="badge bg-primary me-1">
+              {t}
+            </span>
           ))}
         </div>
       )}

@@ -78,16 +78,27 @@ describe('normalizeCustomFields', () => {
 describe('normalizeEntry', () => {
   it('fills in string and array defaults for a bare entry', () => {
     expect(normalizeEntry({})).toEqual({
-      title: '', username: '', password: '', notes: '',
-      urls: [], totpSecrets: [], customFields: [], tags: [],
+      title: '',
+      username: '',
+      password: '',
+      notes: '',
+      urls: [],
+      totpSecrets: [],
+      customFields: [],
+      tags: [],
     });
   });
 
   it('preserves existing fields rather than overwriting them', () => {
     const entry = {
       type: 'login',
-      title: 'GitHub', username: 'alice', password: 'p', notes: 'n',
-      urls: ['https://github.com'], totpSecrets: ['SEED'], tags: ['work'],
+      title: 'GitHub',
+      username: 'alice',
+      password: 'p',
+      notes: 'n',
+      urls: ['https://github.com'],
+      totpSecrets: ['SEED'],
+      tags: ['work'],
       customFields: [{ label: 'PIN', value: '1234' }],
     };
     expect(normalizeEntry(entry)).toEqual(entry);
