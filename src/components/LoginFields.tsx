@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import type { ChangeEvent } from 'react';
 import { PasswordGenerator, PasswordStrengthBar } from './PasswordGenerator';
 import CopyBtn from './CopyBtn';
 import EyeToggleBtn from './EyeToggleBtn';
@@ -16,8 +17,17 @@ import {
   MAX_TOTP_SECRETS,
   MAX_CUSTOM_FIELDS,
 } from '../lib/limits.js';
+import type { Entry } from '../types';
 
-function TotpCode({ secret, onCopy, copiedLabel }) {
+type IndexedErrors = Record<number, string | null | undefined>;
+
+interface TotpCodeProps {
+  secret: string;
+  onCopy: (code: string) => void;
+  copiedLabel: boolean;
+}
+
+function TotpCode({ secret, onCopy, copiedLabel }: TotpCodeProps) {
   const [code, setCode] = useState(() => generateTOTP(secret));
   const [secondsLeft, setSecondsLeft] = useState(() => 30 - (Math.floor(Date.now() / 1000) % 30));
 
@@ -34,7 +44,7 @@ function TotpCode({ secret, onCopy, copiedLabel }) {
 
   if (!code) return <span className="text-danger small ms-3">Invalid TOTP secret</span>;
 
-  const formatted = code.slice(0, 3) + '\u2009' + code.slice(3);
+  const formatted = code.slice(0, 3) + ' ' + code.slice(3);
   const progress = secondsLeft / 30;
   const circumference = 2 * Math.PI * 10;
 
@@ -63,7 +73,14 @@ function TotpCode({ secret, onCopy, copiedLabel }) {
   );
 }
 
-function AddWithCounter({ count, max, onAdd, label }) {
+interface AddWithCounterProps {
+  count: number;
+  max: number;
+  onAdd: () => void;
+  label: string;
+}
+
+function AddWithCounter({ count, max, onAdd, label }: AddWithCounterProps) {
   return (
     <div className="d-flex align-items-center gap-3">
       <button
@@ -83,6 +100,17 @@ function AddWithCounter({ count, max, onAdd, label }) {
   );
 }
 
+interface MaskedValueFieldProps {
+  value: string;
+  visible: boolean;
+  onToggle: () => void;
+  readOnly?: boolean;
+  onChange?: (e: ChangeEvent<HTMLInputElement>) => void;
+  maxLength?: number;
+  invalid?: boolean;
+  className?: string;
+}
+
 function MaskedValueField({
   value,
   visible,
@@ -92,7 +120,7 @@ function MaskedValueField({
   maxLength,
   invalid = false,
   className = 'form-control',
-}) {
+}: MaskedValueFieldProps) {
   return (
     <div className="input-group">
       <input
@@ -106,6 +134,30 @@ function MaskedValueField({
       <EyeToggleBtn visible={visible} onToggle={onToggle} />
     </div>
   );
+}
+
+interface LoginFieldsProps {
+  draft: Partial<Entry>;
+  data: Entry;
+  isEditing: boolean;
+  visiblePasswords: Record<string, boolean>;
+  onToggle: (field: string) => void;
+  copied: string | null;
+  onCopy: (text: string, label: string) => void;
+  onUpdate: (field: string, value: string) => void;
+  onAddUrl: () => void;
+  onUpdateUrl: (i: number, value: string) => void;
+  onRemoveUrl: (i: number) => void;
+  onValidateUrl: (i: number, value: string) => void;
+  urlErrors: IndexedErrors;
+  onAddTotp: () => void;
+  onUpdateTotp: (i: number, value: string) => void;
+  onRemoveTotp: (i: number) => void;
+  onValidateTotp: (i: number, value: string) => void;
+  totpErrors: IndexedErrors;
+  onAddCustomField: () => void;
+  onUpdateCustomField: (id: number, key: 'label' | 'value', value: string) => void;
+  onRemoveCustomField: (id: number) => void;
 }
 
 function LoginFields({
@@ -130,7 +182,7 @@ function LoginFields({
   onAddCustomField,
   onUpdateCustomField,
   onRemoveCustomField,
-}) {
+}: LoginFieldsProps) {
   return (
     <>
       <FieldSection icon="bi-person" label="Username">
@@ -144,7 +196,7 @@ function LoginFields({
         ) : (
           <div className="input-group">
             <input className="form-control" value={data.username} readOnly />
-            <CopyBtn text={data.username} label="username" copied={copied} onCopy={onCopy} />
+            <CopyBtn text={data.username || ''} label="username" copied={copied} onCopy={onCopy} />
           </div>
         )}
       </FieldSection>
@@ -153,14 +205,14 @@ function LoginFields({
         {isEditing ? (
           <>
             <MaskedValueField
-              value={draft.password}
-              visible={visiblePasswords.password}
+              value={draft.password || ''}
+              visible={!!visiblePasswords.password}
               onToggle={() => onToggle('password')}
               onChange={(e) => onUpdate('password', e.target.value)}
               maxLength={PASSWORD_MAX}
               className="form-control"
             />
-            <PasswordStrengthBar password={draft.password} />
+            <PasswordStrengthBar password={draft.password || ''} />
             <PasswordGenerator onGenerate={(pw) => onUpdate('password', pw)} onCopy={(pw) => onCopy(pw, 'password')} />
           </>
         ) : (
@@ -171,8 +223,8 @@ function LoginFields({
               value={data.password}
               readOnly
             />
-            <EyeToggleBtn visible={visiblePasswords.password} onToggle={() => onToggle('password')} />
-            <CopyBtn text={data.password} label="password" copied={copied} onCopy={onCopy} />
+            <EyeToggleBtn visible={!!visiblePasswords.password} onToggle={() => onToggle('password')} />
+            <CopyBtn text={data.password || ''} label="password" copied={copied} onCopy={onCopy} />
           </div>
         )}
       </FieldSection>
@@ -180,7 +232,7 @@ function LoginFields({
       <FieldSection icon="bi-clock-history" label="TOTP Secrets">
         {isEditing ? (
           <>
-            {draft.totpSecrets.map((secret, i) => (
+            {(draft.totpSecrets || []).map((secret, i) => (
               <div key={i} className="mb-2">
                 <div className="input-group">
                   <input
@@ -192,7 +244,7 @@ function LoginFields({
                     placeholder="TOTP secret"
                     maxLength={TOTP_SECRET_MAX}
                   />
-                  <EyeToggleBtn visible={visiblePasswords[`totp-${i}`]} onToggle={() => onToggle(`totp-${i}`)} />
+                  <EyeToggleBtn visible={!!visiblePasswords[`totp-${i}`]} onToggle={() => onToggle(`totp-${i}`)} />
                   <button className="btn btn-outline-danger" onClick={() => onRemoveTotp(i)} title="Remove TOTP Secret">
                     <i className="bi bi-x-lg"></i>
                   </button>
@@ -201,7 +253,7 @@ function LoginFields({
               </div>
             ))}
             <AddWithCounter
-              count={draft.totpSecrets.length}
+              count={(draft.totpSecrets || []).length}
               max={MAX_TOTP_SECRETS}
               onAdd={onAddTotp}
               label="TOTP Secret"
@@ -209,7 +261,7 @@ function LoginFields({
           </>
         ) : (
           <div>
-            {data.totpSecrets.filter(Boolean).map((secret, i) => (
+            {(data.totpSecrets || []).filter(Boolean).map((secret, i) => (
               <div className="d-flex align-items-center mb-2" key={i}>
                 <div className="input-group input-group-sm" style={{ flex: '1 1 0', minWidth: 0 }}>
                   <input
@@ -218,7 +270,7 @@ function LoginFields({
                     value={secret}
                     readOnly
                   />
-                  <EyeToggleBtn visible={visiblePasswords[`totp-${i}`]} onToggle={() => onToggle(`totp-${i}`)} />
+                  <EyeToggleBtn visible={!!visiblePasswords[`totp-${i}`]} onToggle={() => onToggle(`totp-${i}`)} />
                   <CopyBtn text={secret} label={`totp-${i}`} copied={copied} onCopy={onCopy} />
                 </div>
                 <TotpCode
@@ -235,7 +287,7 @@ function LoginFields({
       <FieldSection icon="bi-link-45deg" label="URLs">
         {isEditing ? (
           <>
-            {draft.urls.map((url, i) => (
+            {(draft.urls || []).map((url, i) => (
               <div key={i} className="mb-2">
                 <div className="input-group">
                   <input
@@ -253,11 +305,11 @@ function LoginFields({
                 {urlErrors[i] && <div className="text-danger small mt-1">{urlErrors[i]}</div>}
               </div>
             ))}
-            <AddWithCounter count={draft.urls.length} max={MAX_URLS} onAdd={onAddUrl} label="URL" />
+            <AddWithCounter count={(draft.urls || []).length} max={MAX_URLS} onAdd={onAddUrl} label="URL" />
           </>
         ) : (
           <div>
-            {data.urls.filter(Boolean).map((url, i) => (
+            {(data.urls || []).filter(Boolean).map((url, i) => (
               <div key={i} className="mb-1">
                 {isHttpUrl(url) ? (
                   <a href={url} target="_blank" rel="noopener noreferrer">
@@ -273,7 +325,7 @@ function LoginFields({
       </FieldSection>
 
       <FieldSection icon="bi-incognito" label="Custom Fields">
-        {(isEditing ? draft.customFields : data.customFields).map((field) => (
+        {(isEditing ? draft.customFields || [] : data.customFields).map((field) => (
           <div key={field.id} className="card card-body p-2 mb-2 bg-white">
             {isEditing ? (
               <div className="d-flex gap-2 align-items-center">
@@ -294,7 +346,7 @@ function LoginFields({
                     maxLength={CUSTOM_FIELD_VALUE_MAX}
                   />
                   <EyeToggleBtn
-                    visible={visiblePasswords[`hf-${field.id}`]}
+                    visible={!!visiblePasswords[`hf-${field.id}`]}
                     onToggle={() => onToggle(`hf-${field.id}`)}
                   />
                 </div>
@@ -315,7 +367,7 @@ function LoginFields({
                     readOnly
                   />
                   <EyeToggleBtn
-                    visible={visiblePasswords[`hf-${field.id}`]}
+                    visible={!!visiblePasswords[`hf-${field.id}`]}
                     onToggle={() => onToggle(`hf-${field.id}`)}
                   />
                   <CopyBtn text={field.value} label={`hf-${field.id}`} copied={copied} onCopy={onCopy} />
@@ -326,7 +378,7 @@ function LoginFields({
         ))}
         {isEditing && (
           <AddWithCounter
-            count={draft.customFields.length}
+            count={(draft.customFields || []).length}
             max={MAX_CUSTOM_FIELDS}
             onAdd={onAddCustomField}
             label="Custom Field"

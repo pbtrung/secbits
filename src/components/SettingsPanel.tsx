@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import type { ReactNode } from 'react';
 import SpinnerBtn from './SpinnerBtn';
 import {
   buildExportData,
@@ -10,9 +11,11 @@ import {
 } from '../db';
 import { buildCloudBackupBlob } from '../lib/backup';
 import { uploadAllBackupDestinations } from '../lib/s3';
+import type { UploadResult } from '../lib/s3';
 import KeyRotation from './KeyRotation';
+import type { Entry } from '../types';
 
-function downloadJsonFile(obj, filename) {
+function downloadJsonFile(obj: unknown, filename: string): void {
   const json = JSON.stringify(obj, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -23,7 +26,7 @@ function downloadJsonFile(obj, filename) {
   URL.revokeObjectURL(url);
 }
 
-function formatBytes(bytes) {
+function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB'];
   const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
@@ -31,11 +34,17 @@ function formatBytes(bytes) {
   return `${value % 1 === 0 ? value : value.toFixed(2)} ${units[i]}`;
 }
 
-function StatsHeading({ children }) {
+function StatsHeading({ children }: { children: ReactNode }) {
   return <div className="text-muted small fw-semibold mb-1">{children}</div>;
 }
 
-function StatsRow({ label, value, note = null }) {
+interface StatsRowProps {
+  label: string;
+  value: ReactNode;
+  note?: ReactNode;
+}
+
+function StatsRow({ label, value, note = null }: StatsRowProps) {
   return (
     <tr>
       <td className="text-muted" style={{ width: '60%' }}>
@@ -53,7 +62,7 @@ function StatsRow({ label, value, note = null }) {
 // StatsTable; without a shared fixed layout, every table auto-sizes its
 // own label column from its own longest label, so the value column lands
 // at a different x position per section instead of lining up.
-function StatsTable({ rows, className = 'table table-sm mb-3' }) {
+function StatsTable({ rows, className = 'table table-sm mb-3' }: { rows: StatsRowProps[]; className?: string }) {
   return (
     <table className={className} style={{ tableLayout: 'fixed', width: '100%' }}>
       <tbody>
@@ -65,7 +74,21 @@ function StatsTable({ rows, className = 'table table-sm mb-3' }) {
   );
 }
 
-function accumulateFieldCoverage(stats, entry) {
+interface FieldCoverageStats {
+  withPassword: number;
+  withUsername: number;
+  withNotes: number;
+  withUrls: number;
+  totalUrls: number;
+  withTotp: number;
+  totalTotp: number;
+  withCustomFields: number;
+  totalCustomFields: number;
+  withTags: number;
+  tagCounts: Map<string, number>;
+}
+
+function accumulateFieldCoverage(stats: FieldCoverageStats, entry: Entry): void {
   if (entry.password) stats.withPassword++;
   if (entry.username) stats.withUsername++;
   if (entry.notes) stats.withNotes++;
@@ -87,14 +110,32 @@ function accumulateFieldCoverage(stats, entry) {
   }
 }
 
-function accumulateCommitStats(stats, entry) {
+interface CommitStats {
+  totalCommits: number;
+  maxCommits: number;
+  neverEdited: number;
+}
+
+function accumulateCommitStats(stats: CommitStats, entry: Entry): void {
   const commitCount = entry.history?.length ?? 1;
   stats.totalCommits += commitCount;
   if (commitCount > stats.maxCommits) stats.maxCommits = commitCount;
   if (commitCount === 1) stats.neverEdited++;
 }
 
-function accumulateOneEntry(stats, entry) {
+interface EntryListStat {
+  bytes: number;
+  title: string | null;
+  username: string | null;
+}
+
+type EntryStats = FieldCoverageStats &
+  CommitStats & {
+    totalBytes: number;
+    entryList: EntryListStat[];
+  };
+
+function accumulateOneEntry(stats: EntryStats, entry: Entry): void {
   const entryBytes = new TextEncoder().encode(JSON.stringify(entry)).length;
   stats.totalBytes += entryBytes;
   accumulateFieldCoverage(stats, entry);
@@ -102,8 +143,8 @@ function accumulateOneEntry(stats, entry) {
   stats.entryList.push({ bytes: entryBytes, title: entry.title || null, username: entry.username || null });
 }
 
-function accumulateEntryStats(entries) {
-  const stats = {
+function accumulateEntryStats(entries: Entry[]): EntryStats {
+  const stats: EntryStats = {
     totalBytes: 0,
     withPassword: 0,
     withUsername: 0,
@@ -126,14 +167,14 @@ function accumulateEntryStats(entries) {
   return stats;
 }
 
-function topTagsFrom(tagCounts) {
+function topTagsFrom(tagCounts: Map<string, number>): { tag: string; count: number }[] {
   return [...tagCounts.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
     .map(([tag, count]) => ({ tag, count }));
 }
 
-function buildAboutStats(entries, trash) {
+function buildAboutStats(entries: Entry[], trash: Entry[]) {
   const vaultStats = getVaultStats(entries, trash);
   const { totalBytes, totalCommits, tagCounts, entryList, ...counts } = accumulateEntryStats(entries);
   const count = vaultStats.entryCount;
@@ -149,8 +190,10 @@ function buildAboutStats(entries, trash) {
   };
 }
 
+type AboutStats = ReturnType<typeof buildAboutStats>;
+
 function AboutPage() {
-  const [stats, setStats] = useState(null);
+  const [stats, setStats] = useState<AboutStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -281,8 +324,8 @@ function AboutPage() {
 function ExportPage() {
   const [exporting, setExporting] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
-  const [backupResults, setBackupResults] = useState(null);
-  const [backupError, setBackupError] = useState(null);
+  const [backupResults, setBackupResults] = useState<UploadResult[] | null>(null);
+  const [backupError, setBackupError] = useState<string | null>(null);
 
   const handleExport = useCallback(async () => {
     setExporting(true);
@@ -308,12 +351,12 @@ function ExportPage() {
     try {
       const { entries, trash } = await fetchUserEntries();
       const exportObj = buildExportData({ username: getUsername(), entries, trash });
-      const blob = await buildCloudBackupBlob(exportObj, backupMasterKeyBytes);
+      const blob = await buildCloudBackupBlob(exportObj, backupMasterKeyBytes!);
       const key = `secbits-backup-${new Date().toISOString().slice(0, 10)}.bin`;
       const results = await uploadAllBackupDestinations(destinations, blob, key);
       setBackupResults(results);
     } catch (err) {
-      setBackupError(err?.message || 'Failed to back up to cloud.');
+      setBackupError(err instanceof Error ? err.message : 'Failed to back up to cloud.');
     } finally {
       setBackingUp(false);
     }
@@ -394,7 +437,9 @@ function SecurityPage() {
   );
 }
 
-function SettingsPanel({ page }) {
+type SettingsPage = 'export' | 'security' | 'about' | undefined;
+
+function SettingsPanel({ page }: { page: SettingsPage }) {
   if (page === 'export') return <ExportPage />;
   if (page === 'security') return <SecurityPage />;
   if (page === 'about') return <AboutPage />;

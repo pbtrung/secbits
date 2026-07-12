@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import type { ChangeEvent, DragEvent } from 'react';
 import {
   initDb,
   signIn,
@@ -11,8 +12,13 @@ import {
 } from '../db';
 import { decodeRootMasterKey, decodeBackupMasterKey } from '../crypto';
 import { validateConfig } from '../lib/validation';
+import type { ConfigContract } from '../types';
 
-async function unlockVault(rootMasterKeyBytes, json, setStatus) {
+async function unlockVault(
+  rootMasterKeyBytes: Uint8Array,
+  json: ConfigContract,
+  setStatus: (status: string) => void,
+): Promise<void> {
   setStatus('Authenticating...');
   await signIn({
     email: json.email,
@@ -25,22 +31,26 @@ async function unlockVault(rootMasterKeyBytes, json, setStatus) {
   await ensureKeyStore(rootMasterKeyBytes);
 }
 
-function applyConfigExtras(json) {
+function applyConfigExtras(json: ConfigContract): void {
   setUsername(json.username);
   setBackupDestinations({ r2_config: json.r2_config, s3_config: json.s3_config });
   setBackupMasterKey(json.backup_master_key ? decodeBackupMasterKey(json.backup_master_key) : null);
 }
 
-function AppSetup({ onReady }) {
-  const [error, setError] = useState(null);
+interface AppSetupProps {
+  onReady: (userId: string, username: string) => Promise<void>;
+}
+
+function AppSetup({ onReady }: AppSetupProps) {
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
   const [dragOver, setDragOver] = useState(false);
-  const fileRef = useRef();
+  const fileRef = useRef<HTMLInputElement>(null);
 
-  const processConfigText = async (text) => {
+  const processConfigText = async (text: string) => {
     clearSession();
-    const json = JSON.parse(text);
+    const json = JSON.parse(text) as ConfigContract;
 
     const errors = validateConfig(json);
     if (errors.length > 0) throw new Error(errors.join('; '));
@@ -55,7 +65,7 @@ function AppSetup({ onReady }) {
     return { userId, username: json.username };
   };
 
-  const handleFileLoaded = async (text) => {
+  const handleFileLoaded = async (text: string) => {
     setLoading(true);
     try {
       const { userId, username } = await processConfigText(text);
@@ -63,12 +73,12 @@ function AppSetup({ onReady }) {
       await onReady(userId, username);
     } catch (connErr) {
       clearSession();
-      setError(connErr.message || 'Invalid configuration');
+      setError(connErr instanceof Error ? connErr.message : 'Invalid configuration');
       setLoading(false);
     }
   };
 
-  const processFile = (file) => {
+  const processFile = (file: File | null | undefined) => {
     setError(null);
     if (!file) return;
     if (!file.name.endsWith('.json')) {
@@ -76,21 +86,21 @@ function AppSetup({ onReady }) {
       return;
     }
     const reader = new FileReader();
-    reader.onload = (e) => handleFileLoaded(e.target.result);
+    reader.onload = (e) => handleFileLoaded(e.target?.result as string);
     reader.readAsText(file);
   };
 
-  const handleFileChange = (e) => {
-    processFile(e.target.files[0]);
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    processFile(e.target.files?.[0]);
   };
 
-  const handleDrop = (e) => {
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragOver(false);
     processFile(e.dataTransfer.files[0]);
   };
 
-  const handleDragOver = (e) => {
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragOver(true);
   };
@@ -121,7 +131,7 @@ function AppSetup({ onReady }) {
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               style={{ cursor: 'pointer', borderStyle: dragOver ? 'solid' : 'dashed' }}
-              onClick={() => fileRef.current.click()}
+              onClick={() => fileRef.current?.click()}
             >
               <i
                 className={`bi ${dragOver ? 'bi-cloud-arrow-down' : 'bi-file-earmark-arrow-up'} fs-2 ${dragOver ? 'text-primary' : 'text-muted'}`}

@@ -1,19 +1,40 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import SidebarPanel from './SidebarPanel';
 import { ENTRY_TYPES, ENTRY_TYPE_META } from '../lib/entryUtils.js';
+import type { Entry, EntryType } from '../types';
 
-function EntryList({ entries, selectedEntryId, onSelectEntry, onNewEntry, selectedTag, trashMode = false, mobile }) {
+type DropdownAlign = 'start' | 'end';
+
+interface EntryListProps {
+  entries: Entry[];
+  selectedEntryId: string | null;
+  onSelectEntry: (id: string) => void;
+  onNewEntry: (type: EntryType) => void;
+  selectedTag: string | null;
+  trashMode?: boolean;
+  mobile?: boolean;
+}
+
+function EntryList({
+  entries,
+  selectedEntryId,
+  onSelectEntry,
+  onNewEntry,
+  selectedTag,
+  trashMode = false,
+  mobile,
+}: EntryListProps) {
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
-  const [typeDropdownAlign, setTypeDropdownAlign] = useState('start');
+  const [typeDropdownAlign, setTypeDropdownAlign] = useState<DropdownAlign>('start');
   const [dropdownReady, setDropdownReady] = useState(false);
-  const dropdownRef = useRef(null);
-  const dropdownBtnRef = useRef(null);
-  const dropdownMenuRef = useRef(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const dropdownBtnRef = useRef<HTMLButtonElement>(null);
+  const dropdownMenuRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
     if (!typeDropdownOpen) return;
-    const handler = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setTypeDropdownOpen(false);
       }
     };

@@ -1,8 +1,16 @@
 import { useEffect, useState } from 'react';
 import SpinnerBtn from './SpinnerBtn';
 import { formatExact } from '../lib/entryUtils.js';
+import type { CustomField, Entry, EntryHistoryCommit } from '../types';
 
-function buildLcsTable(as, bs) {
+type DiffLineData =
+  | { type: 'large' }
+  | { type: 'hunk'; skip: number }
+  | { type: 'eq'; v: string }
+  | { type: 'del'; v: string }
+  | { type: 'add'; v: string };
+
+function buildLcsTable(as: string[], bs: string[]): Int32Array[] {
   const dp = Array.from({ length: as.length + 1 }, () => new Int32Array(bs.length + 1));
   for (let i = 1; i <= as.length; i++) {
     for (let j = 1; j <= bs.length; j++) {
@@ -12,8 +20,8 @@ function buildLcsTable(as, bs) {
   return dp;
 }
 
-function backtrackLcs(as, bs, dp) {
-  const out = [];
+function backtrackLcs(as: string[], bs: string[], dp: Int32Array[]): DiffLineData[] {
+  const out: DiffLineData[] = [];
   let i = as.length;
   let j = bs.length;
   while (i > 0 || j > 0) {
@@ -32,8 +40,8 @@ function backtrackLcs(as, bs, dp) {
   return out;
 }
 
-// LCS-based line diff. Returns [{type:'eq'|'add'|'del', v:string}].
-function computeLineDiff(a, b) {
+// LCS-based line diff.
+function computeLineDiff(a: string, b: string): DiffLineData[] {
   const as = String(a ?? '').split('\n');
   const bs = String(b ?? '').split('\n');
   return backtrackLcs(as, bs, buildLcsTable(as, bs));
@@ -44,7 +52,7 @@ function computeLineDiff(a, b) {
 const CTX = 3;
 const MAX_DIFF_LINES = 1000;
 
-function markNearChangeLines(lines) {
+function markNearChangeLines(lines: DiffLineData[]): Uint8Array {
   const near = new Uint8Array(lines.length);
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].type === 'eq') continue;
@@ -55,9 +63,9 @@ function markNearChangeLines(lines) {
   return near;
 }
 
-function withContext(lines) {
+function withContext(lines: DiffLineData[]): DiffLineData[] {
   const near = markNearChangeLines(lines);
-  const out = [];
+  const out: DiffLineData[] = [];
   let skip = 0;
   for (let i = 0; i < lines.length; i++) {
     if (near[i]) {
@@ -78,7 +86,7 @@ const DIFF_FIELD_ORDER = ['title', 'username', 'password', 'notes', 'urls', 'tot
 const SCALAR_FIELDS = new Set(['title', 'username', 'password']);
 const ARRAY_STR_FIELDS = new Set(['urls', 'totpSecrets', 'tags']);
 
-function buildNotesDiffLines(oldVal, newVal, isInit) {
+function buildNotesDiffLines(oldVal: string | undefined, newVal: string | undefined, isInit: boolean): DiffLineData[] {
   const oldLines = String(oldVal ?? '').split('\n');
   const newLines = String(newVal ?? '').split('\n');
   if (oldLines.length > MAX_DIFF_LINES || newLines.length > MAX_DIFF_LINES) {
@@ -88,26 +96,29 @@ function buildNotesDiffLines(oldVal, newVal, isInit) {
   return isInit ? raw : withContext(raw);
 }
 
-function buildScalarDiffLines(oldVal, newVal) {
-  const lines = [];
+function buildScalarDiffLines(oldVal: string | undefined, newVal: string | undefined): DiffLineData[] {
+  const lines: DiffLineData[] = [];
   if (oldVal) lines.push({ type: 'del', v: String(oldVal) });
   if (newVal) lines.push({ type: 'add', v: String(newVal) });
   return lines;
 }
 
-function buildArrayStrDiffLines(oldVal, newVal) {
+function buildArrayStrDiffLines(oldVal: string[] | undefined, newVal: string[] | undefined): DiffLineData[] {
   const a = Array.isArray(oldVal) ? oldVal : [];
   const b = Array.isArray(newVal) ? newVal : [];
   return [
-    ...a.filter((x) => !b.includes(x)).map((x) => ({ type: 'del', v: x })),
-    ...b.filter((x) => !a.includes(x)).map((x) => ({ type: 'add', v: x })),
+    ...a.filter((x) => !b.includes(x)).map((x): DiffLineData => ({ type: 'del', v: x })),
+    ...b.filter((x) => !a.includes(x)).map((x): DiffLineData => ({ type: 'add', v: x })),
   ];
 }
 
-function buildCustomFieldsDiffLines(oldVal, newVal) {
+function buildCustomFieldsDiffLines(
+  oldVal: CustomField[] | undefined,
+  newVal: CustomField[] | undefined,
+): DiffLineData[] {
   const a = Array.isArray(oldVal) ? oldVal : [];
   const b = Array.isArray(newVal) ? newVal : [];
-  const lines = [];
+  const lines: DiffLineData[] = [];
   for (const of_ of a) {
     const nf = b.find((f) => f.label === of_.label);
     if (!nf) {
@@ -125,35 +136,44 @@ function buildCustomFieldsDiffLines(oldVal, newVal) {
   return lines;
 }
 
-function buildFieldDiffLines(field, oldVal, newVal, isInit) {
-  if (field === 'notes') return buildNotesDiffLines(oldVal, newVal, isInit);
-  if (SCALAR_FIELDS.has(field)) return buildScalarDiffLines(oldVal, newVal);
-  if (ARRAY_STR_FIELDS.has(field)) return buildArrayStrDiffLines(oldVal, newVal);
-  if (field === 'customFields') return buildCustomFieldsDiffLines(oldVal, newVal);
+function buildFieldDiffLines(field: string, oldVal: unknown, newVal: unknown, isInit: boolean): DiffLineData[] {
+  if (field === 'notes') return buildNotesDiffLines(oldVal as string | undefined, newVal as string | undefined, isInit);
+  if (SCALAR_FIELDS.has(field)) return buildScalarDiffLines(oldVal as string | undefined, newVal as string | undefined);
+  if (ARRAY_STR_FIELDS.has(field))
+    return buildArrayStrDiffLines(oldVal as string[] | undefined, newVal as string[] | undefined);
+  if (field === 'customFields')
+    return buildCustomFieldsDiffLines(oldVal as CustomField[] | undefined, newVal as CustomField[] | undefined);
   return [];
 }
 
-function diffFieldList(toSnap, changedFields, isInit) {
+function diffFieldList(toSnap: Entry, changedFields: string[] | undefined, isInit: boolean): string[] {
   if (!isInit) return changedFields?.length ? changedFields : [];
   return DIFF_FIELD_ORDER.filter((f) => {
-    const v = toSnap?.[f];
+    const v = (toSnap as unknown as Record<string, unknown>)?.[f];
     return Array.isArray(v) ? v.length > 0 : Boolean(v && String(v).trim());
   });
 }
 
+interface DiffSection {
+  field: string;
+  lines: DiffLineData[];
+}
+
 // Build per-field diff sections for CommitDiff.
 // fromSnap=null means initial commit: show all non-empty fields as added.
-function buildDiffSections(fromSnap, toSnap, changedFields) {
+function buildDiffSections(fromSnap: Entry | null, toSnap: Entry, changedFields: string[] | undefined): DiffSection[] {
   const isInit = !fromSnap;
   const fields = diffFieldList(toSnap, changedFields, isInit);
+  const from = fromSnap as unknown as Record<string, unknown> | null;
+  const to = toSnap as unknown as Record<string, unknown>;
 
   return fields.flatMap((field) => {
-    const lines = buildFieldDiffLines(field, fromSnap?.[field], toSnap?.[field], isInit);
+    const lines = buildFieldDiffLines(field, from?.[field], to?.[field], isInit);
     return lines.length ? [{ field, lines }] : [];
   });
 }
 
-function DiffLine({ line }) {
+function DiffLine({ line }: { line: DiffLineData }) {
   if (line.type === 'large') {
     return (
       <div className="px-2 py-1 text-muted fst-italic" style={{ userSelect: 'none' }}>
@@ -194,7 +214,14 @@ function DiffLine({ line }) {
   return null;
 }
 
-function CommitListItem({ commit, idx, selectedIdx, onSelect }) {
+interface CommitListItemProps {
+  commit: EntryHistoryCommit;
+  idx: number;
+  selectedIdx: number;
+  onSelect: () => void;
+}
+
+function CommitListItem({ commit, idx, selectedIdx, onSelect }: CommitListItemProps) {
   return (
     <button
       type="button"
@@ -232,7 +259,7 @@ function CommitListItem({ commit, idx, selectedIdx, onSelect }) {
   );
 }
 
-function CommitDiff({ commits, idx }) {
+function CommitDiff({ commits, idx }: { commits: EntryHistoryCommit[]; idx: number }) {
   const commit = commits[idx];
   const parentCommit = commit?.parent ? commits.find((c) => c.hash === commit.parent) : null;
   // Array.prototype.find yields undefined, never null, when nothing matches,
@@ -274,7 +301,17 @@ function CommitDiff({ commits, idx }) {
   );
 }
 
-function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, saving, isMobile }) {
+interface HistoryDiffModalProps {
+  commits: EntryHistoryCommit[];
+  idx: number;
+  onIdxChange: (idx: number) => void;
+  onRestore: (hash: string) => void;
+  onClose: () => void;
+  saving: boolean;
+  isMobile: boolean;
+}
+
+function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, saving, isMobile }: HistoryDiffModalProps) {
   const selectedCommit = commits[idx];
   const [mobileStep, setMobileStep] = useState(isMobile ? 'list' : 'diff');
 
@@ -288,7 +325,7 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
   return (
     <div
       className="modal d-block history-modal"
-      tabIndex="-1"
+      tabIndex={-1}
       style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1055 }}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !saving) onClose();

@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 
-function estimatePasswordEntropy(password) {
+interface StrengthInfo {
+  entropy: number;
+  label: string;
+  colorClass: string;
+}
+
+function estimatePasswordEntropy(password: string): number {
   let poolSize = 0;
   if (/[a-z]/.test(password)) poolSize += 26;
   if (/[A-Z]/.test(password)) poolSize += 26;
@@ -9,20 +15,20 @@ function estimatePasswordEntropy(password) {
   return password.length * Math.log2(poolSize || 1);
 }
 
-function strengthLabelFor(entropy) {
+function strengthLabelFor(entropy: number): { label: string; colorClass: string } {
   if (entropy < 36) return { label: 'Weak', colorClass: 'bg-danger' };
   if (entropy < 60) return { label: 'Fair', colorClass: 'bg-warning' };
   if (entropy < 80) return { label: 'Good', colorClass: 'bg-info' };
   return { label: 'Strong', colorClass: 'bg-success' };
 }
 
-function evaluateStrength(password) {
+function evaluateStrength(password: string): StrengthInfo {
   if (!password) return { entropy: 0, label: '', colorClass: '' };
   const entropy = estimatePasswordEntropy(password);
   return { entropy, ...strengthLabelFor(entropy) };
 }
 
-export function PasswordStrengthBar({ password }) {
+export function PasswordStrengthBar({ password }: { password: string }) {
   if (!password) return null;
 
   const { entropy, label, colorClass } = evaluateStrength(password);
@@ -45,14 +51,16 @@ export function PasswordStrengthBar({ password }) {
   );
 }
 
-const CHARSETS = {
+type CharsetKey = 'lowercase' | 'uppercase' | 'digits' | 'symbols';
+
+const CHARSETS: Record<CharsetKey, { label: string; chars: string }> = {
   lowercase: { label: 'a-z', chars: 'abcdefghijklmnopqrstuvwxyz' },
   uppercase: { label: 'A-Z', chars: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' },
   digits: { label: '0-9', chars: '0123456789' },
   symbols: { label: '!@#', chars: "!@#$%^&*()_+-=[]{}|;:,.<>?/~`'" },
 };
 
-function generatePassword(length, enabledSets) {
+function generatePassword(length: number, enabledSets: CharsetKey[]): string {
   let pool = '';
   for (const key of enabledSets) {
     pool += CHARSETS[key].chars;
@@ -68,10 +76,15 @@ function generatePassword(length, enabledSets) {
   return result;
 }
 
-export function PasswordGenerator({ onGenerate, onCopy }) {
+interface PasswordGeneratorProps {
+  onGenerate: (password: string) => void;
+  onCopy: (password: string) => void;
+}
+
+export function PasswordGenerator({ onGenerate, onCopy }: PasswordGeneratorProps) {
   const [open, setOpen] = useState(false);
   const [length, setLength] = useState(20);
-  const [charsets, setCharsets] = useState({
+  const [charsets, setCharsets] = useState<Record<CharsetKey, boolean>>({
     lowercase: true,
     uppercase: true,
     digits: true,
@@ -79,10 +92,10 @@ export function PasswordGenerator({ onGenerate, onCopy }) {
   });
   const [preview, setPreview] = useState('');
 
-  const enabledSets = Object.keys(charsets).filter((k) => charsets[k]);
+  const enabledSets = (Object.keys(charsets) as CharsetKey[]).filter((k) => charsets[k]);
 
   const regenerate = useCallback(() => {
-    const enabled = Object.keys(charsets).filter((k) => charsets[k]);
+    const enabled = (Object.keys(charsets) as CharsetKey[]).filter((k) => charsets[k]);
     setPreview(generatePassword(length, enabled));
   }, [length, charsets]);
 
@@ -90,7 +103,7 @@ export function PasswordGenerator({ onGenerate, onCopy }) {
     if (open) regenerate();
   }, [open, regenerate]);
 
-  const toggleCharset = (key) => {
+  const toggleCharset = (key: CharsetKey) => {
     if (charsets[key] && enabledSets.length <= 1) return;
     setCharsets((prev) => ({ ...prev, [key]: !prev[key] }));
   };
@@ -130,7 +143,7 @@ export function PasswordGenerator({ onGenerate, onCopy }) {
 
           {/* Charset checkboxes */}
           <div className="mb-3">
-            {Object.keys(CHARSETS).map((key) => (
+            {(Object.keys(CHARSETS) as CharsetKey[]).map((key) => (
               <div className="form-check form-check-inline" key={key}>
                 <input
                   className="form-check-input"

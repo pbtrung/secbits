@@ -12,6 +12,11 @@
 export type EntryType = 'login' | 'note' | 'card';
 
 export interface CustomField {
+  // A locally assigned counter (see EntryDetail's addHiddenField: max
+  // existing id + 1), not a UUID or server id — customFields never leave
+  // the encrypted blob as separate rows, so this only needs to be unique
+  // within one entry's own list.
+  id: number;
   label: string;
   value: string;
 }

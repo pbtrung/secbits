@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import SpinnerBtn from './SpinnerBtn';
 import { bytesToB64, decodeRootMasterKey } from '../crypto';
 import { rotateRootMasterKey, rotateUserMasterKey } from '../db';
+
+interface RotationStatus {
+  type: 'success' | 'danger';
+  msg: string;
+}
 
 function KeyRotation() {
   const [newKeyB64, setNewKeyB64] = useState('');
@@ -9,7 +15,7 @@ function KeyRotation() {
   const [loadingRoot, setLoadingRoot] = useState(false);
   const [loadingUmk, setLoadingUmk] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [status, setStatus] = useState(null);
+  const [status, setStatus] = useState<RotationStatus | null>(null);
 
   const anyLoading = loadingRoot || loadingUmk;
 
@@ -43,7 +49,7 @@ function KeyRotation() {
       await rotateRootMasterKey(bytes);
       setStatus({ type: 'success', msg: 'Root master key rotated. Update your config file immediately.' });
     } catch (err) {
-      setStatus({ type: 'danger', msg: err?.message || 'Failed to rotate root master key.' });
+      setStatus({ type: 'danger', msg: err instanceof Error ? err.message : 'Failed to rotate root master key.' });
     } finally {
       setLoadingRoot(false);
     }
@@ -57,7 +63,7 @@ function KeyRotation() {
       const { rotatedEntries } = await rotateUserMasterKey();
       setStatus({ type: 'success', msg: `User master key rotated and ${rotatedEntries} entry key(s) re-wrapped.` });
     } catch (err) {
-      setStatus({ type: 'danger', msg: err?.message || 'Failed to rotate user master key.' });
+      setStatus({ type: 'danger', msg: err instanceof Error ? err.message : 'Failed to rotate user master key.' });
     } finally {
       setLoadingUmk(false);
     }
@@ -96,7 +102,7 @@ function KeyRotation() {
             type="checkbox"
             id="rotateRootConfirm"
             checked={confirmed}
-            onChange={(e) => setConfirmed(e.target.checked)}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => setConfirmed(e.target.checked)}
             disabled={anyLoading}
           />
           <label className="form-check-label small" htmlFor="rotateRootConfirm">

@@ -1,22 +1,23 @@
 import { useState, useEffect, useRef } from 'react';
+import type { KeyboardEvent } from 'react';
 import { TAG_MAX, MAX_TAGS } from '../lib/limits.js';
 import { SectionLabel } from './FieldSection';
 
+interface TagsFieldProps {
+  tags: string[] | undefined;
+  onTagsChange: (tags: string[]) => void;
+  isEditing: boolean;
+  allTags: string[];
+  onCurrentInputChange?: (value: string) => void;
+}
+
 // Shared tags section used by all entry types.
-//
-// Props:
-//   tags              — controlled array of tag strings (from parent draft)
-//   onTagsChange      — called with the new array whenever tags change
-//   isEditing         — show edit UI vs read-only badges
-//   allTags           — full tag list for autocomplete suggestions
-//   onCurrentInputChange — called whenever the uncommitted text input changes
-//                          (parent uses it for dirty-checking and final-save inclusion)
-function TagsField({ tags, onTagsChange, isEditing, allTags, onCurrentInputChange }) {
+function TagsField({ tags, onTagsChange, isEditing, allTags, onCurrentInputChange }: TagsFieldProps) {
   const [currentInput, setCurrentInput] = useState('');
-  const [suggestions, setSuggestions] = useState([]);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [tagError, setTagError] = useState('');
-  const inputRef = useRef(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Reset input state whenever we leave editing mode.
   useEffect(() => {
@@ -29,12 +30,12 @@ function TagsField({ tags, onTagsChange, isEditing, allTags, onCurrentInputChang
     }
   }, [isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const updateInput = (val) => {
+  const updateInput = (val: string) => {
     setCurrentInput(val);
     onCurrentInputChange?.(val);
   };
 
-  const buildSuggestions = (trimmed, existingTags) =>
+  const buildSuggestions = (trimmed: string, existingTags: string[]) =>
     allTags.filter((t) => t.startsWith(trimmed) && !existingTags.includes(t) && t !== trimmed);
 
   const resetTagInput = () => {
@@ -43,7 +44,7 @@ function TagsField({ tags, onTagsChange, isEditing, allTags, onCurrentInputChang
     setShowSuggestions(false);
   };
 
-  const updateSuggestions = (trimmed, existingTags) => {
+  const updateSuggestions = (trimmed: string, existingTags: string[]) => {
     if (trimmed.length === 0) {
       setSuggestions([]);
       setShowSuggestions(false);
@@ -56,7 +57,7 @@ function TagsField({ tags, onTagsChange, isEditing, allTags, onCurrentInputChang
 
   // Commits every comma-separated tag typed so far except the last
   // (still-uncommitted) segment, respecting MAX_TAGS and skipping dupes.
-  const commitTagsFromParts = (toCommit) => {
+  const commitTagsFromParts = (toCommit: string[]) => {
     if (toCommit.length === 0) return;
     const existing = tags || [];
     const slots = MAX_TAGS - existing.length;
@@ -69,7 +70,7 @@ function TagsField({ tags, onTagsChange, isEditing, allTags, onCurrentInputChang
     onTagsChange([...existing, ...unique]);
   };
 
-  const handleTagInputChange = (value) => {
+  const handleTagInputChange = (value: string) => {
     if (!value.includes(',')) {
       updateInput(value);
       updateSuggestions(value.trim().toLowerCase(), tags || []);
@@ -99,7 +100,7 @@ function TagsField({ tags, onTagsChange, isEditing, allTags, onCurrentInputChang
     resetTagInput();
   };
 
-  const handleTagKeyDown = (e) => {
+  const handleTagKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       commitCurrentInputAsTag();
@@ -108,12 +109,12 @@ function TagsField({ tags, onTagsChange, isEditing, allTags, onCurrentInputChang
     }
   };
 
-  const removeTag = (tag) => {
+  const removeTag = (tag: string) => {
     onTagsChange((tags || []).filter((t) => t !== tag));
     setTagError('');
   };
 
-  const selectTagSuggestion = (tag) => {
+  const selectTagSuggestion = (tag: string) => {
     if (!(tags || []).includes(tag)) {
       if ((tags || []).length >= MAX_TAGS) {
         setTagError(`Maximum ${MAX_TAGS} tags allowed`);

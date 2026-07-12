@@ -21,6 +21,9 @@ import {
   CARD_EXPIRY_MAX,
   CARD_CVV_MAX,
 } from '../lib/limits.js';
+import type { Entry } from '../types';
+
+type IndexedErrors = Record<number, string | null | undefined>;
 
 const SCALAR_DRAFT_FIELDS = [
   'title',
@@ -31,16 +34,16 @@ const SCALAR_DRAFT_FIELDS = [
   'cardNumber',
   'cardExpiry',
   'cardCvv',
-];
-const ARRAY_DRAFT_FIELDS = ['urls', 'totpSecrets', 'customFields'];
+] as const;
+const ARRAY_DRAFT_FIELDS = ['urls', 'totpSecrets', 'customFields'] as const;
 
-function scalarDraftFieldsChanged(draft, entry) {
-  const normalizeText = (value) => (typeof value === 'string' ? value : '');
+function scalarDraftFieldsChanged(draft: Entry, entry: Entry): boolean {
+  const normalizeText = (value: unknown) => (typeof value === 'string' ? value : '');
   return SCALAR_DRAFT_FIELDS.some((f) => normalizeText(draft?.[f]) !== normalizeText(entry?.[f]));
 }
 
-function arrayDraftFieldsChanged(draft, entry) {
-  const normalizeArray = (value) => (Array.isArray(value) ? value : []);
+function arrayDraftFieldsChanged(draft: Entry, entry: Entry): boolean {
+  const normalizeArray = (value: unknown) => (Array.isArray(value) ? value : []);
   return ARRAY_DRAFT_FIELDS.some(
     (f) => JSON.stringify(normalizeArray(draft?.[f])) !== JSON.stringify(normalizeArray(entry?.[f])),
   );
@@ -49,20 +52,20 @@ function arrayDraftFieldsChanged(draft, entry) {
 // Shared by draftTagsChanged and EntryDetail's handleSave: the tag input
 // box can hold an uncommitted tag the user typed but didn't press
 // Enter/comma on yet, which still counts as part of the tag set on save.
-function commitPendingTag(tags, tagCurrentInput) {
+function commitPendingTag(tags: string[], tagCurrentInput: string): string[] {
   const current = tagCurrentInput.trim().toLowerCase();
   if (current && !tags.includes(current)) return [...tags, current];
   return tags;
 }
 
-function draftTagsChanged(draft, entry, tagCurrentInput) {
-  const normalizeArray = (value) => (Array.isArray(value) ? value : []);
+function draftTagsChanged(draft: Entry, entry: Entry, tagCurrentInput: string): boolean {
+  const normalizeArray = (value: unknown) => (Array.isArray(value) ? (value as string[]) : []);
   const tagsNow = commitPendingTag(normalizeArray(draft?.tags), tagCurrentInput);
   const tagsOrig = normalizeArray(entry?.tags);
   return [...tagsNow].sort().join(',') !== [...tagsOrig].sort().join(',');
 }
 
-function hasDraftChanges(draft, entry, tagCurrentInput) {
+function hasDraftChanges(draft: Entry, entry: Entry, tagCurrentInput: string): boolean {
   return (
     scalarDraftFieldsChanged(draft, entry) ||
     arrayDraftFieldsChanged(draft, entry) ||
@@ -70,9 +73,9 @@ function hasDraftChanges(draft, entry, tagCurrentInput) {
   );
 }
 
-function normalizeEntryForDraft(entry) {
-  const safe = entry && typeof entry === 'object' ? entry : {};
-  const result = {
+function normalizeEntryForDraft(entry: Entry): Entry {
+  const safe = entry && typeof entry === 'object' ? entry : ({} as Entry);
+  const result: Entry = {
     ...safe,
     urls: Array.isArray(safe.urls) ? safe.urls : [],
     totpSecrets: Array.isArray(safe.totpSecrets) ? safe.totpSecrets : [],
@@ -88,18 +91,18 @@ function normalizeEntryForDraft(entry) {
   return result;
 }
 
-function replaceAt(list, index, value) {
+function replaceAt<T>(list: T[], index: number, value: T): T[] {
   const next = [...list];
   next[index] = value;
   return next;
 }
 
-function removeAt(list, index) {
+function removeAt<T>(list: T[], index: number): T[] {
   return list.filter((_, i) => i !== index);
 }
 
-function shiftIndexedErrors(errors, removedIndex) {
-  const next = {};
+function shiftIndexedErrors(errors: IndexedErrors, removedIndex: number): IndexedErrors {
+  const next: IndexedErrors = {};
   Object.entries(errors).forEach(([k, v]) => {
     const i = Number(k);
     if (i < removedIndex) next[i] = v;
@@ -108,25 +111,42 @@ function shiftIndexedErrors(errors, removedIndex) {
   return next;
 }
 
-function getUrlError(value) {
+function getUrlError(value: string): string | null {
   if (!value) return null;
   if (value.length > URL_MAX) return `URL must be ${URL_MAX} characters or fewer`;
   return isHttpUrl(value) ? null : 'Invalid URL — must start with https:// or http://';
 }
 
-function getTotpError(value) {
+function getTotpError(value: string): string | null {
   if (value.length > TOTP_SECRET_MAX) return `TOTP secret must be ${TOTP_SECRET_MAX} characters or fewer`;
   const cleaned = value.replace(/[\s=_-]+/g, '').toUpperCase();
   if (cleaned.length > 0 && !/^[A-Z2-7]+$/.test(cleaned)) return 'Invalid base32 — only A–Z and 2–7';
   return null;
 }
 
-function collectIndexedErrors(values, validator) {
-  return values.reduce((acc, value, index) => {
+function collectIndexedErrors(values: string[], validator: (value: string) => string | null): IndexedErrors {
+  return values.reduce((acc: IndexedErrors, value, index) => {
     const error = validator(value);
     if (error) acc[index] = error;
     return acc;
   }, {});
+}
+
+interface EntryDetailProps {
+  entry: Entry;
+  isEditing: boolean;
+  onEdit: (id: string) => void;
+  onSave: (updated: Entry) => void | Promise<void>;
+  onDelete: (id: string) => void | Promise<void>;
+  onCancel: () => void;
+  onRestore: (entryId: string, commitHash: string) => Promise<boolean>;
+  onRestoreEntry?: (entryId: string) => Promise<void>;
+  isTrashView?: boolean;
+  saving: boolean;
+  deleting: boolean;
+  allTags?: string[];
+  onDirtyChange?: (dirty: boolean) => void;
+  isMobile?: boolean;
 }
 
 // ─── EntryDetail ──────────────────────────────────────────────────────────────
@@ -146,17 +166,17 @@ function EntryDetail({
   allTags = [],
   onDirtyChange,
   isMobile = false,
-}) {
+}: EntryDetailProps) {
   const [draft, setDraft] = useState(() => normalizeEntryForDraft(entry));
-  const [visiblePasswords, setVisiblePasswords] = useState({});
-  const [copied, setCopied] = useState(null);
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+  const [copied, setCopied] = useState<string | null>(null);
   const [tagCurrentInput, setTagCurrentInput] = useState('');
-  const [totpErrors, setTotpErrors] = useState({});
-  const [urlErrors, setUrlErrors] = useState({});
+  const [totpErrors, setTotpErrors] = useState<IndexedErrors>({});
+  const [urlErrors, setUrlErrors] = useState<IndexedErrors>({});
   const [notesVisible, setNotesVisible] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [historyIdx, setHistoryIdx] = useState(0);
-  const notesHideTimerRef = useRef(null);
+  const notesHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const commits = entry.history || [];
 
@@ -233,51 +253,51 @@ function EntryDetail({
 
   useEffect(() => {
     if (!showHistory) return;
-    const handler = (e) => {
+    const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !saving) setShowHistory(false);
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [showHistory, saving]);
 
-  const toggleVisibility = (key) => {
+  const toggleVisibility = (key: string) => {
     setVisiblePasswords((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const copyToClipboard = (text, label) => {
+  const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text).catch(() => {});
     setCopied(label);
     setTimeout(() => setCopied(null), 1500);
     setTimeout(() => navigator.clipboard.writeText('').catch(() => {}), 30000);
   };
 
-  const updateDraft = (field, value) => {
+  const updateDraft = (field: string, value: string) => {
     setDraft({ ...draft, [field]: value });
   };
 
-  const updateUrl = (index, value) => {
-    setDraft({ ...draft, urls: replaceAt(draft.urls, index, value) });
+  const updateUrl = (index: number, value: string) => {
+    setDraft({ ...draft, urls: replaceAt(draft.urls || [], index, value) });
   };
 
-  const addUrl = () => setDraft({ ...draft, urls: [...draft.urls, ''] });
+  const addUrl = () => setDraft({ ...draft, urls: [...(draft.urls || []), ''] });
 
-  const removeUrl = (index) => {
-    setDraft({ ...draft, urls: removeAt(draft.urls, index) });
+  const removeUrl = (index: number) => {
+    setDraft({ ...draft, urls: removeAt(draft.urls || [], index) });
     setUrlErrors((prev) => shiftIndexedErrors(prev, index));
   };
 
-  const addTotpSecret = () => setDraft({ ...draft, totpSecrets: [...draft.totpSecrets, ''] });
+  const addTotpSecret = () => setDraft({ ...draft, totpSecrets: [...(draft.totpSecrets || []), ''] });
 
-  const updateTotpSecret = (index, value) => {
-    setDraft({ ...draft, totpSecrets: replaceAt(draft.totpSecrets, index, value) });
+  const updateTotpSecret = (index: number, value: string) => {
+    setDraft({ ...draft, totpSecrets: replaceAt(draft.totpSecrets || [], index, value) });
   };
 
-  const removeTotpSecret = (index) => {
-    setDraft({ ...draft, totpSecrets: removeAt(draft.totpSecrets, index) });
+  const removeTotpSecret = (index: number) => {
+    setDraft({ ...draft, totpSecrets: removeAt(draft.totpSecrets || [], index) });
     setTotpErrors((prev) => shiftIndexedErrors(prev, index));
   };
 
-  const validateTotpSecret = (index, value) => {
+  const validateTotpSecret = (index: number, value: string) => {
     setTotpErrors((prev) => ({ ...prev, [index]: getTotpError(value) }));
   };
 
@@ -289,18 +309,18 @@ function EntryDetail({
     });
   };
 
-  const updateHiddenField = (id, key, value) => {
+  const updateHiddenField = (id: number, key: 'label' | 'value', value: string) => {
     setDraft({
       ...draft,
       customFields: draft.customFields.map((f) => (f.id === id ? { ...f, [key]: value } : f)),
     });
   };
 
-  const removeHiddenField = (id) => {
+  const removeHiddenField = (id: number) => {
     setDraft({ ...draft, customFields: draft.customFields.filter((f) => f.id !== id) });
   };
 
-  const validateUrl = (index, value) => {
+  const validateUrl = (index: number, value: string) => {
     const error = getUrlError(value);
     if (!error) {
       setUrlErrors((prev) => {
@@ -314,14 +334,14 @@ function EntryDetail({
   };
 
   const handleSave = () => {
-    const freshUrlErrors = collectIndexedErrors(draft.urls, getUrlError);
-    const freshTotpErrors = collectIndexedErrors(draft.totpSecrets, getTotpError);
+    const freshUrlErrors = collectIndexedErrors(draft.urls || [], getUrlError);
+    const freshTotpErrors = collectIndexedErrors(draft.totpSecrets || [], getTotpError);
     setUrlErrors(freshUrlErrors);
     setTotpErrors(freshTotpErrors);
     if (Object.keys(freshUrlErrors).length > 0 || Object.keys(freshTotpErrors).length > 0) return;
 
     const finalTags = commitPendingTag(draft.tags || [], tagCurrentInput);
-    onSave({ ...draft, tags: finalTags, urls: draft.urls.filter((u) => u.trim()) });
+    onSave({ ...draft, tags: finalTags, urls: (draft.urls || []).filter((u) => u.trim()) });
   };
 
   const handleDelete = () => {
@@ -337,7 +357,7 @@ function EntryDetail({
     await onRestoreEntry?.(entry.id);
   };
 
-  const handleRestoreFromModal = async (commitHash) => {
+  const handleRestoreFromModal = async (commitHash: string) => {
     const restored = await onRestore(entry.id, commitHash);
     if (restored) setShowHistory(false);
   };
@@ -348,14 +368,14 @@ function EntryDetail({
 
   const hasInvalidFields =
     draft.title.length > TITLE_MAX ||
-    draft.tags.some((t) => t.length > TAG_MAX) ||
+    (draft.tags || []).some((t) => t.length > TAG_MAX) ||
     (isLogin &&
       (Object.values(totpErrors).some(Boolean) ||
         Object.values(urlErrors).some(Boolean) ||
-        draft.username.length > USERNAME_MAX ||
-        draft.password.length > PASSWORD_MAX ||
-        draft.urls.some((u) => u.length > URL_MAX) ||
-        draft.totpSecrets.some((s) => s.length > TOTP_SECRET_MAX) ||
+        (draft.username || '').length > USERNAME_MAX ||
+        (draft.password || '').length > PASSWORD_MAX ||
+        (draft.urls || []).some((u) => u.length > URL_MAX) ||
+        (draft.totpSecrets || []).some((s) => s.length > TOTP_SECRET_MAX) ||
         draft.customFields.some(
           (f) => f.label.length > CUSTOM_FIELD_LABEL_MAX || f.value.length > CUSTOM_FIELD_VALUE_MAX,
         ))) ||
@@ -375,11 +395,11 @@ function EntryDetail({
         !draft.cardCvv?.trim() &&
         !draft.notes.trim()
       : !draft.title.trim() &&
-        !draft.username.trim() &&
-        !draft.password.trim() &&
+        !(draft.username || '').trim() &&
+        !(draft.password || '').trim() &&
         !draft.notes.trim() &&
-        !draft.urls.some((u) => u.trim()) &&
-        draft.totpSecrets.length === 0 &&
+        !(draft.urls || []).some((u) => u.trim()) &&
+        (draft.totpSecrets || []).length === 0 &&
         draft.customFields.length === 0;
 
   const saveDisabled = hasInvalidFields || allFieldsEmpty;
@@ -411,9 +431,9 @@ function EntryDetail({
               </div>
             )}
             {isTrashView && (
-              <div className="small text-muted mt-1" title={formatDeletedLabel(entry.deletedAt).exact}>
+              <div className="small text-muted mt-1" title={formatDeletedLabel(entry.deletedAt || 0).exact}>
                 <i className="bi bi-trash me-1"></i>
-                {formatDeletedLabel(entry.deletedAt).text}
+                {formatDeletedLabel(entry.deletedAt || 0).text}
               </div>
             )}
           </div>

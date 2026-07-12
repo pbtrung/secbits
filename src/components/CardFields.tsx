@@ -1,9 +1,21 @@
+import type { CSSProperties } from 'react';
 import CopyBtn from './CopyBtn';
 import EyeToggleBtn from './EyeToggleBtn';
 import FieldSection from './FieldSection';
 import { CARD_HOLDER_MAX, CARD_NUMBER_MAX, CARD_EXPIRY_MAX, CARD_CVV_MAX } from '../lib/limits.js';
+import type { Entry } from '../types';
 
-function MaskedReadOnlyField({ value, visible, onToggle, copied, onCopy, label, style }) {
+interface MaskedReadOnlyFieldProps {
+  value: string;
+  visible: boolean;
+  onToggle: () => void;
+  copied: string | null;
+  onCopy: (text: string, label: string) => void;
+  label: string;
+  style?: CSSProperties;
+}
+
+function MaskedReadOnlyField({ value, visible, onToggle, copied, onCopy, label, style }: MaskedReadOnlyFieldProps) {
   return (
     <div className="input-group" style={style}>
       <input type={visible ? 'text' : 'password'} className="form-control" value={value} readOnly />
@@ -13,7 +25,18 @@ function MaskedReadOnlyField({ value, visible, onToggle, copied, onCopy, label, 
   );
 }
 
-function CardFields({ draft, data, isEditing, visiblePasswords, onToggle, copied, onCopy, onUpdate }) {
+interface CardFieldsProps {
+  draft: Partial<Entry>;
+  data: Entry;
+  isEditing: boolean;
+  visiblePasswords: Record<string, boolean>;
+  onToggle: (field: string) => void;
+  copied: string | null;
+  onCopy: (text: string, label: string) => void;
+  onUpdate: (field: string, value: string) => void;
+}
+
+function CardFields({ draft, data, isEditing, visiblePasswords, onToggle, copied, onCopy, onUpdate }: CardFieldsProps) {
   return (
     <>
       <FieldSection icon="bi-person" label="Cardholder Name">
