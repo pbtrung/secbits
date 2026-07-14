@@ -36,14 +36,14 @@ Login:
 
 1. App authenticates with Firebase using email and password from config.
 2. App retrieves the Firebase ID token and exchanges it for an InstantDB session via `db.auth.signInWithIdToken`.
-3. App fetches its own `keyStore` (`keyType: 'umk'`) row, then the entries linked to it — entries scope to a user transitively through that row, not via a direct link — both scoped by InstantDB permission rules on `auth.id`.
+3. App fetches its own `umkStore` row, then the entries linked to it — entries scope to a user transitively through that row, not via a direct link — both scoped by InstantDB permission rules on `auth.id`.
 4. App decrypts each entry's data file and loads the vault.
 
 Save (create or update):
 
 1. App serializes entry to JSON, including type, tags, and timestamps — everything.
 2. App computes the commit hash over the serialized entry, decrypts the entry's current file if one exists to get its prior commit array, and prepends the new commit, capped at the most recent 20.
-3. App Brotli compresses and AEAD encrypts the whole array as one blob (fresh salt), uploads it to a fresh path via `db.storage.uploadFile`, then, in one atomic `db.transact` call, deletes the entry's previous file and links the new one as `entryFile` (on create, the same call also writes `entryKey` and links `keyBlob` to the user's own `keyStore` row).
+3. App Brotli compresses and AEAD encrypts the whole array as one blob (fresh salt), uploads it to a fresh path via `db.storage.uploadFile`, then, in one atomic `db.transact` call, deletes the entry's previous file and links the new one as `entryFile` (on create, the same call also writes `entryKeyBlob` and links `umk` to the user's own `umkStore` row).
 4. InstantDB permission rules confirm every row and file path belong to the authenticated user throughout.
 
 Maintenance (client side, on load/save):

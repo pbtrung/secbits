@@ -6,8 +6,8 @@ SecBits is a client heavy, end to end encrypted password manager. There is no cu
 
 - InstantDB is both the database and the session layer. The client talks to InstantDB directly for reads and writes; there is no Worker, no custom CRUD API, no admin token anywhere in the stack.
 - Row level access is enforced entirely by InstantDB permission rules (`instant.perms.ts`), scoping every row to the authenticated `auth.id`.
-- Every field on every entity is encrypted client side, including timestamps and type. The only plaintext InstantDB ever sees is row ids and the links needed to scope access (`owner`, `keyBlob`, `entry`); those reveal that a row exists and who owns it, nothing about its content.
-- Entry data and its entire history live together in InstantDB Storage, one encrypted file per entry, not a database field or a table; only `entryKey` and the `keyBlob`/`entryFile` links remain literal `entries` row fields. `entries` no longer links to `$users` directly at all — its owner is whoever owns the `keyStore` row `keyBlob` points at (see docs/data_model.md, Entities and Links, and docs/crypto.md, Entry Data File).
+- Every field on every entity is encrypted client side, including timestamps and type. The only plaintext InstantDB ever sees is row ids and the links needed to scope access (`owner`, `umk`, `entry`); those reveal that a row exists and who owns it, nothing about its content.
+- Entry data and its entire history live together in InstantDB Storage, one encrypted file per entry, not a database field or a table; only `entryKeyBlob` and the `umk`/`entryFile` links remain literal `entries` row fields. `entries` no longer links to `$users` directly at all — its owner is whoever owns the `umkStore` row `umk` points at (see docs/data_model.md, Entities and Links, and docs/crypto.md, Entry Data File).
 
 ## Auth: Firebase through InstantDB
 
