@@ -11,18 +11,19 @@ import { i } from '@instantdb/react';
 // anything a dot-notation where filter traverses into, same reason $users
 // itself must be declared explicitly.
 //
-// keyStoreOwner's reverse side is has: 'many', not 'one': a genuine
-// has:'one'/has:'one' one-to-one on this link produced a persistent
-// "already exists" uniqueness rejection even after confirming zero
-// existing keyStore rows, no leftover entities from diagnostic renames,
-// and correct auth. Backend enforcement was backed off; "one keyStore row
-// per user" is enforced client side instead, by ensureKeyStore in
-// src/db.js treating more than one matching row as a fatal error rather
-// than silently picking one. entryFileEntry below stays has: 'one' (see
-// its own comment) since its swap is a single atomic db.transact, unlike
-// keyStoreOwner's non-atomic create path; fall back to has: 'many' plus
-// the same client-side check if that assumption doesn't hold live (see
-// docs/data_model.md, Links).
+// umkStoreOwner is has: 'one' on both sides (one UMK row per user). A
+// genuine has:'one'/has:'one' shape on this exact link produced a
+// persistent "already exists" uniqueness rejection once before, even after
+// confirming zero existing rows, no leftover entities from diagnostic
+// renames, and correct auth (see docs/data_model.md, Uniqueness) -- this is
+// a deliberate retry of that same shape, not a first attempt. ensureKeyStore
+// in src/db.ts still treats finding more than one matching row as a fatal
+// error rather than silently picking one, defense in depth regardless of
+// whether the schema constraint holds. If the "already exists" rejection
+// recurs, the known fallback is has: 'many' on the `$users` side plus that
+// same client-side check. entryFileEntry below is has: 'one' on both sides
+// too, for an unrelated reason (its swap is a single atomic db.transact, see
+// its own comment).
 
 const _schema = i.schema({
   entities: {
@@ -36,11 +37,10 @@ const _schema = i.schema({
       type: i.string().optional(),
     }),
     entries: i.entity({
-      entryKey: i.string(),
+      entryKeyBlob: i.string(),
     }),
-    keyStore: i.entity({
-      keyBlob: i.string(),
-      keyType: i.string(),
+    umkStore: i.entity({
+      umkBlob: i.string(),
     }),
   },
   links: {
@@ -58,25 +58,25 @@ const _schema = i.schema({
       },
     },
     // entries no longer links to $users directly: ownership is transitive,
-    // through the entry's own keyStore (UMK) row -- auth.id in
-    // data.ref('keyBlob.owner.id') in instant.perms.ts, not a direct
+    // through the entry's own umkStore row -- auth.id in
+    // data.ref('umk.owner.id') in instant.perms.ts, not a direct
     // data.ref('owner.id'). One fewer link targeting $users, which is where
     // the "connects to non existing entity" push bug above always hit.
-    entriesKeyStore: {
+    entriesUmkStore: {
       forward: {
         on: 'entries',
         has: 'one',
-        label: 'keyBlob',
+        label: 'umk',
         required: true,
         onDelete: 'cascade',
       },
       reverse: {
-        on: 'keyStore',
+        on: 'umkStore',
         has: 'many',
         label: 'entries',
       },
     },
-    // No required: true here, unlike entriesKeyStore above: the $files row is
+    // No required: true here, unlike entriesUmkStore above: the $files row is
     // created by a separate db.storage.uploadFile call before the
     // db.transact that links it (see docs/crypto.md, Entry Data File), so
     // for a moment after upload the file exists unlinked; required would
@@ -97,24 +97,24 @@ const _schema = i.schema({
         label: 'entryFile',
       },
     },
-    // required: true is deliberately absent here, unlike entriesKeyStore
+    // required: true is deliberately absent here, unlike entriesUmkStore
     // above: the dashboard recreation of this link (see the comment
     // above) did not set it, and this file mirrors what is actually live,
     // not what would ideally be set. ensureKeyStore always provides owner
-    // when creating a keyStore row regardless, so this has no functional
+    // when creating a umkStore row regardless, so this has no functional
     // effect today; set "Require this attribute" in the dashboard and add
     // it back here if closing that gap ever matters.
-    keyStoreOwner: {
+    umkStoreOwner: {
       forward: {
-        on: 'keyStore',
+        on: 'umkStore',
         has: 'one',
         label: 'owner',
         onDelete: 'cascade',
       },
       reverse: {
         on: '$users',
-        has: 'many',
-        label: 'keyStore',
+        has: 'one',
+        label: 'umkStore',
       },
     },
   },
