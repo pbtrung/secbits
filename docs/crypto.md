@@ -152,7 +152,7 @@ The same pipeline applies to every blob type. The IKM passed to HKDF varies by b
 The commit hash is computed in the browser over a canonical snapshot object that excludes the `commitHash` field:
 
 ```text
-commitHash = hex(SHA-256(canonicalJson(snapshotWithoutCommitHash))).slice(0, 32)  // 32 hex chars, 128 bit truncation
+commitHash = hex(SHA-256(canonicalJson(snapshotWithoutCommitHash))).slice(0, 48)  // 48 hex chars, 192 bit truncation
 ```
 
 `canonicalJson` must be deterministic (stable key ordering, UTF-8, no pretty print). The resulting hash is embedded inside its commit object, inside the history file's single encrypted blob, as `commitHash` (see History File below). The `$files` row storing that blob exposes only `path` and `url`; `commitHash`, like every other field of every commit, exists only inside the ciphertext. After decrypting the history file the client verifies each commit by removing its `commitHash`, canonicalizing the remaining object, and recomputing the hash.
