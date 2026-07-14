@@ -39,7 +39,8 @@ const _schema = i.schema({
       entryKey: i.string(),
     }),
     keyStore: i.entity({
-      umkBlob: i.string(),
+      keyBlob: i.string(),
+      keyType: i.string(),
     }),
   },
   links: {
@@ -56,21 +57,26 @@ const _schema = i.schema({
         label: 'linkedGuestUsers',
       },
     },
-    entriesOwner: {
+    // entries no longer links to $users directly: ownership is transitive,
+    // through the entry's own keyStore (UMK) row -- auth.id in
+    // data.ref('keyBlob.owner.id') in instant.perms.ts, not a direct
+    // data.ref('owner.id'). One fewer link targeting $users, which is where
+    // the "connects to non existing entity" push bug above always hit.
+    entriesKeyStore: {
       forward: {
         on: 'entries',
         has: 'one',
-        label: 'owner',
+        label: 'keyBlob',
         required: true,
         onDelete: 'cascade',
       },
       reverse: {
-        on: '$users',
+        on: 'keyStore',
         has: 'many',
         label: 'entries',
       },
     },
-    // No required: true here, unlike entriesOwner above: the $files row is
+    // No required: true here, unlike entriesKeyStore above: the $files row is
     // created by a separate db.storage.uploadFile call before the
     // db.transact that links it (see docs/crypto.md, Entry Data File), so
     // for a moment after upload the file exists unlinked; required would
@@ -91,8 +97,8 @@ const _schema = i.schema({
         label: 'entryFile',
       },
     },
-    // required: true is deliberately absent here, unlike the other two
-    // owner links: the dashboard recreation of this link (see the comment
+    // required: true is deliberately absent here, unlike entriesKeyStore
+    // above: the dashboard recreation of this link (see the comment
     // above) did not set it, and this file mirrors what is actually live,
     // not what would ideally be set. ensureKeyStore always provides owner
     // when creating a keyStore row regardless, so this has no functional
