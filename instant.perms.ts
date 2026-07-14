@@ -2,7 +2,7 @@ import type { InstantRules } from '@instantdb/react';
 import type { AppSchema } from './instant.schema';
 
 const rules = {
-  keyStore: {
+  umkStore: {
     bind: ['isOwner', "auth.id in data.ref('owner.id')"],
     allow: {
       view: 'isOwner',
@@ -12,12 +12,12 @@ const rules = {
     },
   },
   entries: {
-    bind: ['isOwner', "auth.id in data.ref('keyBlob.owner.id')"],
+    bind: ['isOwner', "auth.id in data.ref('umk.owner.id')"],
     allow: {
       view: 'isOwner',
       create: 'isOwner',
       delete: 'isOwner',
-      update: "isOwner && !('keyBlob' in request.modifiedFields)",
+      update: "isOwner && !('umk' in request.modifiedFields)",
     },
   },
   $files: {
