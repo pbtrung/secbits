@@ -26,7 +26,7 @@ const rules = {
       view: 'isOwnPath',
       create: 'isOwnPath',
       delete: 'isOwnPath',
-      update: 'isOwnPath',
+      update: 'false',
     },
   },
 } satisfies InstantRules<AppSchema>;
