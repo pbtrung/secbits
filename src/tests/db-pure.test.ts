@@ -36,25 +36,26 @@ type RawSnapshotListArg = Parameters<typeof buildCommitList>[0];
 
 describe('stripNestedHistory', () => {
   it('removes a nested history key while preserving everything else', () => {
-    const snap = { id: '1', title: 'x', history: [{ id: 'stale' }] } as unknown as RawSnapshotArg;
-    expect(stripNestedHistory(snap)).toEqual({ id: '1', title: 'x' });
+    const snap = { title: 'x', history: [{ hash: 'stale' }] } as unknown as RawSnapshotArg;
+    expect(stripNestedHistory(snap)).toEqual({ title: 'x' });
   });
 
   it('is a no-op when there is no history key', () => {
-    const snap = { id: '1', title: 'x' } as unknown as RawSnapshotArg;
+    const snap = { title: 'x' } as unknown as RawSnapshotArg;
     expect(stripNestedHistory(snap)).toEqual(snap);
   });
 });
 
 describe('buildCommitList', () => {
   it('wires parent/changed correctly across a chain, oldest has no parent, and strips nested history', () => {
-    const newest = { id: 'c3', commitHash: 'h3', updatedAt: 300, title: 'v3', history: [{ id: 'stale' }] };
-    const middle = { id: 'c2', commitHash: 'h2', updatedAt: 200, title: 'v2' };
-    const oldest = { id: 'c1', commitHash: 'h1', createdAt: 100, title: 'v1' };
+    const newest = { commitHash: 'h3', updatedAt: 300, title: 'v3', history: [{ hash: 'stale' }] };
+    const middle = { commitHash: 'h2', updatedAt: 200, title: 'v2' };
+    const oldest = { commitHash: 'h1', createdAt: 100, title: 'v1' };
     const list = buildCommitList([newest, middle, oldest] as unknown as RawSnapshotListArg);
 
     expect(list).toHaveLength(3);
     expect(list[0]).toMatchObject({ hash: 'h3', timestamp: 300, parent: 'h2', changed: ['title'] });
+    expect(list[0]).not.toHaveProperty('id');
     expect(list[0].snapshot).not.toHaveProperty('history');
     expect(list[1]).toMatchObject({ hash: 'h2', timestamp: 200, parent: 'h1', changed: ['title'] });
     expect(list[2]).toMatchObject({ hash: 'h1', timestamp: 100, parent: null, changed: undefined });
@@ -73,13 +74,25 @@ describe('getVaultStats', () => {
 });
 
 describe('buildExportData', () => {
-  it("filters the current version out of each entry's exported history", () => {
+  it("filters the current version out of each entry's exported history and flattens each commit", () => {
     const entry = {
       id: 'e1',
       commitHash: 'current',
       history: [
-        { hash: 'current', snapshot: {} },
-        { hash: 'older', snapshot: {} },
+        {
+          hash: 'current',
+          timestamp: 200,
+          parent: 'older',
+          changed: ['title'],
+          snapshot: { id: 'e1', commitHash: 'current', title: 'v2' },
+        },
+        {
+          hash: 'older',
+          timestamp: 100,
+          parent: null,
+          changed: undefined,
+          snapshot: { id: 'e1', commitHash: 'older', title: 'v1' },
+        },
       ],
     };
     const result = buildExportData({
@@ -87,7 +100,12 @@ describe('buildExportData', () => {
       entries: [entry],
       trash: [],
     } as unknown as BuildExportDataArg);
-    expect(result.data[0].history).toEqual([{ hash: 'older', snapshot: {} }]);
+    // The current version is filtered out entirely; the remaining commit is
+    // flattened -- no nested `snapshot`, no `id`/`commitHash` duplicated
+    // inside it, just the commit's own fields plus the snapshot's content.
+    expect(result.data[0].history).toEqual([
+      { hash: 'older', timestamp: 100, parent: null, changed: undefined, title: 'v1' },
+    ]);
   });
 
   it('produces the versioned export shape', () => {

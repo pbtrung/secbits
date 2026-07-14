@@ -14,7 +14,14 @@ import {
 } from './crypto';
 import { computeCommitHash } from './lib/commitHash';
 import { capHistoryArray, entryFilePath } from './lib/storage';
-import type { BackupDestinations, Entry, EntryHistoryCommit, ExportData, ExportEntry } from './types';
+import type {
+  BackupDestinations,
+  Entry,
+  EntryHistoryCommit,
+  ExportData,
+  ExportEntry,
+  ExportHistoryCommit,
+} from './types';
 
 // History cap and trash retention: see docs/architecture.md, Maintenance.
 // The cap (20) is decided (docs/features.md); the retention window is not,
@@ -34,13 +41,13 @@ const DIFFABLE_FIELDS = [
   'customFields',
 ] as const;
 
-// A raw decrypted commit: an Entry's fields, but not yet wrapped into the
-// {hash, timestamp, snapshot, ...} shape buildCommitList produces. `id` here
-// is the commit's own commitHash, not the entry's row id: there's no
-// per-commit row anymore to borrow an id from (every commit is just an
-// element of the one entry file's array, see docs/crypto.md, Entry Data
-// File), so the hash doubles as this element's identity too.
-type RawSnapshot = Entry & { id: string };
+// A raw decrypted commit: an Entry's fields (minus `id`, which every commit
+// in the array shares from the outer entries row and so is never itself
+// stored per-commit -- see docs/crypto.md, Entry Data File), not yet wrapped
+// into the {hash, timestamp, snapshot, ...} shape buildCommitList produces.
+// `commitHash` is required, not optional like on `Entry`: every persisted
+// commit always has one by construction.
+type RawSnapshot = Omit<Entry, 'id' | 'commitHash'> & { commitHash: string };
 
 // Exported (unlike most of this file's internals) purely so it's directly
 // unit-testable: it's pure data logic with no dependency on InstantDB, see
@@ -70,11 +77,10 @@ export function buildCommitList(sortedSnapshots: RawSnapshot[]): EntryHistoryCom
   return sortedSnapshots.map((snap, i) => {
     const parentSnap = sortedSnapshots[i + 1] || null;
     return {
-      id: snap.id,
-      hash: snap.commitHash as string,
+      hash: snap.commitHash,
       timestamp: snap.updatedAt ?? snap.createdAt,
       snapshot: stripNestedHistory(snap) as Entry,
-      parent: parentSnap ? (parentSnap.commitHash as string) : null,
+      parent: parentSnap ? parentSnap.commitHash : null,
       changed: parentSnap ? fieldsChanged(parentSnap, snap) : undefined,
     };
   });
@@ -391,7 +397,7 @@ async function saveEntrySnapshot(
   // caller forgetting to strip it can't reintroduce the self-nesting bug.
   const { history: _dropHistory, ...cleanSnapshot } = snapshotWithoutHash;
   const commitHash = await computeCommitHash(cleanSnapshot);
-  const withHash = { ...cleanSnapshot, commitHash, id: commitHash } as RawSnapshot;
+  const withHash = { ...cleanSnapshot, commitHash } as RawSnapshot;
 
   const { array, oldFileId } = await buildNewHistoryArray(entryId, rawEntryKey, withHash, isCreate);
   const authId = await requireAuthId();
@@ -399,9 +405,9 @@ async function saveEntrySnapshot(
   const newFileId = await uploadEntryFile(entryFilePath(authId, entryId, commitHash), bytes);
   await commitEntryFileSwap(entryId, rawEntryKey, oldFileId, newFileId, { isCreate });
 
-  // id must come after the spread, not before: withHash carries `commitHash`
-  // as its own `id` (see RawSnapshot above), which would otherwise silently
-  // win and get returned instead of the real entryId.
+  // id must come after the spread, not before: withHash never carries the
+  // real entryId (RawSnapshot omits `id` entirely, see above) and a stale
+  // draft id on cleanSnapshot must not silently win over the real one.
   return { ...withHash, id: entryId, history: buildCommitList(array) } as Entry;
 }
 
@@ -500,7 +506,7 @@ export async function deleteUserEntry(entryId: string): Promise<Entry> {
   const rawEntryKey = entryKeyCache.get(entryId);
   if (!rawEntryKey) throw new Error(`Unknown entry ${entryId}; call fetchUserEntries first`);
   const current = await fetchCurrentEntryContent(entryId, rawEntryKey);
-  const { commitHash: _drop, history: _drop2, id: _drop3, ...withoutHash } = current;
+  const { commitHash: _drop, history: _drop2, ...withoutHash } = current;
   return saveEntrySnapshot(entryId, rawEntryKey, { ...withoutHash, deletedAt: Date.now(), updatedAt: Date.now() });
 }
 
@@ -509,7 +515,7 @@ export async function restoreDeletedUserEntry(entryId: string): Promise<Entry> {
   const rawEntryKey = entryKeyCache.get(entryId);
   if (!rawEntryKey) throw new Error(`Unknown entry ${entryId}; call fetchUserEntries first`);
   const current = await fetchCurrentEntryContent(entryId, rawEntryKey);
-  const { commitHash: _drop, history: _drop2, id: _drop3, ...withoutHash } = current;
+  const { commitHash: _drop, history: _drop2, ...withoutHash } = current;
   return saveEntrySnapshot(entryId, rawEntryKey, { ...withoutHash, deletedAt: null, updatedAt: Date.now() });
 }
 
@@ -520,7 +526,7 @@ async function restoreVersionByCommitHash(entryId: string, commitHash: string): 
   const array = await decryptHistoryArray(fileRef, rawEntryKey);
   const match = array.find((snap) => snap.commitHash === commitHash);
   if (!match) throw new Error(`Commit ${commitHash} not found in history for entry ${entryId}`);
-  const { commitHash: _drop, history: _drop2, id: _drop3, ...withoutHash } = match;
+  const { commitHash: _drop, history: _drop2, ...withoutHash } = match;
   return saveEntrySnapshot(entryId, rawEntryKey, { ...withoutHash, updatedAt: Date.now() });
 }
 
@@ -615,6 +621,18 @@ export function getVaultStats(entries: Entry[], trash: Entry[]): VaultStats {
   };
 }
 
+// Export's history entries are flattened, not the UI-facing nested-snapshot
+// shape: EntryHistoryCommit.snapshot is a full Entry, which itself carries
+// `id` and `commitHash` -- both already represented at the commit's own
+// level (the entry's real id doesn't vary per commit, and `hash` already is
+// commitHash), so re-encoding them a second time inside `snapshot` for every
+// single commit is pure duplication in the exported JSON. Drop both and
+// spread the rest of the snapshot's fields to the top level instead.
+function toExportCommit(commit: EntryHistoryCommit): ExportHistoryCommit {
+  const { id: _drop, commitHash: _drop2, history: _drop3, ...content } = commit.snapshot;
+  return { ...content, hash: commit.hash, timestamp: commit.timestamp, parent: commit.parent, changed: commit.changed };
+}
+
 // Attaches each entry's raw entry_key only here, at export construction
 // time, rather than as part of the hydrated entries fetchUserEntries()
 // returns to the rest of the app: those objects live in React state for
@@ -631,7 +649,7 @@ function toExportEntry(entry: Entry): ExportEntry {
   return {
     ...entry,
     entry_key: rawEntryKey ? bytesToB64(rawEntryKey) : null,
-    history: (entry.history || []).filter((commit) => commit.hash !== entry.commitHash),
+    history: (entry.history || []).filter((commit) => commit.hash !== entry.commitHash).map(toExportCommit),
   };
 }
 

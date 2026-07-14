@@ -22,7 +22,6 @@ export interface CustomField {
 }
 
 export interface EntryHistoryCommit {
-  id: string;
   hash: string;
   timestamp: number;
   snapshot: Entry;
@@ -60,12 +59,23 @@ export interface Entry {
   _isNew?: boolean;
 }
 
+// A commit as it appears in an export, not the UI-facing EntryHistoryCommit
+// shape: no nested `snapshot` wrapper, and no `id`/`commitHash` duplicated
+// inside it -- `hash` already is that commit's identity. The entry's fields
+// at that commit are flattened to the top level instead.
+export interface ExportHistoryCommit extends Omit<Entry, 'id' | 'commitHash' | 'history'> {
+  hash: string;
+  timestamp: number;
+  parent: string | null;
+  changed: string[] | undefined;
+}
+
 // The shape buildExportData() produces: entry.history minus the current
 // version (already duplicated by the entry's own top-level fields), plus
 // each entry's raw entry_key attached only at export time.
 export interface ExportEntry extends Omit<Entry, 'history'> {
   entry_key: string | null;
-  history: EntryHistoryCommit[];
+  history: ExportHistoryCommit[];
 }
 
 export interface ExportData {
