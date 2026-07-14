@@ -23,7 +23,7 @@ InstantDB's Firebase integration is used instead of InstantDB's native magic cod
 
 Because every field is encrypted, nothing server side can read timestamps or trash state, so there is no cron job. Instead, the client does this work itself during normal use:
 
-- History cap: after adding a new commit, decrypt the entry's history file (one JSON array of every kept commit), sort by embedded timestamp, drop any past the most recent 20, then re-encrypt and re-upload as a new file before deleting the old one (see docs/crypto.md, History File).
+- History cap: after adding a new commit, decrypt the entry's history file (one JSON array of every kept commit), sort by embedded timestamp, drop any past the most recent 20, re-encrypt and re-upload as a new file, then atomically delete the old file and link the new one (see docs/crypto.md, History File).
 - Trash purge: on load, decrypt trashed entries' embedded `deletedAt`, permanently delete any past the retention window.
 
 ## Backup: client direct

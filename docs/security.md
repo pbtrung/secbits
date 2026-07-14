@@ -9,7 +9,7 @@ Threat model and guarantees for the current design. See docs/architecture.md, do
 - **Malicious or careless InstantDB staff**: same guarantee as above; InstantDB itself never holds a decryption key.
 - **Cross user access**: permission rules scope every row to `auth.id` (see docs/data_model.md, Permission rules); one authenticated user cannot read another user's `entries`, `keyStore`, or `$files` rows (entry data or history), the last scoped by both the `entry` link and an `auth.id`-namespaced `path`.
 - **Ownership hijack via update**: `!('owner' in request.modifiedFields)` on the `entries` and `keyStore` update rules stops a user reassigning their own row onto another user's account after creation, by forbidding the `owner` link from being touched in an update at all (see docs/data_model.md, Permission rules).
-- **History tampering**: `$files.update` is `false` for history files; a history file can only be created fresh (new path, new commit hash) or deleted, never edited in place (see docs/crypto.md, History File).
+- **History and entry data tampering**: `$files.update` is `false` for every file, entry data included; a file can only be created fresh (new path, new commit hash) or deleted, never edited in place, and the old file is only deleted once the new one is atomically live (see docs/crypto.md, Entry Data File, History File, and Save Ordering).
 - **Wrong key or tampered blob**: AEAD authentication covers the full blob, magic, version, salt, and ciphertext, as additional data. A single bit change anywhere, or a decrypt attempt with the wrong key, fails closed before any plaintext is returned (see docs/crypto.md, AEAD Additional Data and Security Properties).
 
 ## What this does not protect against

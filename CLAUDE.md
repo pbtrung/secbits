@@ -42,15 +42,15 @@ Login:
 Save (create or update):
 
 1. App serializes entry to JSON, including type, tags, and timestamps — everything.
-2. App Brotli compresses the JSON bytes.
-3. App AEAD encrypts the compressed bytes with a fresh random salt.
-4. App uploads the raw encrypted bytes directly to InstantDB Storage via `db.storage.uploadFile`, overwriting the entry's existing data file at the same path (or creating it, for a new entry).
-5. App links the resulting file as the entry's `entryFile` and writes `entryKey`/`owner` via `db.transact`; InstantDB permission rules confirm both the row and the file path belong to the authenticated user.
+2. App Brotli compresses the JSON bytes and AEAD encrypts them with a fresh random salt; the same encrypted content and commit hash are shared by the new history commit and the entry data file's path.
+3. App appends the new commit to the entry's history file, uploads it at a fresh path, then atomically deletes the previous history file and links the new one via `db.transact`.
+4. App uploads the new entry data file at a fresh path, then atomically deletes the previous data file and links the new one as `entryFile` via `db.transact`. History goes first (step 3): a save interrupted between the two steps still leaves the new content recoverable from history even if the entry's own file didn't make it (see docs/crypto.md, Save Ordering).
+5. InstantDB permission rules confirm every row and file path belong to the authenticated user throughout.
 
 Maintenance (client side, on load/save):
 
 1. App decrypts an entry's history file (a single InstantDB Storage object holding a JSON array of every kept commit) to read each commit's embedded timestamp.
-2. App drops the oldest commits past the cap of the most recent 20, then re-encrypts and re-uploads the file at a new path before deleting the old one.
+2. App drops the oldest commits past the cap of the most recent 20, re-encrypts and re-uploads the file at a new path, then atomically deletes the old file and links the new one.
 3. App decrypts trashed entries' embedded `deletedAt` and permanently deletes those past the retention window.
 
 Backup (on demand):

@@ -165,10 +165,30 @@ Every entry's history is one InstantDB Storage object (a `$files` row, see docs/
 - **Encryption**: the whole array is Brotli compressed and AEAD encrypted as a single blob, same pipeline and key (`K = entryKey`) as the entry's own data file (see Key Hierarchy and docs/data_model.md, Entities).
 - **Upload**: the raw encrypted bytes go straight to InstantDB Storage via `db.storage.uploadFile(path, blob)`; no base64 step, unlike `entries`/`keyStore` rows (see Encryption Pipeline).
 - **Path**: `${auth.id}/entryHistory/${entryId}/${latestCommitHash}.json`. Every save changes the latest commit hash, so every save gets a new path; nothing is ever overwritten in place.
-- **Save**: decrypt the current history file (if the entry has one), append the new commit, drop any past the most recent 20, re-encrypt the full array (fresh salt), upload it at the new path, link it to the entry, then delete the previous file. New-then-delete, not overwrite, so a crash mid-save leaves the old file intact rather than a partially written one.
+- **Save**: decrypt the current history file (if the entry has one), append the new commit, drop any past the most recent 20, re-encrypt the full array (fresh salt), upload it at the new path. Then, in one atomic `db.transact` call, delete the previous history file and link the new one as `entries.historyFile` — delete-and-link together, not as two separate calls, so a crash between them never leaves the entry linked to zero or two history files (see Save Ordering below).
 - **Cap enforcement**: pruning to the most recent 20 happens by trimming the in-memory array before the single re-encrypt-and-upload, not by deleting individual rows one at a time.
 
 **Trade-off**: because the entire array is re-encrypted as one blob on every save, an older commit's ciphertext is regenerated (fresh salt) each time even though its plaintext hasn't changed — a commit's stored ciphertext bytes no longer stay frozen forever from the moment of its own creation, the way a dedicated row per commit would. `commitHash` is computed over plaintext and is unaffected, so tamper evidence for a given commit's content still holds; what's lost is byte-level ciphertext stability for old commits across later saves.
+
+## Entry Data File
+
+Every entry's data is one InstantDB Storage object (a `$files` row, see docs/data_model.md, Entities), not a database field:
+
+- **Plaintext**: everything about the entry — type, title, fields, tags, notes, `createdAt`, `updatedAt`, `deletedAt` (trash marker).
+- **Encryption**: Brotli compressed and AEAD encrypted as a single blob, same pipeline and key (`K = entryKey`) as the entry's history file (see Key Hierarchy).
+- **Upload**: the raw encrypted bytes go straight to InstantDB Storage via `db.storage.uploadFile(path, blob)`; no base64 step (see Encryption Pipeline).
+- **Path**: `${auth.id}/entries/${entryId}/${commitHash}.json`, where `commitHash` is the same commit hash computed for that save's history entry (see Commit Hash) — every save gets a fresh path; nothing is ever overwritten in place.
+- **Save**: upload the new file at its new path, then in one atomic `db.transact` call, delete the previous `$files` row and link the new one as `entries.entryFile`. Delete-and-link together, not as two separate calls, for the same reason as the history file above — a crash between them never leaves the entry linked to zero or two data files.
+
+## Save Ordering
+
+A save writes two independent things — the entry data file and a new history commit — and each is individually crash-safe (upload-then-atomic-swap, see above), but the two swaps still aren't atomic *with each other*, so their relative order matters:
+
+1. Compute the new commit hash and encrypt the new entry content once; the same encrypted bytes and the same `commitHash` are shared by both the new history commit and the entry data file's path.
+2. Append the new commit to the history file first: upload it at its new path, then atomically delete the previous history file and link the new one (see History File, Save).
+3. Only once that's confirmed, do the same swap for the entry data file (see Entry Data File, Save).
+
+History goes first because it's the recovery path if the save is interrupted between the two swaps: if the process dies after step 2 but before step 3 finishes, the entry data file may still reflect the old content, but the just-written history commit already holds the new content, recoverable via restore-version. Doing it the other way around would leave a save that updated the live entry but crashed before recording it in history — not data loss, since the current entry content is still correct, but a silently missing history entry with no signal anything is off. Ordering it this way means whichever half of the save didn't finish is always the recoverable half.
 
 ## Cloud Backup
 
