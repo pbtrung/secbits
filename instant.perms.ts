@@ -20,13 +20,13 @@ const rules = {
       update: "isOwner && !('owner' in request.modifiedFields)",
     },
   },
-  entryHistory: {
-    bind: ['isOwner', "auth.id in data.ref('entry.owner.id')"],
+  $files: {
+    bind: ['isOwnPath', "data.path.startsWith(auth.id + '/')"],
     allow: {
-      view: 'isOwner',
-      create: 'isOwner',
+      view: 'isOwnPath',
+      create: 'isOwnPath',
+      delete: 'isOwnPath',
       update: 'false',
-      delete: 'isOwner',
     },
   },
 } satisfies InstantRules<AppSchema>;
