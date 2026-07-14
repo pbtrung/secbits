@@ -51,7 +51,7 @@ type RawSnapshot = Omit<Entry, 'id' | 'commitHash'> & { commitHash: string };
 
 // Exported (unlike most of this file's internals) purely so it's directly
 // unit-testable: it's pure data logic with no dependency on InstantDB, see
-// src/tests/db-pure.test.js.
+// src/tests/db-pure.test.ts.
 export function fieldsChanged(fromSnap: Partial<Entry> | undefined, toSnap: Partial<Entry> | undefined): string[] {
   return DIFFABLE_FIELDS.filter((f) => JSON.stringify(fromSnap?.[f]) !== JSON.stringify(toSnap?.[f]));
 }
@@ -344,21 +344,52 @@ async function purgeTrashRetention(trashEntries: TrashEntry[]): Promise<void> {
 
 interface SaveOptions {
   isCreate?: boolean;
+  // Set by deleteUserEntry/restoreDeletedUserEntry/restoreVersionByCommitHash,
+  // which already fetched and decrypted the entry's current file to build
+  // their own snapshot input -- passing that through here instead of letting
+  // buildNewHistoryArray fetch it again saves a redundant round trip.
+  currentHistory?: { array: RawSnapshot[]; oldFileId: string | undefined };
+}
+
+// Shared by deleteUserEntry/restoreDeletedUserEntry/restoreVersionByCommitHash:
+// fetches the entry's one linked file and decrypts its full history array
+// once. Its result doubles as SaveOptions.currentHistory for the
+// saveEntrySnapshot call these callers make right after, so the same file
+// isn't fetched and decrypted a second time.
+async function fetchCurrentHistoryArray(
+  entryId: string,
+  rawEntryKey: Uint8Array,
+): Promise<{ array: RawSnapshot[]; oldFileId: string | undefined }> {
+  const fileRef = await fetchCurrentEntryFile(entryId);
+  const array = await decryptHistoryArray(fileRef, rawEntryKey);
+  return { array, oldFileId: fileRef?.id };
+}
+
+// The content of a matched snapshot, minus the per-commit metadata
+// saveEntrySnapshot recomputes fresh: commitHash from the new content, and
+// history is never persisted per-commit in the first place (see
+// saveEntrySnapshot's own strip of the `history` key).
+function stripCommitMeta(snap: RawSnapshot): Omit<RawSnapshot, 'commitHash' | 'history'> {
+  const { commitHash: _drop, history: _drop2, ...rest } = snap;
+  return rest;
 }
 
 // Decrypts the entry's current file (if it has one yet), prepends the new
 // commit, and caps the result at HISTORY_CAP -- the whole cap enforcement
 // happens here, in memory, once per save (see docs/crypto.md, Entry Data
-// File, Cap enforcement), not as a separate pass over stored rows.
+// File, Cap enforcement), not as a separate pass over stored rows. `current`
+// lets a caller that already fetched the file (see fetchCurrentHistoryArray)
+// skip fetching it again.
 async function buildNewHistoryArray(
   entryId: string,
   rawEntryKey: Uint8Array,
   withHash: RawSnapshot,
   isCreate: boolean | undefined,
+  current?: { array: RawSnapshot[]; oldFileId: string | undefined },
 ): Promise<{ array: RawSnapshot[]; oldFileId: string | undefined }> {
-  const currentFile = isCreate ? undefined : await fetchCurrentEntryFile(entryId);
-  const previous = await decryptHistoryArray(currentFile, rawEntryKey);
-  return { array: capHistoryArray([withHash, ...previous], HISTORY_CAP), oldFileId: currentFile?.id };
+  const fetched =
+    current ?? (isCreate ? { array: [], oldFileId: undefined } : await fetchCurrentHistoryArray(entryId, rawEntryKey));
+  return { array: capHistoryArray([withHash, ...fetched.array], HISTORY_CAP), oldFileId: fetched.oldFileId };
 }
 
 // The single atomic swap every save ends in: delete the entry's previous
@@ -390,7 +421,7 @@ async function saveEntrySnapshot(
   entryId: string,
   rawEntryKey: Uint8Array,
   snapshotWithoutHash: Partial<Entry>,
-  { isCreate }: SaveOptions = {},
+  { isCreate, currentHistory }: SaveOptions = {},
 ): Promise<Entry> {
   // Defense in depth: every caller already strips `history` from its input,
   // but this is the one choke point all saves funnel through, so a future
@@ -399,7 +430,7 @@ async function saveEntrySnapshot(
   const commitHash = await computeCommitHash(cleanSnapshot);
   const withHash = { ...cleanSnapshot, commitHash } as RawSnapshot;
 
-  const { array, oldFileId } = await buildNewHistoryArray(entryId, rawEntryKey, withHash, isCreate);
+  const { array, oldFileId } = await buildNewHistoryArray(entryId, rawEntryKey, withHash, isCreate, currentHistory);
   const authId = await requireAuthId();
   const bytes = await encryptEntry(array, rawEntryKey);
   const newFileId = await uploadEntryFile(entryFilePath(authId, entryId, commitHash), bytes);
@@ -486,48 +517,65 @@ export async function updateUserEntry(entryId: string, entry: Partial<Entry>): P
   assertUnlocked();
   const rawEntryKey = entryKeyCache.get(entryId);
   if (!rawEntryKey) throw new Error(`Unknown entry ${entryId}; call fetchUserEntries first`);
-  const { id: _draftId, _isNew: _draftFlag, history: _draftHistory, ...content } = entry;
+  // commitHash is stripped like every other save path below: it's the
+  // previous commit's hash, not an input to this one's (see docs/crypto.md,
+  // Commit Hash), and the hydrated Entry the UI holds always carries one.
+  const { id: _draftId, _isNew: _draftFlag, history: _draftHistory, commitHash: _draftCommitHash, ...content } = entry;
   const snapshot = { ...content, updatedAt: Date.now() };
   return saveEntrySnapshot(entryId, rawEntryKey, snapshot);
-}
-
-// Shared by deleteUserEntry/restoreDeletedUserEntry/restoreVersionByCommitHash:
-// the entry's current content, read from its one linked file rather than a
-// cached copy, since these ops need the latest state to build on top of.
-async function fetchCurrentEntryContent(entryId: string, rawEntryKey: Uint8Array): Promise<RawSnapshot> {
-  const fileRef = await fetchCurrentEntryFile(entryId);
-  const array = await decryptHistoryArray(fileRef, rawEntryKey);
-  if (array.length === 0) throw new Error(`Entry ${entryId} not found`);
-  return array[0];
 }
 
 export async function deleteUserEntry(entryId: string): Promise<Entry> {
   assertUnlocked();
   const rawEntryKey = entryKeyCache.get(entryId);
   if (!rawEntryKey) throw new Error(`Unknown entry ${entryId}; call fetchUserEntries first`);
-  const current = await fetchCurrentEntryContent(entryId, rawEntryKey);
-  const { commitHash: _drop, history: _drop2, ...withoutHash } = current;
-  return saveEntrySnapshot(entryId, rawEntryKey, { ...withoutHash, deletedAt: Date.now(), updatedAt: Date.now() });
+  const { array, oldFileId } = await fetchCurrentHistoryArray(entryId, rawEntryKey);
+  if (array.length === 0) throw new Error(`Entry ${entryId} not found`);
+  const withoutHash = stripCommitMeta(array[0]);
+  return saveEntrySnapshot(
+    entryId,
+    rawEntryKey,
+    { ...withoutHash, deletedAt: Date.now(), updatedAt: Date.now() },
+    { currentHistory: { array, oldFileId } },
+  );
 }
 
 export async function restoreDeletedUserEntry(entryId: string): Promise<Entry> {
   assertUnlocked();
   const rawEntryKey = entryKeyCache.get(entryId);
   if (!rawEntryKey) throw new Error(`Unknown entry ${entryId}; call fetchUserEntries first`);
-  const current = await fetchCurrentEntryContent(entryId, rawEntryKey);
-  const { commitHash: _drop, history: _drop2, ...withoutHash } = current;
-  return saveEntrySnapshot(entryId, rawEntryKey, { ...withoutHash, deletedAt: null, updatedAt: Date.now() });
+  const { array, oldFileId } = await fetchCurrentHistoryArray(entryId, rawEntryKey);
+  if (array.length === 0) throw new Error(`Entry ${entryId} not found`);
+  const withoutHash = stripCommitMeta(array[0]);
+  return saveEntrySnapshot(
+    entryId,
+    rawEntryKey,
+    { ...withoutHash, deletedAt: null, updatedAt: Date.now() },
+    { currentHistory: { array, oldFileId } },
+  );
 }
 
 async function restoreVersionByCommitHash(entryId: string, commitHash: string): Promise<Entry> {
   const rawEntryKey = entryKeyCache.get(entryId);
   if (!rawEntryKey) throw new Error(`Unknown entry ${entryId}; call fetchUserEntries first`);
-  const fileRef = await fetchCurrentEntryFile(entryId);
-  const array = await decryptHistoryArray(fileRef, rawEntryKey);
+  const { array, oldFileId } = await fetchCurrentHistoryArray(entryId, rawEntryKey);
   const match = array.find((snap) => snap.commitHash === commitHash);
   if (!match) throw new Error(`Commit ${commitHash} not found in history for entry ${entryId}`);
-  const { commitHash: _drop, history: _drop2, ...withoutHash } = match;
-  return saveEntrySnapshot(entryId, rawEntryKey, { ...withoutHash, updatedAt: Date.now() });
+  const withoutHash = stripCommitMeta(match);
+  // Restoring a version brings back its content only, never its trash
+  // status: use the current head's deletedAt (array[0]), not the restored
+  // commit's own, which can be stale from when that exact content was
+  // captured while the entry was soft-deleted. Otherwise restoring an old
+  // version could silently move a currently-active entry back into trash
+  // (or a trashed one out of it) as a side effect, and if the restored
+  // deletedAt were old enough, the next purgeTrashRetention() call would
+  // permanently delete it.
+  return saveEntrySnapshot(
+    entryId,
+    rawEntryKey,
+    { ...withoutHash, deletedAt: array[0].deletedAt, updatedAt: Date.now() },
+    { currentHistory: { array, oldFileId } },
+  );
 }
 
 export async function restoreEntryVersion(entryId: string, commitHash: string): Promise<Entry> {
