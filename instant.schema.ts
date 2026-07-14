@@ -3,11 +3,13 @@ import { i } from '@instantdb/react';
 // Pulled from the live app (npx instant-cli@latest pull schema) rather than
 // hand-maintained: this file drifting from what's actually live caused
 // several real bugs earlier (see docs/data_model.md, Uniqueness), so the
-// live schema is treated as the source of truth going forward. $files and
-// $usersLinkedPrimaryUser are InstantDB system entities/links this app
-// never touches directly, kept here because the query validator needs
-// local schema for anything a dot-notation where filter traverses into,
-// same reason $users itself must be declared explicitly.
+// live schema is treated as the source of truth going forward. $files holds
+// entry data and entry history now (see entryFileEntry/historyFileEntry
+// below), no longer just a schema internal; $usersLinkedPrimaryUser is still
+// an InstantDB system link this app never touches directly, kept because the
+// query validator needs local schema for anything a dot-notation where
+// filter traverses into, same reason $users itself must be declared
+// explicitly.
 //
 // keyStoreOwner's reverse side is has: 'many', not 'one': a genuine
 // has:'one'/has:'one' one-to-one on this link produced a persistent
@@ -16,7 +18,9 @@ import { i } from '@instantdb/react';
 // and correct auth. Backend enforcement was backed off; "one keyStore row
 // per user" is enforced client side instead, by ensureKeyStore in
 // src/db.js treating more than one matching row as a fatal error rather
-// than silently picking one.
+// than silently picking one. entryFileEntry/historyFileEntry below use the
+// same has: 'many' cardinality up front, for the same reason, rather than
+// risk hitting this a second time (see docs/data_model.md, Links).
 
 const _schema = i.schema({
   entities: {
@@ -30,11 +34,7 @@ const _schema = i.schema({
       type: i.string().optional(),
     }),
     entries: i.entity({
-      encryptedData: i.string(),
       entryKey: i.string(),
-    }),
-    entryHistory: i.entity({
-      encryptedSnapshot: i.string(),
     }),
     keyStore: i.entity({
       umkBlob: i.string(),
@@ -68,18 +68,35 @@ const _schema = i.schema({
         label: 'entries',
       },
     },
-    entryHistoryEntry: {
+    // No required: true on either of these two, unlike entriesOwner above:
+    // the $files row is created by a separate db.storage.uploadFile call
+    // before the db.transact that links it (see docs/crypto.md, Entry Data
+    // File / History File / Save Ordering), so for a moment after upload the
+    // file exists unlinked; required would reject that transient state.
+    entryFileEntry: {
       forward: {
-        on: 'entryHistory',
+        on: '$files',
         has: 'one',
         label: 'entry',
-        required: true,
         onDelete: 'cascade',
       },
       reverse: {
         on: 'entries',
         has: 'many',
-        label: 'entryHistory',
+        label: 'entryFile',
+      },
+    },
+    historyFileEntry: {
+      forward: {
+        on: '$files',
+        has: 'one',
+        label: 'historyEntry',
+        onDelete: 'cascade',
+      },
+      reverse: {
+        on: 'entries',
+        has: 'many',
+        label: 'historyFile',
       },
     },
     // required: true is deliberately absent here, unlike the other two
