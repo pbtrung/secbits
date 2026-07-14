@@ -86,12 +86,12 @@ let umkBytes: Uint8Array | null = null;
 // Config only, never stored in InstantDB in any form: see
 // decodeBackupMasterKey in crypto.ts for why.
 let backupMasterKeyBytes: Uint8Array | null = null;
-let keyStoreId: string | null = null;
+let umkStoreId: string | null = null;
 let usernameValue: string | null = null;
 let backupDestinationsValue: BackupDestinations = { r2_config: null, s3_config: [] };
 
-// Decrypted entryKey bytes, cached by entries row id, so hydrating the vault
-// on every load/render doesn't require re-decrypting every entryKey blob.
+// Decrypted entryKeyBlob bytes, cached by entries row id, so hydrating the
+// vault on every load/render doesn't require re-decrypting every entryKeyBlob.
 const entryKeyCache = new Map<string, Uint8Array>();
 
 function assertUnlocked(): void {
@@ -192,7 +192,7 @@ export function clearSession() {
   rootMasterKeyBytes = null;
   umkBytes = null;
   backupMasterKeyBytes = null;
-  keyStoreId = null;
+  umkStoreId = null;
   usernameValue = null;
   backupDestinationsValue = { r2_config: null, s3_config: [] };
   entryKeyCache.clear();
@@ -201,25 +201,23 @@ export function clearSession() {
 
 // --- key bootstrap -----------------------------------------------------------
 
-interface KeyStoreRow {
+interface UmkStoreRow {
   id: string;
-  keyBlob: string;
-  keyType: string;
+  umkBlob: string;
 }
-
-// keyStore is a general-purpose keyed-blob table, not UMK-specific -- keyType
-// discriminates what a row holds. Today the UMK is the only thing stored
-// here, but every query below still filters by keyType rather than assuming
-// "one keyStore row per user" means "one row of any kind": that's how "one
-// UMK per user" gets enforced (see below) if this table ever grows a second
-// keyType.
-const UMK_KEY_TYPE = 'umk';
 
 // Replaces the old bootstrapUMKIfNeeded, minus the ML-KEM/X448 sharing
 // keypair bootstrap (sharing is deferred, see docs/features.md).
-async function queryOwnKeyStoreRows(authId: string): Promise<KeyStoreRow[]> {
+//
+// umkStoreOwner is has: 'one' on both sides (see instant.schema.ts), so
+// $users.umkStore is a single row or undefined here, not an array -- unlike
+// keyStoreOwner's old has: 'many' workaround, there's no "more than one row"
+// case left to defend against client side; the schema constraint is what's
+// being trusted this time (see instant.schema.ts's own comment for why, and
+// the fallback if it doesn't hold live).
+async function queryOwnUmkStoreRow(authId: string): Promise<UmkStoreRow | null> {
   // Query from $users (whose id we already have directly) and follow the
-  // forward link out to keyStore, rather than querying keyStore with a
+  // forward link out to umkStore, rather than querying umkStore with a
   // reverse dot-path where filter (see docs/data_model.md, Uniqueness for
   // why: db.queryOnce()'s result is wrapped in a `data` key, e.g.
   // { data: { $users: [...] } }, not the bare query shape. Every queryOnce
@@ -227,57 +225,46 @@ async function queryOwnKeyStoreRows(authId: string): Promise<KeyStoreRow[]> {
   // empty results, regardless of which query shape was tried.
   const users = (
     await db!.queryOnce({
-      $users: { $: { where: { id: authId } }, keyStore: { $: { where: { keyType: UMK_KEY_TYPE } } } },
+      $users: { $: { where: { id: authId } }, umkStore: {} },
     })
   ).data.$users;
-  return users[0]?.keyStore || [];
+  return users[0]?.umkStore || null;
 }
 
-async function findOwnKeyStoreRow(authId: string): Promise<KeyStoreRow | null> {
-  let rows = await queryOwnKeyStoreRows(authId);
-
-  if (rows.length === 0) {
-    // Reduce, not eliminate, the multi-tab/multi-device first run race
-    // (see docs/security.md, Duplicate keyStore rows mitigation).
-    await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300));
-    rows = await queryOwnKeyStoreRows(authId);
-  }
-
-  if (rows.length > 1) {
-    throw new Error('Multiple key store rows found for this account. Refusing to guess which is correct.');
-  }
-  return rows[0] || null;
+async function findOwnUmkStoreRow(authId: string): Promise<UmkStoreRow | null> {
+  const row = await queryOwnUmkStoreRow(authId);
+  if (row) return row;
+  // Reduce, not eliminate, the multi-tab/multi-device first run race
+  // (see docs/security.md, Duplicate umkStore rows mitigation).
+  await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300));
+  return queryOwnUmkStoreRow(authId);
 }
 
-async function createKeyStoreRow(): Promise<{ umk: Uint8Array; keyStoreId: string }> {
+async function createUmkStoreRow(): Promise<{ umk: Uint8Array; umkStoreId: string }> {
   const newUmk = generateUMK();
-  const keyBlobBytes = await encryptUMK(newUmk, rootMasterKeyBytes!);
+  const umkBlobBytes = await encryptUMK(newUmk, rootMasterKeyBytes!);
   const newId = id();
   const ownerId = await requireAuthId();
 
-  await db!.transact([
-    db!.tx.keyStore[newId]
-      .update({ keyBlob: bytesToB64(keyBlobBytes), keyType: UMK_KEY_TYPE })
-      .link({ owner: ownerId }),
-  ]);
+  await db!.transact([db!.tx.umkStore[newId].update({ umkBlob: bytesToB64(umkBlobBytes) }).link({ owner: ownerId })]);
 
-  return { umk: newUmk, keyStoreId: newId };
+  return { umk: newUmk, umkStoreId: newId };
 }
 
 export async function ensureKeyStore(rmkBytes: Uint8Array): Promise<void> {
   rootMasterKeyBytes = rmkBytes;
   const authId = await requireAuthId();
-  const row = await findOwnKeyStoreRow(authId);
+  const row = await findOwnUmkStoreRow(authId);
 
   if (row) {
-    umkBytes = await decryptUMK(b64ToBytes(row.keyBlob), rootMasterKeyBytes);
-    keyStoreId = row.id;
+    umkBytes = await decryptUMK(b64ToBytes(row.umkBlob), rootMasterKeyBytes);
+    umkStoreId = row.id;
     return;
   }
 
-  const created = await createKeyStoreRow();
+  const created = await createUmkStoreRow();
   umkBytes = created.umk;
-  keyStoreId = created.keyStoreId;
+  umkStoreId = created.umkStoreId;
 }
 
 // --- internal: entry file storage helpers ------------------------------------
@@ -289,14 +276,14 @@ interface FileRef {
 
 interface EntriesRow {
   id: string;
-  entryKey: string;
+  entryKeyBlob: string;
   entryFile?: FileRef;
 }
 
 async function getOrDecryptEntryKey(entriesRow: EntriesRow): Promise<Uint8Array> {
   const cached = entryKeyCache.get(entriesRow.id);
   if (cached) return cached;
-  const rawEntryKey = await decryptEntryKey(b64ToBytes(entriesRow.entryKey), umkBytes!);
+  const rawEntryKey = await decryptEntryKey(b64ToBytes(entriesRow.entryKeyBlob), umkBytes!);
   entryKeyCache.set(entriesRow.id, rawEntryKey);
   return rawEntryKey;
 }
@@ -372,10 +359,10 @@ async function buildNewHistoryArray(
 // file (if any) and link the new one, together in one db.transact call, so
 // a crash between the two never leaves the entry linked to zero or two
 // files (see docs/crypto.md, Entry Data File, Save). On create, the same
-// call also writes entryKey and links keyBlob to the user's own keyStore
-// row -- the entries row's very first write must already set keyBlob, or
-// the entries update-permission check would fail on a row with no owner
-// chain yet (see docs/data_model.md, Permission rules).
+// call also writes entryKeyBlob and links umk to the user's own umkStore
+// row -- the entries row's very first write must already set umk, or the
+// entries update-permission check would fail on a row with no owner chain
+// yet (see docs/data_model.md, Permission rules).
 async function commitEntryFileSwap(
   entryId: string,
   rawEntryKey: Uint8Array,
@@ -385,8 +372,8 @@ async function commitEntryFileSwap(
 ): Promise<void> {
   const ops = [];
   if (isCreate) {
-    const entryKeyBlob = bytesToB64(await encryptEntryKey(rawEntryKey, umkBytes!));
-    ops.push(db!.tx.entries[entryId].update({ entryKey: entryKeyBlob }).link({ keyBlob: keyStoreId! }));
+    const entryKeyBlobB64 = bytesToB64(await encryptEntryKey(rawEntryKey, umkBytes!));
+    ops.push(db!.tx.entries[entryId].update({ entryKeyBlob: entryKeyBlobB64 }).link({ umk: umkStoreId! }));
   }
   if (oldFileId) ops.push(db!.tx.$files[oldFileId].delete());
   ops.push(db!.tx.entries[entryId].link({ entryFile: newFileId }));
@@ -435,15 +422,15 @@ export interface FetchUserEntriesResult {
 
 export async function fetchUserEntries(): Promise<FetchUserEntriesResult> {
   assertUnlocked();
-  // Query the user's own keyStore (UMK) row directly by its already-known id
-  // and follow the forward link out to entries, same "query the root entity
-  // by its own id, then follow the link out" shape as fetchCurrentEntryFile.
-  const keyStoreRows = (
+  // Query the user's own umkStore row directly by its already-known id and
+  // follow the forward link out to entries, same "query the root entity by
+  // its own id, then follow the link out" shape as fetchCurrentEntryFile.
+  const umkStoreRows = (
     await db!.queryOnce({
-      keyStore: { $: { where: { id: keyStoreId! } }, entries: { entryFile: {} } },
+      umkStore: { $: { where: { id: umkStoreId! } }, entries: { entryFile: {} } },
     })
-  ).data.keyStore;
-  const rows: EntriesRow[] = keyStoreRows[0]?.entries || [];
+  ).data.umkStore;
+  const rows: EntriesRow[] = umkStoreRows[0]?.entries || [];
 
   const entries: Entry[] = [];
   const trash: Entry[] = [];
@@ -559,8 +546,8 @@ export async function permanentlyDeleteUserEntry(entryId: string): Promise<void>
 
 export async function rotateRootMasterKey(newRootMasterKeyBytes: Uint8Array): Promise<void> {
   assertUnlocked();
-  const newKeyBlob = await encryptUMK(umkBytes!, newRootMasterKeyBytes);
-  await db!.transact([db!.tx.keyStore[keyStoreId!].update({ keyBlob: bytesToB64(newKeyBlob) })]);
+  const newUmkBlob = await encryptUMK(umkBytes!, newRootMasterKeyBytes);
+  await db!.transact([db!.tx.umkStore[umkStoreId!].update({ umkBlob: bytesToB64(newUmkBlob) })]);
   rootMasterKeyBytes = newRootMasterKeyBytes;
 }
 
@@ -583,23 +570,23 @@ export async function rotateUserMasterKey(): Promise<{ rotatedEntries: number }>
   assertUnlocked();
   // Same "query the root entity by its own id, then follow the link out"
   // shape as fetchUserEntries.
-  const keyStoreForRotation = (
+  const umkStoreForRotation = (
     await db!.queryOnce({
-      keyStore: { $: { where: { id: keyStoreId! } }, entries: {} },
+      umkStore: { $: { where: { id: umkStoreId! } }, entries: {} },
     })
-  ).data.keyStore;
-  const rows: EntriesRow[] = keyStoreForRotation[0]?.entries || [];
+  ).data.umkStore;
+  const rows: EntriesRow[] = umkStoreForRotation[0]?.entries || [];
   const newUmk = generateUMK();
 
   const rewrappedEntryKeys = await rewrapEntryKeysUnderNewUmk(rows, newUmk);
-  const newKeyBlob = await encryptUMK(newUmk, rootMasterKeyBytes!);
+  const newUmkBlob = await encryptUMK(newUmk, rootMasterKeyBytes!);
 
-  // Single atomic transaction: every entryKey rewrap plus the new keyStore
-  // row together, so a failure anywhere leaves the old UMK and every old
-  // entryKey blob fully valid (see docs/crypto.md, Key Rotation).
+  // Single atomic transaction: every entryKeyBlob rewrap plus the new
+  // umkStore row together, so a failure anywhere leaves the old UMK and
+  // every old entryKeyBlob fully valid (see docs/crypto.md, Key Rotation).
   await db!.transact([
-    ...rewrappedEntryKeys.map(({ rowId, blob }) => db!.tx.entries[rowId].update({ entryKey: blob })),
-    db!.tx.keyStore[keyStoreId!].update({ keyBlob: bytesToB64(newKeyBlob) }),
+    ...rewrappedEntryKeys.map(({ rowId, blob }) => db!.tx.entries[rowId].update({ entryKeyBlob: blob })),
+    db!.tx.umkStore[umkStoreId!].update({ umkBlob: bytesToB64(newUmkBlob) }),
   ]);
 
   umkBytes = newUmk;
