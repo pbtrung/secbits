@@ -16,14 +16,15 @@ import { i } from '@instantdb/react';
 // persistent "already exists" uniqueness rejection once before, even after
 // confirming zero existing rows, no leftover entities from diagnostic
 // renames, and correct auth (see docs/data_model.md, Uniqueness) -- this is
-// a deliberate retry of that same shape, not a first attempt. ensureKeyStore
-// in src/db.ts still treats finding more than one matching row as a fatal
-// error rather than silently picking one, defense in depth regardless of
-// whether the schema constraint holds. If the "already exists" rejection
-// recurs, the known fallback is has: 'many' on the `$users` side plus that
-// same client-side check. entryFileEntry below is has: 'one' on both sides
-// too, for an unrelated reason (its swap is a single atomic db.transact, see
-// its own comment).
+// a deliberate retry of that same shape, not a first attempt. Under a
+// genuine has:'one' constraint there's no "more than one row" case left to
+// check client side (queryOwnUmkStoreRow in src/db.ts gets a single row or
+// undefined back, not an array), so the schema constraint is what's actually
+// being trusted this time. If the "already exists" rejection recurs, the
+// known fallback is has: 'many' on the `$users` side plus a client-side
+// "more than one row is fatal" check, same pattern as before. entryFileEntry
+// below is has: 'one' on both sides too, for an unrelated reason (its swap
+// is a single atomic db.transact, see its own comment).
 
 const _schema = i.schema({
   entities: {
