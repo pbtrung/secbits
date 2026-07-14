@@ -12,12 +12,12 @@ const rules = {
     },
   },
   entries: {
-    bind: ['isOwner', "auth.id in data.ref('owner.id')"],
+    bind: ['isOwner', "auth.id in data.ref('keyBlob.owner.id')"],
     allow: {
       view: 'isOwner',
       create: 'isOwner',
       delete: 'isOwner',
-      update: "isOwner && !('owner' in request.modifiedFields)",
+      update: "isOwner && !('keyBlob' in request.modifiedFields)",
     },
   },
   $files: {
@@ -26,7 +26,7 @@ const rules = {
       view: 'isOwnPath',
       create: 'isOwnPath',
       delete: 'isOwnPath',
-      update: 'false',
+      update: 'isOwnPath',
     },
   },
 } satisfies InstantRules<AppSchema>;
