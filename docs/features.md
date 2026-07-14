@@ -42,7 +42,7 @@ What is actually decided for this rebuild so far. Anything not listed here is un
 
 ## Multi user
 
-- Every user's `keyStore` and `entries` rows, and every history file, are strictly isolated by owner; no sharing between users (see docs/data_model.md, Multi user, no sharing).
+- Every user's `keyStore` and `entries` rows, and every file (entry data or history), are strictly isolated by owner; no sharing between users (see docs/data_model.md, Multi user, no sharing).
 
 ## Deliberately deferred
 

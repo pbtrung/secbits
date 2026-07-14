@@ -127,13 +127,13 @@ The same pipeline applies to every blob type. The IKM passed to HKDF varies by b
 **Encrypt (write path):**
 
 1. Serialize the payload (entry JSON, key bytes, etc).
-2. Brotli compress the payload bytes (for entry data; raw bytes for key material).
+2. Brotli compress the payload bytes (for entry data and history array payloads; raw bytes for key material).
 3. Generate 64 random salt bytes.
 4. Derive `(encKey, encIv) = HKDF-SHA3-512(ikm=K, salt, length=128)`.
 5. Compute `AD = magic || version || salt`.
 6. AEAD encrypt payload bytes with AD to get `(ciphertext, tag)`.
 7. Concatenate: `magic || version || salt || ciphertext || tag`.
-8. `keyStore.umkBlob` and `entries.entryKey` blobs: base64 encode and write directly to InstantDB via `db.transact`. The entry data file and the entry history file: upload the raw bytes directly via `db.storage.uploadFile` (see History File below and docs/data_model.md, Entities); no base64 step, since Storage takes a `File`/`Blob` directly, not a string field.
+8. `keyStore.umkBlob` and `entries.entryKey` blobs: base64 encode and write directly to InstantDB via `db.transact`. The entry data file and the entry history file: upload the raw bytes directly via `db.storage.uploadFile` (see Entry Data File and History File below, and docs/data_model.md, Entities); no base64 step, since Storage takes a `File`/`Blob` directly, not a string field.
 
 **Decrypt (read path):**
 
@@ -144,7 +144,7 @@ The same pipeline applies to every blob type. The IKM passed to HKDF varies by b
 5. Recompute `AD = magic || version || salt`.
 6. Derive `(encKey, encIv) = HKDF-SHA3-512(ikm=K, salt, length=128)`.
 7. AEAD decrypt with AD; authentication failure throws before returning any plaintext.
-8. Brotli decompress (for entry data).
+8. Brotli decompress (for entry data and history array payloads).
 9. Parse JSON or use raw bytes.
 
 ## Commit Hash
@@ -182,9 +182,9 @@ Every entry's data is one InstantDB Storage object (a `$files` row, see docs/dat
 
 ## Save Ordering
 
-A save writes two independent things — the entry data file and a new history commit — and each is individually crash-safe (upload-then-atomic-swap, see above), but the two swaps still aren't atomic *with each other*, so their relative order matters:
+A save writes two independent things — the entry data file and a new history commit — and each is individually crash-safe (upload-then-atomic-swap, see above), but the two swaps still aren't atomic _with each other_, so their relative order matters:
 
-1. Compute the new commit hash and encrypt the new entry content once; the same encrypted bytes and the same `commitHash` are shared by both the new history commit and the entry data file's path.
+1. Compute the new commit hash over the new entry content once. That same plaintext entry content and `commitHash` feed both writes below, but each is encrypted separately, not reused as one blob: the entry data file wraps just the entry alone, the history file wraps the whole commit array including this new entry, so the two are different ciphertexts with independent fresh salts.
 2. Append the new commit to the history file first: upload it at its new path, then atomically delete the previous history file and link the new one (see History File, Save).
 3. Only once that's confirmed, do the same swap for the entry data file (see Entry Data File, Save).
 

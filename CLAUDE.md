@@ -42,7 +42,7 @@ Login:
 Save (create or update):
 
 1. App serializes entry to JSON, including type, tags, and timestamps — everything.
-2. App Brotli compresses the JSON bytes and AEAD encrypts them with a fresh random salt; the same encrypted content and commit hash are shared by the new history commit and the entry data file's path.
+2. App computes the commit hash over the serialized entry once; that same entry content and commit hash feed both writes below, but each is encrypted separately (the entry data file wraps just the entry, the history file wraps the whole commit array), so the two end up as different ciphertexts with independent fresh salts, not a reused blob.
 3. App appends the new commit to the entry's history file, uploads it at a fresh path, then atomically deletes the previous history file and links the new one via `db.transact`.
 4. App uploads the new entry data file at a fresh path, then atomically deletes the previous data file and links the new one as `entryFile` via `db.transact`. History goes first (step 3): a save interrupted between the two steps still leaves the new content recoverable from history even if the entry's own file didn't make it (see docs/crypto.md, Save Ordering).
 5. InstantDB permission rules confirm every row and file path belong to the authenticated user throughout.
