@@ -22,7 +22,7 @@ The precondition that actually matters is simpler: every salt and every raw key 
 
 ```text
 root_master_key (config)
-  └── HKDF+AEAD → keyStore.umkBlob
+  └── HKDF+AEAD → keyStore.keyBlob
         └── HKDF+AEAD → entries.entryKey blob (64 raw random bytes, one per entry)
               └── HKDF+AEAD → entry file (one InstantDB Storage object per entry, current data + full history)
 
@@ -30,7 +30,7 @@ backup_master_key (config)
   └── HKDF+AEAD → cloud backup blob (R2 / S3 compatible)
 ```
 
-`root_master_key` lives only in local config; it never touches InstantDB. Each level wraps the key below it with a fresh HKDF+AEAD pass, so rotating `root_master_key` only re encrypts `keyStore.umkBlob`, and rotating a single entry only re encrypts that entry's `entryKey` blob; neither requires touching every row.
+`root_master_key` lives only in local config; it never touches InstantDB. Each level wraps the key below it with a fresh HKDF+AEAD pass, so rotating `root_master_key` only re encrypts `keyStore.keyBlob`, and rotating a single entry only re encrypts that entry's `entryKey` blob; neither requires touching every row.
 
 `backup_master_key` is a second, independent root secret, not a sibling key wrapped under `root_master_key` the way UMK is, and not a reuse of `root_master_key` directly as the backup blob's IKM either. Two prior designs were considered and rejected:
 
@@ -49,8 +49,8 @@ Per blob key derivation via HKDF-SHA3-512:
 
 Where `K` is the parent key for the blob type (see Key Hierarchy above):
 
-- `keyStore.umkBlob`: `K = root_master_key`
-- `entries.entryKey`: `K = UMK` (decrypted from `keyStore.umkBlob`)
+- `keyStore.keyBlob`: `K = root_master_key`
+- `entries.entryKey`: `K = UMK` (decrypted from `keyStore.keyBlob`)
 - the entry's file (current data + full history): `K = entryKey` (decrypted from `entries.entryKey`)
 - cloud backup blob: `K = backup_master_key` (from config, directly, no unwrap step)
 
@@ -132,11 +132,11 @@ The same pipeline applies to every blob type. The IKM passed to HKDF varies by b
 5. Compute `AD = magic || version || salt`.
 6. AEAD encrypt payload bytes with AD to get `(ciphertext, tag)`.
 7. Concatenate: `magic || version || salt || ciphertext || tag`.
-8. `keyStore.umkBlob` and `entries.entryKey` blobs: base64 encode and write directly to InstantDB via `db.transact`. The entry file: upload the raw bytes directly via `db.storage.uploadFile` (see Entry Data File below, and docs/data_model.md, Entities); no base64 step, since Storage takes a `File`/`Blob` directly, not a string field.
+8. `keyStore.keyBlob` and `entries.entryKey` blobs: base64 encode and write directly to InstantDB via `db.transact`. The entry file: upload the raw bytes directly via `db.storage.uploadFile` (see Entry Data File below, and docs/data_model.md, Entities); no base64 step, since Storage takes a `File`/`Blob` directly, not a string field.
 
 **Decrypt (read path):**
 
-1. Read the blob: base64 decode a `db.transact`-written field (`keyStore.umkBlob`, `entries.entryKey`), or fetch the raw bytes from the entry file's Storage `url` (no base64 involved either way).
+1. Read the blob: base64 decode a `db.transact`-written field (`keyStore.keyBlob`, `entries.entryKey`), or fetch the raw bytes from the entry file's Storage `url` (no base64 involved either way).
 2. If base64 encoded, decode to raw bytes.
 3. Verify magic bytes (`SB`, `0x53 0x42`); reject immediately if mismatch.
 4. Extract version, salt, ciphertext, tag.
@@ -173,7 +173,7 @@ Every entry is one InstantDB Storage object (a `$files` row, see docs/data_model
 
 The full vault, every entry, decrypted, as JSON, is Brotli compressed then AEAD encrypted under `backup_master_key`, using the same blob format and pipeline as everything else (see Blob Format, Encryption Pipeline). The same resulting blob is uploaded directly from the client to Cloudflare R2 and to every configured S3 compatible destination (`s3_config` is an array; one destination might be AWS, another Backblaze B2, and so on), no server proxy (see docs/architecture.md, Backend: none, by design). Each destination is uploaded independently: a failure at one does not block or roll back the others, and the app should report success or failure per destination rather than a single combined result. Upload requests are SigV4 signed client side using access keys read from local config, the same trust model as `root_master_key`, `email`, and `password` already being there (see docs/security.md). Every destination bucket must have CORS enabled for the app's origin, since nothing else makes the request on the client's behalf.
 
-Decrypting a backup needs only `backup_master_key` from config; no lookup into InstantDB is involved at all, unlike `root_master_key`, which still needs `keyStore.umkBlob` to reach the live vault. This is deliberate: a cloud backup exists to protect against exactly the scenario where InstantDB itself is unavailable or lost, so its decryption path must not depend on InstantDB surviving.
+Decrypting a backup needs only `backup_master_key` from config; no lookup into InstantDB is involved at all, unlike `root_master_key`, which still needs `keyStore.keyBlob` to reach the live vault. This is deliberate: a cloud backup exists to protect against exactly the scenario where InstantDB itself is unavailable or lost, so its decryption path must not depend on InstantDB surviving.
 
 Retention of past backup objects, whether old ones are pruned and after how long, is not yet decided; the simplest approach is to rely on the object storage's own lifecycle policies rather than reimplement a client side cap.
 
@@ -192,7 +192,7 @@ Local backup is a separate, unencrypted feature that does not use this pipeline 
 
 **Root master key rotation** — re encrypts the UMK blob in `keyStore`:
 
-1. Decrypt `keyStore.umkBlob` using the current `root_master_key`.
+1. Decrypt `keyStore.keyBlob` using the current `root_master_key`.
 2. Re encrypt the raw UMK with the new `root_master_key` (fresh salt, current format version).
 3. Write the updated `keyStore` row directly to InstantDB via `db.transact`.
 
@@ -200,7 +200,7 @@ Entry data, history snapshots, and every cloud backup already uploaded are unaff
 
 **UMK rotation** — re encrypts all `entryKey` blobs:
 
-1. Decrypt the current UMK from `keyStore.umkBlob`.
+1. Decrypt the current UMK from `keyStore.keyBlob`.
 2. Generate a new UMK (64 random bytes).
 3. For each entry: decrypt `entryKey` with the old UMK, re encrypt with the new UMK (fresh salt each). Hold the results in memory; do not write anything yet.
 4. Re encrypt the new UMK blob with `root_master_key`. Hold the result in memory; do not write it yet.

@@ -40,9 +40,9 @@ No jsdom, no `@testing-library/react`, so every `.tsx` file is out of reach for 
 
 - **`instant.perms.ts`**: needs a real InstantDB app with at least two authenticated test users. Test plan:
   - User A cannot view, update, or delete User B's `entries`, `keyStore`, or `$files` rows.
-  - User A cannot create an `entries` or `keyStore` row with `owner` set to User B.
+  - User A cannot create a `keyStore` row with `owner` set to User B, nor an `entries` row with `keyBlob` pointing at User B's `keyStore` row.
   - User A cannot upload a file at a `path` not prefixed with their own `auth.id`, even if linked to one of their own entries.
-  - User A cannot update one of their own rows to reassign `owner` to User B; `!('owner' in request.modifiedFields)` rejects any update that touches `owner` at all.
+  - User A cannot update their own `keyStore` row to reassign `owner` to User B, nor their own `entries` row to reassign `keyBlob` to User B's `keyStore` row; `!('owner' in request.modifiedFields)` / `!('keyBlob' in request.modifiedFields)` reject any update that touches that link at all.
   - No user can update a `$files` row; only create or delete succeed.
   - User A can delete their own entry files.
 - **Cloud backup upload** against real R2 and each configured S3 compatible destination: SigV4 signing and CORS are both real failure points for a client direct upload, with no server to fall back on if either is wrong; this can't be verified against a mock. (The independent-per-destination orchestration around this _is_ covered, mocked, per above; only the "did the bytes actually reach the bucket" question is live-only.)

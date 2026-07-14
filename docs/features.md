@@ -4,7 +4,7 @@ What is actually decided for this rebuild so far. Anything not listed here is un
 
 ## Vault
 
-- Entries: an id, an owner link, an `entryKey` blob, and an `entryFile` link to an InstantDB Storage file. Everything about the entry, type, title, fields, tags, notes, and timestamps, lives inside that file's encrypted content; none of it is plaintext (see docs/data_model.md, Entities).
+- Entries: an id, a `keyBlob` link to the owner's `keyStore` row (ownership is transitive, not a direct link to `$users`), an `entryKey` blob, and an `entryFile` link to an InstantDB Storage file. Everything about the entry, type, title, fields, tags, notes, and timestamps, lives inside that file's encrypted content; none of it is plaintext (see docs/data_model.md, Entities).
 - Three entry types, every entry also has `title`, `notes`, `tags`, and `customFields` regardless of type:
   - `login`: `username`, `password`, `urls` (multiple), TOTP secrets (multiple).
   - `note`: no type specific fields beyond the common ones above.
@@ -30,7 +30,7 @@ What is actually decided for this rebuild so far. Anything not listed here is un
 
 ## Key management
 
-- `root_master_key` rotation: re encrypts `keyStore.umkBlob`.
+- `root_master_key` rotation: re encrypts `keyStore.keyBlob`.
 - UMK rotation: re encrypts every entry's `entryKey`, atomically, in one InstantDB transaction (see docs/crypto.md, Key Rotation).
 - `backup_master_key` rotation: a config only value; there is nothing in InstantDB to rewrite, so rotation is just changing it in the config file. Affects future cloud backups only, not ones already uploaded (see docs/crypto.md, Key Rotation).
 
