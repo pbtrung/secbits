@@ -13,13 +13,8 @@ import {
   generateUMK,
 } from './crypto';
 import { computeCommitHash } from './lib/commitHash';
+import { capHistoryArray, entryFilePath } from './lib/storage';
 import type { BackupDestinations, Entry, EntryHistoryCommit, ExportData, ExportEntry } from './types';
-
-// What's actually inside an encrypted entry/snapshot blob: `id` is never
-// part of it, since it's always stripped before encryption (see
-// createUserEntry/updateUserEntry) and reattached from the InstantDB row's
-// own id afterward.
-type EntryContent = Omit<Entry, 'id'>;
 
 // History cap and trash retention: see docs/architecture.md, Maintenance.
 // The cap (20) is decided (docs/features.md); the retention window is not,
@@ -39,8 +34,12 @@ const DIFFABLE_FIELDS = [
   'customFields',
 ] as const;
 
-// A raw decrypted snapshot: an Entry's fields, but not yet wrapped into the
-// {hash, timestamp, snapshot, ...} commit shape buildCommitList produces.
+// A raw decrypted commit: an Entry's fields, but not yet wrapped into the
+// {hash, timestamp, snapshot, ...} shape buildCommitList produces. `id` here
+// is the commit's own commitHash, not the entry's row id: there's no
+// per-commit row anymore to borrow an id from (every commit is just an
+// element of the one entry file's array, see docs/crypto.md, Entry Data
+// File), so the hash doubles as this element's identity too.
 type RawSnapshot = Entry & { id: string };
 
 // Exported (unlike most of this file's internals) purely so it's directly
@@ -50,12 +49,12 @@ export function fieldsChanged(fromSnap: Partial<Entry> | undefined, toSnap: Part
   return DIFFABLE_FIELDS.filter((f) => JSON.stringify(fromSnap?.[f]) !== JSON.stringify(toSnap?.[f]));
 }
 
-// Some entryHistory rows written before saveEntrySnapshot stripped `history`
-// from its input still carry a nested history field in their decrypted
-// snapshot forever (entryHistory rows are immutable, never rewritten), so
-// this must be stripped again here at read time, not only at write time, or
-// old rows go on looking nested no matter how many times they're re-saved.
-// Exported for the same reason as fieldsChanged above.
+// Defense in depth: saveEntrySnapshot always strips `history` before
+// persisting a commit, so a stored commit should never carry a nested
+// history field, but this runs again here at read time in case a future bug
+// reintroduces one -- better to drop it than let it compound across saves
+// (each save prepends the current entry, nested history and all, to the
+// array). Exported for the same reason as fieldsChanged above.
 export function stripNestedHistory(snap: RawSnapshot): Omit<RawSnapshot, 'history'> {
   const { history: _drop, ...rest } = snap;
   return rest;
@@ -268,12 +267,17 @@ export async function ensureKeyStore(rmkBytes: Uint8Array): Promise<void> {
   keyStoreId = created.keyStoreId;
 }
 
-// --- internal: entry key + history maintenance helpers -----------------------
+// --- internal: entry file storage helpers ------------------------------------
+
+interface FileRef {
+  id: string;
+  url?: string;
+}
 
 interface EntriesRow {
   id: string;
   entryKey: string;
-  encryptedData: string;
+  entryFile?: FileRef;
 }
 
 async function getOrDecryptEntryKey(entriesRow: EntriesRow): Promise<Uint8Array> {
@@ -284,25 +288,41 @@ async function getOrDecryptEntryKey(entriesRow: EntriesRow): Promise<Uint8Array>
   return rawEntryKey;
 }
 
-interface EntryHistoryRow {
-  id: string;
-  encryptedSnapshot: string;
+// Uploads raw encrypted bytes directly to InstantDB Storage; no base64 step,
+// Storage takes a File/Blob directly (see docs/crypto.md, Encryption
+// Pipeline). Returns the new $files row's id, used to link it.
+async function uploadEntryFile(path: string, bytes: Uint8Array): Promise<string> {
+  const { data } = await db!.storage.uploadFile(path, new Blob([bytes as unknown as BlobPart]), {
+    contentType: 'application/octet-stream',
+  });
+  return data.id;
 }
 
-async function pruneHistoryForEntry(rawEntryKey: Uint8Array, historyRows: EntryHistoryRow[]): Promise<void> {
-  if (historyRows.length <= HISTORY_CAP) return;
-  const decorated = await Promise.all(
-    historyRows.map(async (h) => ({
-      id: h.id,
-      snapshot: await decryptEntry<EntryContent>(b64ToBytes(h.encryptedSnapshot), rawEntryKey),
-    })),
-  );
-  decorated.sort(
-    (a, b) => (a.snapshot.updatedAt ?? a.snapshot.createdAt ?? 0) - (b.snapshot.updatedAt ?? b.snapshot.createdAt ?? 0),
-  );
-  const toDelete = decorated.slice(0, decorated.length - HISTORY_CAP);
-  if (toDelete.length === 0) return;
-  await db!.transact(toDelete.map((h) => db!.tx.entryHistory[h.id].delete()));
+// TODO: confirm $files.url's origin is covered by public/_headers' CSP
+// connect-src once this runs against a live app (see docs/tech_stack.md,
+// CSP) -- if it isn't, this fetch is blocked before it ever reaches the
+// network.
+async function downloadEntryFile(url: string): Promise<Uint8Array> {
+  const res = await fetch(url);
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+async function fetchCurrentEntryFile(entryId: string): Promise<FileRef | undefined> {
+  const rows = (
+    await db!.queryOnce({
+      entries: { $: { where: { id: entryId } }, entryFile: {} },
+    })
+  ).data.entries;
+  return rows[0]?.entryFile;
+}
+
+// The entry's whole history, newest first, decrypted from its one linked
+// file. Empty when the entry has no file yet (a fresh create).
+async function decryptHistoryArray(fileRef: FileRef | undefined, rawEntryKey: Uint8Array): Promise<RawSnapshot[]> {
+  if (!fileRef) return [];
+  if (!fileRef.url) throw new Error(`$files row ${fileRef.id} has no url yet`);
+  const bytes = await downloadEntryFile(fileRef.url);
+  return decryptEntry<RawSnapshot[]>(bytes, rawEntryKey);
 }
 
 interface TrashEntry {
@@ -318,52 +338,48 @@ async function purgeTrashRetention(trashEntries: TrashEntry[]): Promise<void> {
   for (const e of expired) entryKeyCache.delete(e.id);
 }
 
-async function fetchEntryHistoryRows(entryId: string): Promise<EntryHistoryRow[]> {
-  return (
-    await db!.queryOnce({
-      entryHistory: { $: { where: { 'entry.id': entryId } } },
-    })
-  ).data.entryHistory;
-}
-
-// Shared by fetchUserEntries and saveEntrySnapshot: decrypt every history
-// row's snapshot and sort newest first, ready for buildCommitList.
-async function decryptHistoryRows(historyRows: EntryHistoryRow[], rawEntryKey: Uint8Array): Promise<RawSnapshot[]> {
-  const rawSnapshots = await Promise.all(
-    historyRows.map(async (h) => ({
-      id: h.id,
-      ...(await decryptEntry<EntryContent>(b64ToBytes(h.encryptedSnapshot), rawEntryKey)),
-    })),
-  );
-  rawSnapshots.sort((a, b) => (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0));
-  return rawSnapshots;
-}
-
-// Rebuild history the same way fetchUserEntries does, rather than omitting
-// it: every saveEntrySnapshot caller (create/update/restore) returns this
-// result straight to the UI, which replaces its in-memory entry with it.
-// Without this, `history` silently disappeared from the entry after every
-// single save, not just restore, since nothing here ever included it.
-async function rebuildEntryHistory(entryId: string, rawEntryKey: Uint8Array): Promise<EntryHistoryCommit[]> {
-  const historyRows = await fetchEntryHistoryRows(entryId);
-  const rawSnapshots = await decryptHistoryRows(historyRows, rawEntryKey);
-  return buildCommitList(rawSnapshots);
-}
-
 interface SaveOptions {
   isCreate?: boolean;
   ownerId?: string;
 }
 
-async function buildEntriesTxChunk(
+// Decrypts the entry's current file (if it has one yet), prepends the new
+// commit, and caps the result at HISTORY_CAP -- the whole cap enforcement
+// happens here, in memory, once per save (see docs/crypto.md, Entry Data
+// File, Cap enforcement), not as a separate pass over stored rows.
+async function buildNewHistoryArray(
   entryId: string,
   rawEntryKey: Uint8Array,
-  blob: string,
+  withHash: RawSnapshot,
+  isCreate: boolean | undefined,
+): Promise<{ array: RawSnapshot[]; oldFileId: string | undefined }> {
+  const currentFile = isCreate ? undefined : await fetchCurrentEntryFile(entryId);
+  const previous = await decryptHistoryArray(currentFile, rawEntryKey);
+  return { array: capHistoryArray([withHash, ...previous], HISTORY_CAP), oldFileId: currentFile?.id };
+}
+
+// The single atomic swap every save ends in: delete the entry's previous
+// file (if any) and link the new one, together in one db.transact call, so
+// a crash between the two never leaves the entry linked to zero or two
+// files (see docs/crypto.md, Entry Data File, Save). On create, the same
+// call also writes entryKey and links owner -- the entries row's very first
+// write must already set owner, or the entries update-permission check
+// would fail on a row with no owner yet.
+async function commitEntryFileSwap(
+  entryId: string,
+  rawEntryKey: Uint8Array,
+  oldFileId: string | undefined,
+  newFileId: string,
   { isCreate, ownerId }: SaveOptions,
-) {
-  if (!isCreate) return db!.tx.entries[entryId].update({ encryptedData: blob });
-  const entryKeyBlob = bytesToB64(await encryptEntryKey(rawEntryKey, umkBytes!));
-  return db!.tx.entries[entryId].update({ entryKey: entryKeyBlob, encryptedData: blob }).link({ owner: ownerId! });
+): Promise<void> {
+  const ops = [];
+  if (isCreate) {
+    const entryKeyBlob = bytesToB64(await encryptEntryKey(rawEntryKey, umkBytes!));
+    ops.push(db!.tx.entries[entryId].update({ entryKey: entryKeyBlob }).link({ owner: ownerId! }));
+  }
+  if (oldFileId) ops.push(db!.tx.$files[oldFileId].delete());
+  ops.push(db!.tx.entries[entryId].link({ entryFile: newFileId }));
+  await db!.transact(ops);
 }
 
 async function saveEntrySnapshot(
@@ -377,46 +393,27 @@ async function saveEntrySnapshot(
   // caller forgetting to strip it can't reintroduce the self-nesting bug.
   const { history: _dropHistory, ...cleanSnapshot } = snapshotWithoutHash;
   const commitHash = await computeCommitHash(cleanSnapshot);
-  const withHash = { ...cleanSnapshot, commitHash };
-  // entries.encryptedData and entryHistory.encryptedSnapshot store the same
-  // plaintext for this commit, so one encrypt call covers both; there's no
-  // security reason to spend a second Brotli+AEAD pass re-encrypting
-  // identical content under a second random salt.
-  const blob = bytesToB64(await encryptEntry(withHash, rawEntryKey));
-  const historyId = id();
-  const entriesChunk = await buildEntriesTxChunk(entryId, rawEntryKey, blob, { isCreate, ownerId });
+  const withHash = { ...cleanSnapshot, commitHash, id: commitHash } as RawSnapshot;
 
-  await db!.transact([
-    entriesChunk,
-    db!.tx.entryHistory[historyId].update({ encryptedSnapshot: blob }).link({ entry: entryId }),
-  ]);
+  const { array, oldFileId } = await buildNewHistoryArray(entryId, rawEntryKey, withHash, isCreate);
+  const authId = await requireAuthId();
+  const bytes = await encryptEntry(array, rawEntryKey);
+  const newFileId = await uploadEntryFile(entryFilePath(authId, entryId, commitHash), bytes);
+  await commitEntryFileSwap(entryId, rawEntryKey, oldFileId, newFileId, { isCreate, ownerId });
 
-  const history = await rebuildEntryHistory(entryId, rawEntryKey);
-
-  // id must come after the spread, not before: withHash can carry its own
-  // stale `id` (e.g. the UI's local-<uuid> draft id, copied in via
-  // createUserEntry's `...entry` spread), which would otherwise silently
-  // win and get returned instead of the real entryId — exactly what caused
-  // "edit an entry, save, and it creates a new entry instead of updating":
-  // the UI kept holding the draft's local id after create, so the next
-  // save looked like a new entry again.
-  return { ...withHash, id: entryId, historyId, history } as Entry;
+  // id must come after the spread, not before: withHash carries `commitHash`
+  // as its own `id` (see RawSnapshot above), which would otherwise silently
+  // win and get returned instead of the real entryId.
+  return { ...withHash, id: entryId, history: buildCommitList(array) } as Entry;
 }
 
 // --- vault read ---------------------------------------------------------------
 
-interface EntriesRowWithHistory extends EntriesRow {
-  entryHistory?: EntryHistoryRow[];
-}
-
-async function hydrateEntryRow(row: EntriesRowWithHistory): Promise<Entry> {
+async function hydrateEntryRow(row: EntriesRow): Promise<Entry> {
   const rawEntryKey = await getOrDecryptEntryKey(row);
-  const decoded = await decryptEntry<EntryContent>(b64ToBytes(row.encryptedData), rawEntryKey);
-  const historyRows = row.entryHistory || [];
-  const rawSnapshots = await decryptHistoryRows(historyRows, rawEntryKey);
-  const history = buildCommitList(rawSnapshots);
-  await pruneHistoryForEntry(rawEntryKey, historyRows);
-  return { id: row.id, ...decoded, history };
+  const array = await decryptHistoryArray(row.entryFile, rawEntryKey);
+  if (array.length === 0) throw new Error(`Entry ${row.id} has no file content`);
+  return { ...stripNestedHistory(array[0]), id: row.id, history: buildCommitList(array) };
 }
 
 export interface FetchUserEntriesResult {
@@ -431,10 +428,10 @@ export async function fetchUserEntries(): Promise<FetchUserEntriesResult> {
   // Same $users-first, follow-the-link approach as queryOwnKeyStoreRows.
   const users = (
     await db!.queryOnce({
-      $users: { $: { where: { id: authId } }, entries: { entryHistory: {} } },
+      $users: { $: { where: { id: authId } }, entries: { entryFile: {} } },
     })
   ).data.$users;
-  const rows: EntriesRowWithHistory[] = users[0]?.entries || [];
+  const rows: EntriesRow[] = users[0]?.entries || [];
 
   const entries: Entry[] = [];
   const trash: Entry[] = [];
@@ -490,14 +487,22 @@ export async function updateUserEntry(entryId: string, entry: Partial<Entry>): P
   return saveEntrySnapshot(entryId, rawEntryKey, snapshot);
 }
 
+// Shared by deleteUserEntry/restoreDeletedUserEntry/restoreVersionByCommitHash:
+// the entry's current content, read from its one linked file rather than a
+// cached copy, since these ops need the latest state to build on top of.
+async function fetchCurrentEntryContent(entryId: string, rawEntryKey: Uint8Array): Promise<RawSnapshot> {
+  const fileRef = await fetchCurrentEntryFile(entryId);
+  const array = await decryptHistoryArray(fileRef, rawEntryKey);
+  if (array.length === 0) throw new Error(`Entry ${entryId} not found`);
+  return array[0];
+}
+
 export async function deleteUserEntry(entryId: string): Promise<Entry> {
   assertUnlocked();
   const rawEntryKey = entryKeyCache.get(entryId);
   if (!rawEntryKey) throw new Error(`Unknown entry ${entryId}; call fetchUserEntries first`);
-  const entries = (await db!.queryOnce({ entries: { $: { where: { id: entryId } } } })).data.entries;
-  if (!entries[0]) throw new Error(`Entry ${entryId} not found`);
-  const current = await decryptEntry<EntryContent>(b64ToBytes(entries[0].encryptedData), rawEntryKey);
-  const { commitHash: _drop, history: _drop2, ...withoutHash } = current;
+  const current = await fetchCurrentEntryContent(entryId, rawEntryKey);
+  const { commitHash: _drop, history: _drop2, id: _drop3, ...withoutHash } = current;
   return saveEntrySnapshot(entryId, rawEntryKey, { ...withoutHash, deletedAt: Date.now(), updatedAt: Date.now() });
 }
 
@@ -505,29 +510,20 @@ export async function restoreDeletedUserEntry(entryId: string): Promise<Entry> {
   assertUnlocked();
   const rawEntryKey = entryKeyCache.get(entryId);
   if (!rawEntryKey) throw new Error(`Unknown entry ${entryId}; call fetchUserEntries first`);
-  const entries = (await db!.queryOnce({ entries: { $: { where: { id: entryId } } } })).data.entries;
-  if (!entries[0]) throw new Error(`Entry ${entryId} not found`);
-  const current = await decryptEntry<EntryContent>(b64ToBytes(entries[0].encryptedData), rawEntryKey);
-  const { commitHash: _drop, history: _drop2, ...withoutHash } = current;
+  const current = await fetchCurrentEntryContent(entryId, rawEntryKey);
+  const { commitHash: _drop, history: _drop2, id: _drop3, ...withoutHash } = current;
   return saveEntrySnapshot(entryId, rawEntryKey, { ...withoutHash, deletedAt: null, updatedAt: Date.now() });
 }
 
 async function restoreVersionByCommitHash(entryId: string, commitHash: string): Promise<Entry> {
   const rawEntryKey = entryKeyCache.get(entryId);
   if (!rawEntryKey) throw new Error(`Unknown entry ${entryId}; call fetchUserEntries first`);
-  const historyRows = (
-    await db!.queryOnce({
-      entryHistory: { $: { where: { 'entry.id': entryId } } },
-    })
-  ).data.entryHistory;
-  for (const h of historyRows) {
-    const snapshot = await decryptEntry<EntryContent>(b64ToBytes(h.encryptedSnapshot), rawEntryKey);
-    if (snapshot.commitHash === commitHash) {
-      const { commitHash: _drop, history: _drop2, ...withoutHash } = snapshot;
-      return saveEntrySnapshot(entryId, rawEntryKey, { ...withoutHash, updatedAt: Date.now() });
-    }
-  }
-  throw new Error(`Commit ${commitHash} not found in history for entry ${entryId}`);
+  const fileRef = await fetchCurrentEntryFile(entryId);
+  const array = await decryptHistoryArray(fileRef, rawEntryKey);
+  const match = array.find((snap) => snap.commitHash === commitHash);
+  if (!match) throw new Error(`Commit ${commitHash} not found in history for entry ${entryId}`);
+  const { commitHash: _drop, history: _drop2, id: _drop3, ...withoutHash } = match;
+  return saveEntrySnapshot(entryId, rawEntryKey, { ...withoutHash, updatedAt: Date.now() });
 }
 
 export async function restoreEntryVersion(entryId: string, commitHash: string): Promise<Entry> {
@@ -542,8 +538,8 @@ export async function restoreDeletedEntryVersion(entryId: string, commitHash: st
 
 export async function permanentlyDeleteUserEntry(entryId: string): Promise<void> {
   assertUnlocked();
-  // entryHistory rows cascade-delete automatically: onDelete: 'cascade' is
-  // set on the entryHistoryEntry link in instant.schema.ts.
+  // The linked $files row cascade-deletes automatically: onDelete: 'cascade'
+  // is set on the entryFileEntry link in instant.schema.ts.
   await db!.transact([db!.tx.entries[entryId].delete()]);
   entryKeyCache.delete(entryId);
 }
