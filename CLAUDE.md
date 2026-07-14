@@ -42,14 +42,13 @@ Login:
 Save (create or update):
 
 1. App serializes entry to JSON, including type, tags, and timestamps — everything.
-2. App computes the commit hash over the serialized entry once; that same entry content and commit hash feed both writes below, but each is encrypted separately (the entry data file wraps just the entry, the history file wraps the whole commit array), so the two end up as different ciphertexts with independent fresh salts, not a reused blob.
-3. App appends the new commit to the entry's history file, uploads it at a fresh path, then atomically deletes the previous history file and links the new one via `db.transact`.
-4. App uploads the new entry data file at a fresh path, then atomically deletes the previous data file and links the new one as `entryFile` via `db.transact`. History goes first (step 3): a save interrupted between the two steps still leaves the new content recoverable from history even if the entry's own file didn't make it (see docs/crypto.md, Save Ordering).
-5. InstantDB permission rules confirm every row and file path belong to the authenticated user throughout.
+2. App computes the commit hash over the serialized entry, decrypts the entry's current file if one exists to get its prior commit array, and prepends the new commit, capped at the most recent 20.
+3. App Brotli compresses and AEAD encrypts the whole array as one blob (fresh salt), uploads it to a fresh path via `db.storage.uploadFile`, then, in one atomic `db.transact` call, deletes the entry's previous file and links the new one as `entryFile` (on create, the same call also writes `entryKey` and links `owner`).
+4. InstantDB permission rules confirm every row and file path belong to the authenticated user throughout.
 
 Maintenance (client side, on load/save):
 
-1. App decrypts an entry's history file (a single InstantDB Storage object holding a JSON array of every kept commit) to read each commit's embedded timestamp.
+1. App decrypts an entry's file (a single InstantDB Storage object holding a JSON array of every kept commit) to read each commit's embedded timestamp.
 2. App drops the oldest commits past the cap of the most recent 20, re-encrypts and re-uploads the file at a new path, then atomically deletes the old file and links the new one.
 3. App decrypts trashed entries' embedded `deletedAt` and permanently deletes those past the retention window.
 

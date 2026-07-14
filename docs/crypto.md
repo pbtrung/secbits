@@ -24,8 +24,7 @@ The precondition that actually matters is simpler: every salt and every raw key 
 root_master_key (config)
   └── HKDF+AEAD → keyStore.umkBlob
         └── HKDF+AEAD → entries.entryKey blob (64 raw random bytes, one per entry)
-              ├── HKDF+AEAD → entry data file (one InstantDB Storage object per entry)
-              └── HKDF+AEAD → entry history file (one InstantDB Storage object per entry, all commits)
+              └── HKDF+AEAD → entry file (one InstantDB Storage object per entry, current data + full history)
 
 backup_master_key (config)
   └── HKDF+AEAD → cloud backup blob (R2 / S3 compatible)
@@ -52,7 +51,7 @@ Where `K` is the parent key for the blob type (see Key Hierarchy above):
 
 - `keyStore.umkBlob`: `K = root_master_key`
 - `entries.entryKey`: `K = UMK` (decrypted from `keyStore.umkBlob`)
-- the entry's data file and its history file: `K = entryKey` (decrypted from `entries.entryKey`)
+- the entry's file (current data + full history): `K = entryKey` (decrypted from `entries.entryKey`)
 - cloud backup blob: `K = backup_master_key` (from config, directly, no unwrap step)
 
 `randomSalt`: 64 fresh random bytes generated per encryption operation. Output split: first 64 bytes to `encKey`, last 64 bytes to `encIv`.
@@ -127,24 +126,24 @@ The same pipeline applies to every blob type. The IKM passed to HKDF varies by b
 **Encrypt (write path):**
 
 1. Serialize the payload (entry JSON, key bytes, etc).
-2. Brotli compress the payload bytes (for entry data and history array payloads; raw bytes for key material).
+2. Brotli compress the payload bytes (for the entry file's commit-array payload; raw bytes for key material).
 3. Generate 64 random salt bytes.
 4. Derive `(encKey, encIv) = HKDF-SHA3-512(ikm=K, salt, length=128)`.
 5. Compute `AD = magic || version || salt`.
 6. AEAD encrypt payload bytes with AD to get `(ciphertext, tag)`.
 7. Concatenate: `magic || version || salt || ciphertext || tag`.
-8. `keyStore.umkBlob` and `entries.entryKey` blobs: base64 encode and write directly to InstantDB via `db.transact`. The entry data file and the entry history file: upload the raw bytes directly via `db.storage.uploadFile` (see Entry Data File and History File below, and docs/data_model.md, Entities); no base64 step, since Storage takes a `File`/`Blob` directly, not a string field.
+8. `keyStore.umkBlob` and `entries.entryKey` blobs: base64 encode and write directly to InstantDB via `db.transact`. The entry file: upload the raw bytes directly via `db.storage.uploadFile` (see Entry Data File below, and docs/data_model.md, Entities); no base64 step, since Storage takes a `File`/`Blob` directly, not a string field.
 
 **Decrypt (read path):**
 
-1. Read the blob: base64 decode a `db.transact`-written field (`keyStore.umkBlob`, `entries.entryKey`), or fetch the raw bytes from the entry data/history file's Storage `url` (no base64 involved either way).
+1. Read the blob: base64 decode a `db.transact`-written field (`keyStore.umkBlob`, `entries.entryKey`), or fetch the raw bytes from the entry file's Storage `url` (no base64 involved either way).
 2. If base64 encoded, decode to raw bytes.
 3. Verify magic bytes (`SB`, `0x53 0x42`); reject immediately if mismatch.
 4. Extract version, salt, ciphertext, tag.
 5. Recompute `AD = magic || version || salt`.
 6. Derive `(encKey, encIv) = HKDF-SHA3-512(ikm=K, salt, length=128)`.
 7. AEAD decrypt with AD; authentication failure throws before returning any plaintext.
-8. Brotli decompress (for entry data and history array payloads).
+8. Brotli decompress (for the entry file's commit-array payload).
 9. Parse JSON or use raw bytes.
 
 ## Commit Hash
@@ -155,40 +154,20 @@ The commit hash is computed in the browser over a canonical snapshot object that
 commitHash = hex(SHA-256(canonicalJson(snapshotWithoutCommitHash))).slice(0, 48)  // 48 hex chars, 192 bit truncation
 ```
 
-`canonicalJson` must be deterministic (stable key ordering, UTF-8, no pretty print). The resulting hash is embedded inside its commit object, inside the history file's single encrypted blob, as `commitHash` (see History File below). The `$files` row storing that blob exposes only `path` and `url`; `commitHash`, like every other field of every commit, exists only inside the ciphertext. After decrypting the history file the client verifies each commit by removing its `commitHash`, canonicalizing the remaining object, and recomputing the hash.
-
-## History File
-
-Every entry's history is one InstantDB Storage object (a `$files` row, see docs/data_model.md, Entities), not one database row per commit:
-
-- **Plaintext**: a JSON array of every kept commit, each `{ commitHash, timestamp, snapshot }` (`snapshot` is the full entry at that commit; `commitHash` per Commit Hash above).
-- **Encryption**: the whole array is Brotli compressed and AEAD encrypted as a single blob, same pipeline and key (`K = entryKey`) as the entry's own data file (see Key Hierarchy and docs/data_model.md, Entities).
-- **Upload**: the raw encrypted bytes go straight to InstantDB Storage via `db.storage.uploadFile(path, blob)`; no base64 step, unlike `entries`/`keyStore` rows (see Encryption Pipeline).
-- **Path**: `${auth.id}/entryHistory/${entryId}/${latestCommitHash}.json`. Every save changes the latest commit hash, so every save gets a new path; nothing is ever overwritten in place.
-- **Save**: decrypt the current history file (if the entry has one), append the new commit, drop any past the most recent 20, re-encrypt the full array (fresh salt), upload it at the new path. Then, in one atomic `db.transact` call, delete the previous history file and link the new one as `entries.historyFile` — delete-and-link together, not as two separate calls, so a crash between them never leaves the entry linked to zero or two history files (see Save Ordering below).
-- **Cap enforcement**: pruning to the most recent 20 happens by trimming the in-memory array before the single re-encrypt-and-upload, not by deleting individual rows one at a time.
-
-**Trade-off**: because the entire array is re-encrypted as one blob on every save, an older commit's ciphertext is regenerated (fresh salt) each time even though its plaintext hasn't changed — a commit's stored ciphertext bytes no longer stay frozen forever from the moment of its own creation, the way a dedicated row per commit would. `commitHash` is computed over plaintext and is unaffected, so tamper evidence for a given commit's content still holds; what's lost is byte-level ciphertext stability for old commits across later saves.
+`canonicalJson` must be deterministic (stable key ordering, UTF-8, no pretty print). The resulting hash is embedded inside its commit object, inside the entry file's single encrypted blob, as `commitHash` (see Entry Data File below). The `$files` row storing that blob exposes only `path` and `url`; `commitHash`, like every other field of every commit, exists only inside the ciphertext. After decrypting the entry file the client verifies each commit by removing its `commitHash`, canonicalizing the remaining object, and recomputing the hash.
 
 ## Entry Data File
 
-Every entry's data is one InstantDB Storage object (a `$files` row, see docs/data_model.md, Entities), not a database field:
+Every entry is one InstantDB Storage object (a `$files` row, see docs/data_model.md, Entities) — there is no separate history file and no `entryHistory` table; an entry's current data and its entire history live in the same one file:
 
-- **Plaintext**: everything about the entry — type, title, fields, tags, notes, `createdAt`, `updatedAt`, `deletedAt` (trash marker).
-- **Encryption**: Brotli compressed and AEAD encrypted as a single blob, same pipeline and key (`K = entryKey`) as the entry's history file (see Key Hierarchy).
-- **Upload**: the raw encrypted bytes go straight to InstantDB Storage via `db.storage.uploadFile(path, blob)`; no base64 step (see Encryption Pipeline).
-- **Path**: `${auth.id}/entries/${entryId}/${commitHash}.json`, where `commitHash` is the same commit hash computed for that save's history entry (see Commit Hash) — every save gets a fresh path; nothing is ever overwritten in place.
-- **Save**: upload the new file at its new path, then in one atomic `db.transact` call, delete the previous `$files` row and link the new one as `entries.entryFile`. Delete-and-link together, not as two separate calls, for the same reason as the history file above — a crash between them never leaves the entry linked to zero or two data files.
+- **Plaintext**: a JSON array of every kept commit, each a full entry snapshot (type, title, fields, tags, notes, `createdAt`, `updatedAt`, `deletedAt`, `commitHash`), newest first. The entry's current state is simply `array[0]`; everything after it is history.
+- **Encryption**: the whole array is Brotli compressed and AEAD encrypted as a single blob, `K = entryKey` (see Key Hierarchy).
+- **Upload**: the raw encrypted bytes go straight to InstantDB Storage via `db.storage.uploadFile(path, blob)`; no base64 step, unlike `entries`/`keyStore` rows (see Encryption Pipeline).
+- **Path**: `${auth.id}/entries/${entryId}/${commitHash}.json`, where `commitHash` is the newest commit's hash — every save gets a fresh path; nothing is ever overwritten in place.
+- **Save**: decrypt the current file (if the entry has one), prepend the new commit, drop any past the most recent 20, re-encrypt the full array (fresh salt), upload it at its new path. Then, in one atomic `db.transact` call, delete the previous file and link the new one as `entries.entryFile` — delete-and-link together, not as two separate calls, so a crash between them never leaves the entry linked to zero or two files. This is the entire save: one file, one atomic swap, nothing to sequence against anything else.
+- **Cap enforcement**: pruning to the most recent 20 happens by trimming the in-memory array before the single re-encrypt-and-upload, not by deleting individual rows one at a time.
 
-## Save Ordering
-
-A save writes two independent things — the entry data file and a new history commit — and each is individually crash-safe (upload-then-atomic-swap, see above), but the two swaps still aren't atomic _with each other_, so their relative order matters:
-
-1. Compute the new commit hash over the new entry content once. That same plaintext entry content and `commitHash` feed both writes below, but each is encrypted separately, not reused as one blob: the entry data file wraps just the entry alone, the history file wraps the whole commit array including this new entry, so the two are different ciphertexts with independent fresh salts.
-2. Append the new commit to the history file first: upload it at its new path, then atomically delete the previous history file and link the new one (see History File, Save).
-3. Only once that's confirmed, do the same swap for the entry data file (see Entry Data File, Save).
-
-History goes first because it's the recovery path if the save is interrupted between the two swaps: if the process dies after step 2 but before step 3 finishes, the entry data file may still reflect the old content, but the just-written history commit already holds the new content, recoverable via restore-version. Doing it the other way around would leave a save that updated the live entry but crashed before recording it in history — not data loss, since the current entry content is still correct, but a silently missing history entry with no signal anything is off. Ordering it this way means whichever half of the save didn't finish is always the recoverable half.
+**Trade-off**: because the entire array is re-encrypted as one blob on every save, an older commit's ciphertext is regenerated (fresh salt) each time even though its plaintext hasn't changed — a commit's stored ciphertext bytes no longer stay frozen forever from the moment of its own creation, the way a dedicated row per commit would. `commitHash` is computed over plaintext and is unaffected, so tamper evidence for a given commit's content still holds; what's lost is byte-level ciphertext stability for old commits across later saves.
 
 ## Cloud Backup
 

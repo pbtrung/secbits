@@ -12,7 +12,7 @@ What is actually decided for this rebuild so far. Anything not listed here is un
 
 ## History
 
-- Every save appends a commit to the entry's history file, a single InstantDB Storage object per entry containing every kept commit as one JSON array, not a database row per commit (see docs/data_model.md, docs/crypto.md, History File).
+- Every save prepends a commit to the entry's file — the same InstantDB Storage object that holds the entry's current data, containing every kept commit as one JSON array, newest first; there is no separate history file and no database row per commit (see docs/data_model.md, docs/crypto.md, Entry Data File).
 - Capped at the most recent 20 commits per entry; the oldest is dropped from the array before it's re-encrypted and re-uploaded once the cap is exceeded.
 - Enforcement runs client side, since timestamps are encrypted and InstantDB cannot read them (see docs/architecture.md, Maintenance: client side).
 - A commit hash embedded in each commit, computed over a canonical JSON representation, lets the client verify a decrypted commit has not been altered (see docs/crypto.md, Commit Hash).
@@ -42,7 +42,7 @@ What is actually decided for this rebuild so far. Anything not listed here is un
 
 ## Multi user
 
-- Every user's `keyStore` and `entries` rows, and every file (entry data or history), are strictly isolated by owner; no sharing between users (see docs/data_model.md, Multi user, no sharing).
+- Every user's `keyStore` and `entries` rows, and every entry file, are strictly isolated by owner; no sharing between users (see docs/data_model.md, Multi user, no sharing).
 
 ## Deliberately deferred
 

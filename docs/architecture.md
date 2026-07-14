@@ -7,7 +7,7 @@ SecBits is a client heavy, end to end encrypted password manager. There is no cu
 - InstantDB is both the database and the session layer. The client talks to InstantDB directly for reads and writes; there is no Worker, no custom CRUD API, no admin token anywhere in the stack.
 - Row level access is enforced entirely by InstantDB permission rules (`instant.perms.ts`), scoping every row to the authenticated `auth.id`.
 - Every field on every entity is encrypted client side, including timestamps and type. The only plaintext InstantDB ever sees is row ids and the owner/entry links needed to scope access; those reveal that a row exists and who owns it, nothing about its content.
-- Entry data and entry history both live in InstantDB Storage, one encrypted file each per entry, not database fields or a table; only `entryKey` and the owner/data/history links remain literal `entries` row fields. See docs/data_model.md, Entities and docs/crypto.md, Entry Data File and History File.
+- Entry data and its entire history live together in InstantDB Storage, one encrypted file per entry, not a database field or a table; only `entryKey` and the owner/entryFile links remain literal `entries` row fields. See docs/data_model.md, Entities and docs/crypto.md, Entry Data File.
 
 ## Auth: Firebase through InstantDB
 
@@ -23,7 +23,7 @@ InstantDB's Firebase integration is used instead of InstantDB's native magic cod
 
 Because every field is encrypted, nothing server side can read timestamps or trash state, so there is no cron job. Instead, the client does this work itself during normal use:
 
-- History cap: after adding a new commit, decrypt the entry's history file (one JSON array of every kept commit), sort by embedded timestamp, drop any past the most recent 20, re-encrypt and re-upload as a new file, then atomically delete the old file and link the new one (see docs/crypto.md, History File).
+- History cap: after adding a new commit, decrypt the entry's file (one JSON array of every kept commit), sort by embedded timestamp, drop any past the most recent 20, re-encrypt and re-upload as a new file, then atomically delete the old file and link the new one (see docs/crypto.md, Entry Data File).
 - Trash purge: on load, decrypt trashed entries' embedded `deletedAt`, permanently delete any past the retention window.
 
 ## Backup: client direct
