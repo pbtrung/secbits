@@ -627,10 +627,20 @@ export function getVaultStats(entries: Entry[], trash: Entry[]): VaultStats {
 // level (the entry's real id doesn't vary per commit, and `hash` already is
 // commitHash), so re-encoding them a second time inside `snapshot` for every
 // single commit is pure duplication in the exported JSON. Drop both and
-// spread the rest of the snapshot's fields to the top level instead.
+// spread the rest of the snapshot's fields to the top level instead. The
+// commit's own identity is named `commitHash` here, not `hash` like the
+// internal EntryHistoryCommit -- matches the same field's name at the
+// entry's own top level (see toExportEntry) rather than leaving the export
+// with two different names for the same concept.
 function toExportCommit(commit: EntryHistoryCommit): ExportHistoryCommit {
   const { id: _drop, commitHash: _drop2, history: _drop3, ...content } = commit.snapshot;
-  return { ...content, hash: commit.hash, timestamp: commit.timestamp, parent: commit.parent, changed: commit.changed };
+  return {
+    ...content,
+    commitHash: commit.hash,
+    timestamp: commit.timestamp,
+    parent: commit.parent,
+    changed: commit.changed,
+  };
 }
 
 // Attaches each entry's raw entry_key only here, at export construction
@@ -644,10 +654,15 @@ function toExportCommit(commit: EntryHistoryCommit): ExportHistoryCommit {
 // restoring "into itself"); a backup's per-entry history is redundant with
 // the entry's own top-level fields for that same version, so it's dropped
 // here rather than duplicated.
+//
+// id is dropped too: nothing reads an export back into the app (no import
+// feature exists), so the live database row id has no use in the exported
+// JSON, only the vault content itself.
 function toExportEntry(entry: Entry): ExportEntry {
   const rawEntryKey = entryKeyCache.get(entry.id);
+  const { id: _dropId, ...rest } = entry;
   return {
-    ...entry,
+    ...rest,
     entry_key: rawEntryKey ? bytesToB64(rawEntryKey) : null,
     history: (entry.history || []).filter((commit) => commit.hash !== entry.commitHash).map(toExportCommit),
   };

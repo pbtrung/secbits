@@ -101,11 +101,15 @@ describe('buildExportData', () => {
       trash: [],
     } as unknown as BuildExportDataArg);
     // The current version is filtered out entirely; the remaining commit is
-    // flattened -- no nested `snapshot`, no `id`/`commitHash` duplicated
-    // inside it, just the commit's own fields plus the snapshot's content.
+    // flattened -- no nested `snapshot`, no `id` duplicated inside it, its
+    // own hash renamed to `commitHash` to match the entry's own top-level
+    // field name for the same concept -- plus the snapshot's content.
     expect(result.data[0].history).toEqual([
-      { hash: 'older', timestamp: 100, parent: null, changed: undefined, title: 'v1' },
+      { commitHash: 'older', timestamp: 100, parent: null, changed: undefined, title: 'v1' },
     ]);
+    // No id at the entry's own top level either: nothing reads an export
+    // back into the app, so the live database row id has no use here.
+    expect(result.data[0]).not.toHaveProperty('id');
   });
 
   it('produces the versioned export shape', () => {

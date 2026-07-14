@@ -61,10 +61,12 @@ export interface Entry {
 
 // A commit as it appears in an export, not the UI-facing EntryHistoryCommit
 // shape: no nested `snapshot` wrapper, and no `id`/`commitHash` duplicated
-// inside it -- `hash` already is that commit's identity. The entry's fields
+// inside it -- `commitHash` already is that commit's identity, named to
+// match the same field at the entry's own top level (see ExportEntry) rather
+// than the internal EntryHistoryCommit's shorter `hash`. The entry's fields
 // at that commit are flattened to the top level instead.
 export interface ExportHistoryCommit extends Omit<Entry, 'id' | 'commitHash' | 'history'> {
-  hash: string;
+  commitHash: string;
   timestamp: number;
   parent: string | null;
   changed: string[] | undefined;
@@ -72,8 +74,10 @@ export interface ExportHistoryCommit extends Omit<Entry, 'id' | 'commitHash' | '
 
 // The shape buildExportData() produces: entry.history minus the current
 // version (already duplicated by the entry's own top-level fields), plus
-// each entry's raw entry_key attached only at export time.
-export interface ExportEntry extends Omit<Entry, 'history'> {
+// each entry's raw entry_key attached only at export time. No `id`: nothing
+// reads an export back into the app (no import feature exists), so the
+// live database row id has no use here, only the encrypted vault content.
+export interface ExportEntry extends Omit<Entry, 'history' | 'id'> {
   entry_key: string | null;
   history: ExportHistoryCommit[];
 }
