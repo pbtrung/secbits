@@ -149,6 +149,16 @@ interface EntryDetailProps {
   isMobile?: boolean;
 }
 
+function VersionsButton({ count, onClick }: { count: number; onClick: () => void }) {
+  if (count === 0) return null;
+  return (
+    <button type="button" className="btn btn-sm btn-outline-secondary" onClick={onClick}>
+      <i className="bi bi-git me-1"></i>
+      {count} version{count !== 1 ? 's' : ''}
+    </button>
+  );
+}
+
 // ─── EntryDetail ──────────────────────────────────────────────────────────────
 
 function EntryDetail({
@@ -511,19 +521,13 @@ function EntryDetail({
               >
                 Restore
               </SpinnerBtn>
-              {commits.length > 0 && (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-outline-secondary"
-                  onClick={() => {
-                    setHistoryIdx(0);
-                    setShowHistory(true);
-                  }}
-                >
-                  <i className="bi bi-git me-1"></i>
-                  {commits.length} version{commits.length !== 1 ? 's' : ''}
-                </button>
-              )}
+              <VersionsButton
+                count={commits.length}
+                onClick={() => {
+                  setHistoryIdx(0);
+                  setShowHistory(true);
+                }}
+              />
               <SpinnerBtn
                 className="btn btn-danger ms-auto"
                 onClick={handleDelete}
@@ -557,18 +561,14 @@ function EntryDetail({
             </button>
           )}
 
-          {!isTrashView && commits.length > 0 && (
-            <button
-              type="button"
-              className="btn btn-sm btn-outline-secondary"
+          {!isTrashView && (
+            <VersionsButton
+              count={commits.length}
               onClick={() => {
                 setHistoryIdx(0);
                 setShowHistory(true);
               }}
-            >
-              <i className="bi bi-git me-1"></i>
-              {commits.length} version{commits.length !== 1 ? 's' : ''}
-            </button>
+            />
           )}
 
           {!entry._isNew && !isTrashView && (
