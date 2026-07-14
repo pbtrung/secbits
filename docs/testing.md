@@ -38,9 +38,9 @@ No jsdom, no `@testing-library/react`, so every `.tsx` file is out of reach for 
 ## Live or manual only, correctly outside the automated suite
 
 - **`instant.perms.ts`**: needs a real InstantDB app with at least two authenticated test users. Test plan:
-  - User A cannot view, update, or delete User B's `entries`, `keyStore`, or history `$files` rows.
+  - User A cannot view, update, or delete User B's `entries`, `keyStore`, or `$files` rows (entry data or history).
   - User A cannot create an `entries` or `keyStore` row with `owner` set to User B.
-  - User A cannot upload a history file at a `path` not prefixed with their own `auth.id`, even if linked to one of their own entries.
+  - User A cannot upload an entry data file or a history file at a `path` not prefixed with their own `auth.id`, even if linked to one of their own entries.
   - User A cannot update one of their own rows to reassign `owner` to User B; `!('owner' in request.modifiedFields)` rejects any update that touches `owner` at all.
   - No user can update a history `$files` row; only create or delete succeed.
   - User A can delete their own history files.

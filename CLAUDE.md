@@ -37,15 +37,15 @@ Login:
 1. App authenticates with Firebase using email and password from config.
 2. App retrieves the Firebase ID token and exchanges it for an InstantDB session via `db.auth.signInWithIdToken`.
 3. App subscribes to the current user's entries, scoped by InstantDB permission rules on `auth.id`.
-4. App decrypts each entry blob and loads the vault.
+4. App decrypts each entry's data file and loads the vault.
 
 Save (create or update):
 
 1. App serializes entry to JSON, including type, tags, and timestamps — everything.
 2. App Brotli compresses the JSON bytes.
 3. App AEAD encrypts the compressed bytes with a fresh random salt.
-4. App base64 encodes the blob and writes it directly to InstantDB via `db.transact`.
-5. InstantDB permission rules confirm the row belongs to the authenticated user before accepting the write.
+4. App uploads the raw encrypted bytes directly to InstantDB Storage via `db.storage.uploadFile`, overwriting the entry's existing data file at the same path (or creating it, for a new entry).
+5. App links the resulting file as the entry's `entryFile` and writes `entryKey`/`owner` via `db.transact`; InstantDB permission rules confirm both the row and the file path belong to the authenticated user.
 
 Maintenance (client side, on load/save):
 

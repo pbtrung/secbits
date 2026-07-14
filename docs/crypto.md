@@ -24,7 +24,7 @@ The precondition that actually matters is simpler: every salt and every raw key 
 root_master_key (config)
   └── HKDF+AEAD → keyStore.umkBlob
         └── HKDF+AEAD → entries.entryKey blob (64 raw random bytes, one per entry)
-              ├── HKDF+AEAD → entries.encryptedData
+              ├── HKDF+AEAD → entry data file (one InstantDB Storage object per entry)
               └── HKDF+AEAD → entry history file (one InstantDB Storage object per entry, all commits)
 
 backup_master_key (config)
@@ -52,7 +52,7 @@ Where `K` is the parent key for the blob type (see Key Hierarchy above):
 
 - `keyStore.umkBlob`: `K = root_master_key`
 - `entries.entryKey`: `K = UMK` (decrypted from `keyStore.umkBlob`)
-- `entries.encryptedData` and the entry's history file: `K = entryKey` (decrypted from `entries.entryKey`)
+- the entry's data file and its history file: `K = entryKey` (decrypted from `entries.entryKey`)
 - cloud backup blob: `K = backup_master_key` (from config, directly, no unwrap step)
 
 `randomSalt`: 64 fresh random bytes generated per encryption operation. Output split: first 64 bytes to `encKey`, last 64 bytes to `encIv`.
@@ -133,11 +133,11 @@ The same pipeline applies to every blob type. The IKM passed to HKDF varies by b
 5. Compute `AD = magic || version || salt`.
 6. AEAD encrypt payload bytes with AD to get `(ciphertext, tag)`.
 7. Concatenate: `magic || version || salt || ciphertext || tag`.
-8. `entries`/`keyStore` blobs: base64 encode and write directly to InstantDB via `db.transact`. The entry history file blob: upload the raw bytes directly via `db.storage.uploadFile` (see History File below); no base64 step, since Storage takes a `File`/`Blob` directly, not a string field.
+8. `keyStore.umkBlob` and `entries.entryKey` blobs: base64 encode and write directly to InstantDB via `db.transact`. The entry data file and the entry history file: upload the raw bytes directly via `db.storage.uploadFile` (see History File below and docs/data_model.md, Entities); no base64 step, since Storage takes a `File`/`Blob` directly, not a string field.
 
 **Decrypt (read path):**
 
-1. Read the blob: base64 decode a `db.transact`-written field (`entries`/`keyStore`), or fetch the raw bytes from the history file's Storage `url` (no base64 involved either way).
+1. Read the blob: base64 decode a `db.transact`-written field (`keyStore.umkBlob`, `entries.entryKey`), or fetch the raw bytes from the entry data/history file's Storage `url` (no base64 involved either way).
 2. If base64 encoded, decode to raw bytes.
 3. Verify magic bytes (`SB`, `0x53 0x42`); reject immediately if mismatch.
 4. Extract version, salt, ciphertext, tag.
@@ -162,7 +162,7 @@ commitHash = hex(SHA-256(canonicalJson(snapshotWithoutCommitHash))).slice(0, 32)
 Every entry's history is one InstantDB Storage object (a `$files` row, see docs/data_model.md, Entities), not one database row per commit:
 
 - **Plaintext**: a JSON array of every kept commit, each `{ commitHash, timestamp, snapshot }` (`snapshot` is the full entry at that commit; `commitHash` per Commit Hash above).
-- **Encryption**: the whole array is Brotli compressed and AEAD encrypted as a single blob, same pipeline and key (`K = entryKey`) as `entries.encryptedData` (see Key Hierarchy).
+- **Encryption**: the whole array is Brotli compressed and AEAD encrypted as a single blob, same pipeline and key (`K = entryKey`) as the entry's own data file (see Key Hierarchy and docs/data_model.md, Entities).
 - **Upload**: the raw encrypted bytes go straight to InstantDB Storage via `db.storage.uploadFile(path, blob)`; no base64 step, unlike `entries`/`keyStore` rows (see Encryption Pipeline).
 - **Path**: `${auth.id}/entryHistory/${entryId}/${latestCommitHash}.json`. Every save changes the latest commit hash, so every save gets a new path; nothing is ever overwritten in place.
 - **Save**: decrypt the current history file (if the entry has one), append the new commit, drop any past the most recent 20, re-encrypt the full array (fresh salt), upload it at the new path, link it to the entry, then delete the previous file. New-then-delete, not overwrite, so a crash mid-save leaves the old file intact rather than a partially written one.

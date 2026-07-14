@@ -7,7 +7,7 @@ SecBits is a client heavy, end to end encrypted password manager. There is no cu
 - InstantDB is both the database and the session layer. The client talks to InstantDB directly for reads and writes; there is no Worker, no custom CRUD API, no admin token anywhere in the stack.
 - Row level access is enforced entirely by InstantDB permission rules (`instant.perms.ts`), scoping every row to the authenticated `auth.id`.
 - Every field on every entity is encrypted client side, including timestamps and type. The only plaintext InstantDB ever sees is row ids and the owner/entry links needed to scope access; those reveal that a row exists and who owns it, nothing about its content.
-- Entry history lives in InstantDB Storage, one encrypted file per entry, not a database table; see docs/data_model.md, Entities and docs/crypto.md, History File.
+- Entry data and entry history both live in InstantDB Storage, one encrypted file each per entry, not database fields or a table; only `entryKey` and the owner/data/history links remain literal `entries` row fields. See docs/data_model.md, Entities and docs/crypto.md, History File.
 
 ## Auth: Firebase through InstantDB
 
