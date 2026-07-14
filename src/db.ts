@@ -311,10 +311,8 @@ async function uploadEntryFile(path: string, bytes: Uint8Array): Promise<string>
   return data.id;
 }
 
-// TODO: confirm $files.url's origin is covered by public/_headers' CSP
-// connect-src once this runs against a live app (see docs/tech_stack.md,
-// CSP) -- if it isn't, this fetch is blocked before it ever reaches the
-// network.
+// $files.url serves from files.instantdb.com, confirmed live -- see
+// public/_headers' CSP connect-src and docs/tech_stack.md, CSP.
 async function downloadEntryFile(url: string): Promise<Uint8Array> {
   const res = await fetch(url);
   return new Uint8Array(await res.arrayBuffer());
