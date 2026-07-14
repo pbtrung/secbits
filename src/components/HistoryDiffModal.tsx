@@ -82,8 +82,29 @@ function withContext(lines: DiffLineData[]): DiffLineData[] {
   return out;
 }
 
-const DIFF_FIELD_ORDER = ['title', 'username', 'password', 'notes', 'urls', 'totpSecrets', 'tags', 'customFields'];
-const SCALAR_FIELDS = new Set(['title', 'username', 'password']);
+const DIFF_FIELD_ORDER = [
+  'title',
+  'username',
+  'password',
+  'cardholderName',
+  'cardNumber',
+  'cardExpiry',
+  'cardCvv',
+  'notes',
+  'urls',
+  'totpSecrets',
+  'tags',
+  'customFields',
+];
+const SCALAR_FIELDS = new Set([
+  'title',
+  'username',
+  'password',
+  'cardholderName',
+  'cardNumber',
+  'cardExpiry',
+  'cardCvv',
+]);
 const ARRAY_STR_FIELDS = new Set(['urls', 'totpSecrets', 'tags']);
 
 function buildNotesDiffLines(oldVal: string | undefined, newVal: string | undefined, isInit: boolean): DiffLineData[] {
