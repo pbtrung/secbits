@@ -13,6 +13,10 @@ coverage/
 
 # Local config and secrets, see README.md and CLAUDE.md, Config Contract
 *.json
+!tsconfig.json
+!package.json
+!package-lock.json
+!public/manifest.json
 .env
 .env.*
 !.env.example
