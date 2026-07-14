@@ -49,8 +49,8 @@ Save (create or update):
 
 Maintenance (client side, on load/save):
 
-1. App decrypts an entry's linked history rows to read their embedded timestamps.
-2. App deletes the oldest history rows past the cap of the most recent 20 per entry.
+1. App decrypts an entry's history file (a single InstantDB Storage object holding a JSON array of every kept commit) to read each commit's embedded timestamp.
+2. App drops the oldest commits past the cap of the most recent 20, then re-encrypts and re-uploads the file at a new path before deleting the old one.
 3. App decrypts trashed entries' embedded `deletedAt` and permanently deletes those past the retention window.
 
 Backup (on demand):
