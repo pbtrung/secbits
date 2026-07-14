@@ -18,5 +18,5 @@ export function canonicalJson(value: unknown): string {
 export async function computeCommitHash(snapshotWithoutCommitHash: unknown): Promise<string> {
   const payload = new TextEncoder().encode(canonicalJson(snapshotWithoutCommitHash));
   const digestHex = await sha3_256Hex(payload);
-  return digestHex.slice(0, 32);
+  return digestHex.slice(0, 48);
 }
