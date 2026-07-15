@@ -411,7 +411,9 @@ function HistoryDiffModal({ commits, idx, onIdxChange, onRestore, onClose, savin
                 {selectedCommit && (
                   <>
                     <div className="d-flex align-items-center gap-2 mb-3 pb-2 border-bottom">
-                      <code className="small">{selectedCommit.hash}</code>
+                      <code className="small" title={selectedCommit.hash}>
+                        {selectedCommit.hash.length > 15 ? `${selectedCommit.hash.slice(0, 15)}…` : selectedCommit.hash}
+                      </code>
                       {idx === 0 && <span className="badge bg-success">HEAD</span>}
                       <span className="text-muted small ms-auto">{formatExact(selectedCommit.timestamp)}</span>
                     </div>
