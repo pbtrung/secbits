@@ -63,8 +63,16 @@ type RawSnapshot = Omit<Entry, 'id' | 'commitHash'> & { commitHash: string };
 // Exported (unlike most of this file's internals) purely so it's directly
 // unit-testable: it's pure data logic with no dependency on InstantDB, see
 // src/tests/db-pure.test.ts.
+function fieldChanged(
+  fromSnap: Partial<Entry> | undefined,
+  toSnap: Partial<Entry> | undefined,
+  field: (typeof DIFFABLE_FIELDS)[number],
+): boolean {
+  return JSON.stringify(fromSnap?.[field]) !== JSON.stringify(toSnap?.[field]);
+}
+
 export function fieldsChanged(fromSnap: Partial<Entry> | undefined, toSnap: Partial<Entry> | undefined): string[] {
-  return DIFFABLE_FIELDS.filter((f) => JSON.stringify(fromSnap?.[f]) !== JSON.stringify(toSnap?.[f]));
+  return DIFFABLE_FIELDS.filter((f) => fieldChanged(fromSnap, toSnap, f));
 }
 
 // Defense in depth: saveEntrySnapshot always strips `history` before

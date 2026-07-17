@@ -39,14 +39,19 @@ const ARRAY_DRAFT_FIELDS = ['urls', 'totpSecrets', 'customFields'] as const;
 
 function scalarDraftFieldsChanged(draft: Entry, entry: Entry): boolean {
   const normalizeText = (value: unknown) => (typeof value === 'string' ? value : '');
-  return SCALAR_DRAFT_FIELDS.some((f) => normalizeText(draft?.[f]) !== normalizeText(entry?.[f]));
+  const fieldChanged = (f: (typeof SCALAR_DRAFT_FIELDS)[number]) =>
+    normalizeText(draft?.[f]) !== normalizeText(entry?.[f]);
+  return SCALAR_DRAFT_FIELDS.some(fieldChanged);
 }
 
 function arrayDraftFieldsChanged(draft: Entry, entry: Entry): boolean {
   const normalizeArray = (value: unknown) => (Array.isArray(value) ? value : []);
-  return ARRAY_DRAFT_FIELDS.some(
-    (f) => JSON.stringify(normalizeArray(draft?.[f])) !== JSON.stringify(normalizeArray(entry?.[f])),
-  );
+  const fieldChanged = (f: (typeof ARRAY_DRAFT_FIELDS)[number]) => {
+    const draftValues = normalizeArray(draft?.[f]);
+    const entryValues = normalizeArray(entry?.[f]);
+    return JSON.stringify(draftValues) !== JSON.stringify(entryValues);
+  };
+  return ARRAY_DRAFT_FIELDS.some(fieldChanged);
 }
 
 // Shared by draftTagsChanged and EntryDetail's handleSave: the tag input
@@ -91,6 +96,13 @@ function normalizeEntryForDraft(entry: Entry): Entry {
   return result;
 }
 
+// `T` lets these two stay generic array-splice helpers shared by every
+// repeatable-field list this component edits (urls, totpSecrets,
+// customFields — each a different element type); callers get back a type
+// matching whatever array they passed in, e.g. `replaceAt(draft.urls, i, v)`
+// returns `string[]`, `replaceAt(draft.customFields, i, v)` returns
+// `CustomField[]`. Both return a fresh array (never mutate `list`), matching
+// React's expectation that state updates produce a new reference.
 function replaceAt<T>(list: T[], index: number, value: T): T[] {
   const next = [...list];
   next[index] = value;

@@ -467,6 +467,13 @@ export async function compressJson(value: unknown): Promise<Uint8Array> {
   return brotli.compress(json);
 }
 
+// `T` exists purely for the caller's convenience: this function has no way
+// to verify the decompressed JSON actually matches `T` (hence the `as T`
+// cast, not a runtime check), so callers should only supply it when they
+// already know the shape from context (e.g. decryptEntry<Entry> below,
+// db.ts, decrypting its own previously-encrypted data). Defaults to
+// `unknown` so an uninstantiated call forces the caller to narrow the
+// result themselves rather than silently trusting an unchecked shape.
 export async function decompressJson<T = unknown>(bytes: Uint8Array): Promise<T> {
   const brotli = await getBrotli();
   const plain = brotli.decompress(bytes);
@@ -478,6 +485,12 @@ export async function encryptEntry(entry: unknown, entryKeyBytes: Uint8Array): P
   return encryptBlob(entryKeyBytes, compressed);
 }
 
+// Same unchecked-cast contract as decompressJson above, just threaded
+// through one more layer (decrypt, then decompress). db.ts instantiates
+// this as `decryptEntry<RawSnapshot[]>` when reading back an entry's history
+// array — that annotation is the only thing asserting the ciphertext
+// actually decodes to that shape; a corrupt or foreign blob would only be
+// caught by decryptBlob's AEAD tag check, not by this generic.
 export async function decryptEntry<T = unknown>(entryBlobBytes: Uint8Array, entryKeyBytes: Uint8Array): Promise<T> {
   const compressed = await decryptBlob(entryKeyBytes, entryBlobBytes);
   return decompressJson<T>(compressed);

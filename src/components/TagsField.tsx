@@ -35,8 +35,14 @@ function TagsField({ tags, onTagsChange, isEditing, allTags, onCurrentInputChang
     onCurrentInputChange?.(val);
   };
 
-  const buildSuggestions = (trimmed: string, existingTags: string[]) =>
-    allTags.filter((t) => t.startsWith(trimmed) && !existingTags.includes(t) && t !== trimmed);
+  const buildSuggestions = (trimmed: string, existingTags: string[]) => {
+    const isSuggestable = (tag: string) => {
+      const isPrefixMatch = tag.startsWith(trimmed);
+      const isAlreadyExactTyped = tag === trimmed;
+      return isPrefixMatch && !existingTags.includes(tag) && !isAlreadyExactTyped;
+    };
+    return allTags.filter(isSuggestable);
+  };
 
   const resetTagInput = () => {
     updateInput('');

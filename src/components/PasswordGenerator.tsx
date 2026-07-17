@@ -60,6 +60,11 @@ const CHARSETS: Record<CharsetKey, { label: string; chars: string }> = {
   symbols: { label: '!@#', chars: "!@#$%^&*()_+-=[]{}|;:,.<>?/~`'" },
 };
 
+function getEnabledCharsets(charsets: Record<CharsetKey, boolean>): CharsetKey[] {
+  const allKeys = Object.keys(charsets) as CharsetKey[];
+  return allKeys.filter((key) => charsets[key]);
+}
+
 function generatePassword(length: number, enabledSets: CharsetKey[]): string {
   let pool = '';
   for (const key of enabledSets) {
@@ -92,11 +97,10 @@ export function PasswordGenerator({ onGenerate, onCopy }: PasswordGeneratorProps
   });
   const [preview, setPreview] = useState('');
 
-  const enabledSets = (Object.keys(charsets) as CharsetKey[]).filter((k) => charsets[k]);
+  const enabledSets = getEnabledCharsets(charsets);
 
   const regenerate = useCallback(() => {
-    const enabled = (Object.keys(charsets) as CharsetKey[]).filter((k) => charsets[k]);
-    setPreview(generatePassword(length, enabled));
+    setPreview(generatePassword(length, getEnabledCharsets(charsets)));
   }, [length, charsets]);
 
   useEffect(() => {
