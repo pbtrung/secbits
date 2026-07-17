@@ -1,3 +1,7 @@
+// AEAD blob layout (v1.0): magic || version || salt || ciphertext || tag.
+// Pure framing/parsing, no cryptography here — see docs/crypto.md, Blob
+// Format, and crypto.ts (buildBlob/parseBlob's only callers) for the AEAD
+// operations that produce/consume the parts this file assembles.
 export const BLOB_MAGIC = new Uint8Array([0x53, 0x42]); // "SB"
 export const BLOB_VERSION = new Uint8Array([0x01, 0x00]); // v1.0
 export const BLOB_SALT_LEN = 64;

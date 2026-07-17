@@ -1,3 +1,7 @@
+// Direct client-to-storage uploads for cloud backup: SigV4-signed PUTs to
+// Cloudflare R2 and any configured S3-compatible endpoints, one independent
+// upload per destination (see docs/architecture.md, Backup). No server
+// proxy — this runs entirely in the browser using access keys from config.
 import { AwsClient } from 'aws4fetch';
 import type { BackupDestinations, R2Config, S3DestinationConfig } from '../types';
 

@@ -1,3 +1,10 @@
+// InstantDB client init, auth (Firebase sign-in exchanged for an InstantDB
+// session), and every read/write query. Structure: auth/session helpers
+// first, then the umkStore (per-user UMK row) helpers, then the entry file
+// save/read pipeline (upload, atomic transact swap, history cap, trash
+// purge), then the public entries CRUD + version-restore functions
+// components call. See docs/architecture.md for the login/save/maintenance
+// flows this file implements and docs/data_model.md for the entities.
 import { init, id, type InstantReactWebDatabase } from '@instantdb/react';
 import schema, { type AppSchema } from '../instant.schema';
 import {

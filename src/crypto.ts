@@ -1,3 +1,10 @@
+// Per-entry encrypt/decrypt pipeline: HKDF-SHA3-512 key derivation and
+// Ascon-Keccak-512 AEAD via the leancrypto WASM module, plus Brotli
+// compression for entry/export payloads. Everything above encryptBlob/
+// decryptBlob is WASM plumbing (loading the module, marshaling bytes across
+// the JS/WASM boundary); everything below is the actual key hierarchy
+// (UMK, entry keys, entries) built on top of it. See docs/crypto.md for the
+// cipher spec, key hierarchy, and blob format this file implements.
 import { BLOB_MAGIC, BLOB_SALT_LEN, BLOB_TAG_LEN, BLOB_VERSION, buildBlob, parseBlob } from './lib/blob';
 import type { BrotliWasmType } from 'brotli-wasm';
 
@@ -140,16 +147,28 @@ async function getLc(): Promise<LeancryptoModule> {
   return lcPromise;
 }
 
+// `_lc_sha3_512`/`_lc_sha3_256` are addresses of C globals holding a
+// `struct lc_hash *` (a pointer value), not the descriptor itself, so the
+// pointer they hold has to be read out of WASM memory before use. `HEAPU32`
+// indexes 4 byte words, hence `>> 2` to convert a byte address into a word
+// index.
 function resolveHashPtr(lib: LeancryptoModule, sym: number): number {
   return lib.HEAPU32[sym >> 2];
 }
 
+// Every AEAD/HKDF/hash call below needs its inputs sitting in WASM linear
+// memory first, since the exported `_lc_*` functions only take pointers
+// (numbers), never JS arrays. Callers are responsible for freeing the
+// returned pointer once the WASM call using it has returned.
 function writeBytes(lib: LeancryptoModule, data: Uint8Array): number {
   const ptr = lib._malloc(data.length);
   lib.HEAPU8.set(data, ptr);
   return ptr;
 }
 
+// Copies `len` bytes out of WASM memory starting at `ptr` into a fresh,
+// GC-managed Uint8Array; the result stays valid after the source pointer is
+// freed (unlike a `subarray`, which would alias freed/reused WASM memory).
 function readBytes(lib: LeancryptoModule, ptr: number, len: number): Uint8Array {
   return lib.HEAPU8.slice(ptr, ptr + len);
 }
@@ -180,6 +199,12 @@ function deriveHkdfKeyIv(
   return { encKey: okm.slice(0, ENC_KEY_LEN), encIv: okm.slice(ENC_KEY_LEN) };
 }
 
+// Derives one HKDF-SHA3-512 output of HKDF_OUT_LEN bytes and splits it into
+// the AEAD key (first ENC_KEY_LEN bytes) and IV (remainder) — one HKDF call
+// covers both, rather than deriving them separately, since they're really
+// one expanded output split by convention (see docs/crypto.md, Key
+// Hierarchy). No `info` parameter is used (passed as a null 0 length
+// pointer): the salt alone is enough to keep every call's expansion unique.
 function hkdfSync(lib: LeancryptoModule, keyBytes: Uint8Array, salt: Uint8Array): HkdfKeyIv {
   const hashPtr = resolveHashPtr(lib, lib._lc_sha3_512);
   const ikmPtr = writeBytes(lib, keyBytes);
@@ -196,6 +221,14 @@ function hkdfSync(lib: LeancryptoModule, keyBytes: Uint8Array, salt: Uint8Array)
 
 // Shared by akEncrypt/akDecrypt: both need an AEAD context sized for the
 // same tag length, allocated the same way.
+//
+// `_lc_ak_alloc_taglen` follows the C convention of returning its allocated
+// context via an out-parameter: `ctxPtrPtr` is a pointer to a 4 byte slot
+// that the call fills in with the context's own address, so it has to be
+// read back out of `HEAP32` (word-indexed, hence `>> 2`) after the call
+// succeeds. `ctxPtrPtr` itself is just scratch space for that handoff and is
+// freed here; the context address it yielded is owned by the caller, freed
+// via `_lc_aead_zero_free` once encryption/decryption is done with it.
 function allocAeadCtx(lib: LeancryptoModule): number {
   const sha3_512_ptr = resolveHashPtr(lib, lib._lc_sha3_512);
   const ctxPtrPtr = lib._malloc(4);
@@ -243,6 +276,10 @@ function runAeadEncrypt(
   };
 }
 
+// `adPtr` is left as the null pointer (0) when there's no associated data:
+// leancrypto accepts a null AD pointer paired with `adLen: 0` as "no AD",
+// and skipping the allocation avoids a pointless malloc/free of a 0 byte
+// buffer (also why the `if (adPtr)` guard below only frees it when set).
 function akEncrypt(
   lib: LeancryptoModule,
   encKey: Uint8Array,

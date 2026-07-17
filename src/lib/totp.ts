@@ -1,3 +1,7 @@
+// TOTP (RFC 6238) code generation for entries' saved TOTP secrets: base32
+// decode, HMAC-SHA1 over the 30s time counter, then HOTP dynamic truncation
+// to a 6-digit code. Independent of this app's own crypto.ts pipeline —
+// this implements the standard algorithm third-party 2FA apps also use.
 import { hmac } from '@noble/hashes/hmac.js';
 import { sha1 } from '@noble/hashes/legacy.js';
 

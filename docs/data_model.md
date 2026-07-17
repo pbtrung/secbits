@@ -2,6 +2,17 @@
 
 InstantDB entities, links, and permission rules. Every field beyond row id and the ownership link is an opaque encrypted blob, whether stored as a database field or as an InstantDB Storage file; InstantDB never sees plaintext content. See docs/crypto.md for the key hierarchy that produces these blobs.
 
+## Glossary
+
+Names below match current code and schema exactly; a couple have changed since this rebuild started, and old names still turn up in commit messages or in-repo history, so both are noted where relevant.
+
+- **UMK (User Master Key)**: one random key per user, wrapped under `root_master_key`. Stored as `umkStore.umkBlob`.
+- **`root_master_key`**: config-only secret that derives the UMK's wrapping key. Never stored anywhere, InstantDB included.
+- **`umkStore`**: the table holding each user's single wrapped UMK row. Briefly generalized to a `{keyBlob, keyType}` shape for a multi-key-type design that was never used beyond `keyType: 'umk'`, then reverted to this single-purpose `{umkBlob}` shape the same day — if you see `keyStore`/`keyBlob`/`keyType` anywhere (old commits, stale comments), it means that intermediate shape, not the current one.
+- **`entryKeyBlob`**: the _stored, wrapped_ per-entry key field on `entries`. Deliberately distinct from bare **entry key** (or "entryKey" in prose/comments) — the raw decrypted key material after unwrapping, which is never itself persisted under that name. Don't conflate the two when reading code or docs.
+- **`entryFile`**: the single `$files` row linked to an entry, holding its entire history as one JSON array (see Entities below). Replaced an earlier two-file design (`entryFile` + a separate `historyFile`); if you see a two-file reference anywhere, it's describing that superseded design.
+- **commit / commit hash**: one entry snapshot inside the history array, identified by a SHA3-256 hash (canonical JSON, truncated to 48 hex chars) computed by `src/lib/commitHash.ts`. The current state of an entry is simply its newest commit, `array[0]`.
+
 ## Entities
 
 `$users` is declared explicitly in `instant.schema.ts` (`email`, `imageURL`, `type`, matching what InstantDB's own pull of this app's live schema shows), even though this app never writes to it directly. This is required, not cosmetic: a `where` filter using dot notation through a link into `$users` (e.g. `'owner.id'`) fails validation with "Target entity '$users' does not exist in schema" if `$users` is not declared locally, even though the link to it works fine on its own without this.

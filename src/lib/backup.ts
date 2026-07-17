@@ -1,3 +1,5 @@
+// Cloud backup encryption: wraps a full export under backup_master_key.
+// See docs/crypto.md, Cloud Backup.
 import { encryptEntry } from '../crypto';
 import type { ExportData } from '../types';
 

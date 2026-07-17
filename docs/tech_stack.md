@@ -14,10 +14,11 @@
 
 ```text
 src/
-  App.tsx          root state and session flow
+  App.tsx          session gate (App) + vault layout/render (MainApp)
   db.ts            InstantDB client init and queries
   crypto.ts        per-entry encrypt/decrypt pipeline
   types.ts         shared domain types (Entry, ExportData, ConfigContract, ...)
+  hooks/           useVaultState: entries/trash/selection/editing state and handlers behind App.tsx's render
   lib/             smaller supporting modules (blob, validation, limits, totp, commitHash, storage, backup, s3, entryUtils), all .ts
   components/      UI components (.tsx)
   tests/           Vitest test suites (.test.ts)

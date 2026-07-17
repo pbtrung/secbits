@@ -1,3 +1,6 @@
+// Config JSON validation: required fields, URL/key format checks, and the
+// conditional backup_master_key requirement (only needed if a cloud
+// destination is configured). See CLAUDE.md, Config Contract.
 import { decodeRootMasterKey } from '../crypto';
 
 type UnknownRecord = Record<string, unknown>;

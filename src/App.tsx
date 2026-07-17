@@ -1,5 +1,11 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import type { ChangeEvent, FormEvent } from 'react';
+// Root component: App is just the session gate (shows AppSetup until login
+// succeeds, then hands off to MainApp). MainApp owns the whole vault UI —
+// its state/handlers block (entries, trash, selection, editing, save/
+// delete/restore) lives in useVaultState (src/hooks/useVaultState.ts); this
+// file's MainApp body is the three-pane/mobile-stacked layout that consumes
+// it, plus the header search box and settings/trash navigation.
+import { useState, useCallback, useEffect } from 'react';
+import type { FormEvent } from 'react';
 import AppSetup from './components/AppSetup';
 import TagsSidebar from './components/TagsSidebar';
 import EntryList from './components/EntryList';
@@ -7,19 +13,10 @@ import EntryDetail from './components/EntryDetail';
 import ResizeHandle from './components/ResizeHandle';
 import SettingsList from './components/SettingsList';
 import SettingsPanel from './components/SettingsPanel';
-import {
-  clearSession,
-  fetchUserEntries,
-  createUserEntry,
-  updateUserEntry,
-  deleteUserEntry,
-  restoreEntryVersion,
-  restoreDeletedUserEntry,
-  restoreDeletedEntryVersion,
-  permanentlyDeleteUserEntry,
-} from './db';
-import { filterEntries, normalizeEntry } from './lib/entryUtils';
-import type { Entry, EntryType } from './types';
+import { clearSession, fetchUserEntries } from './db';
+import { normalizeEntry } from './lib/entryUtils';
+import { useVaultState } from './hooks/useVaultState';
+import type { Entry } from './types';
 
 function useIsMobile(): boolean {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -73,46 +70,6 @@ function App() {
   );
 }
 
-const isLocalEntryId = (id: string) => String(id).startsWith('local-');
-
-function buildBlankEntry(type: EntryType, selectedTag: string | null): Entry {
-  return {
-    id: `local-${crypto.randomUUID()}`,
-    _isNew: true,
-    type,
-    title: '',
-    username: '',
-    password: '',
-    urls: [''],
-    totpSecrets: [],
-    customFields: [],
-    notes: '',
-    tags: selectedTag ? [selectedTag] : [],
-    createdAt: 0,
-    updatedAt: 0,
-    deletedAt: null,
-    ...(type === 'card' ? { cardholderName: '', cardNumber: '', cardExpiry: '', cardCvv: '' } : {}),
-  };
-}
-
-function persistEntryUpdate(updated: Entry, wasNew: boolean): Promise<Entry> {
-  return wasNew ? createUserEntry(updated) : updateUserEntry(updated.id, updated);
-}
-
-// isLocalEntryId(editingId) means the draft was never saved: discarding it
-// only needs confirmation if it's actually been touched (dirtyRef). An
-// already-saved entry being edited always goes through the normal
-// unsaved-changes confirmation instead.
-function canDiscardEdit(editingId: string | null, isDirty: boolean, confirmUnsavedChanges: () => boolean): boolean {
-  if (editingId && isLocalEntryId(editingId)) {
-    return !isDirty || window.confirm('Discard this new entry?');
-  }
-  return confirmUnsavedChanges();
-}
-
-type MobileView = 'tags' | 'entries' | 'detail';
-type SettingsPageId = 'export' | 'security' | 'about';
-
 interface MainAppProps {
   initialUserName: string;
   initialEntries: Entry[];
@@ -123,49 +80,12 @@ interface MainAppProps {
 
 function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncError, onLogout }: MainAppProps) {
   const RESIZE_HANDLE_WIDTH = 5;
-  const [entries, setEntries] = useState<Entry[]>(initialEntries || []);
-  const [trashEntries, setTrashEntries] = useState<Entry[]>(initialTrash || []);
-  const [trashMode, setTrashMode] = useState(false);
-  const [syncError, setSyncError] = useState(initialSyncError || '');
-  const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [settingsMode, setSettingsMode] = useState(false);
-  const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
   const [tagsWidth, setTagsWidth] = useState(220);
   const [entriesWidth, setEntriesWidth] = useState(320);
   const userName = initialUserName;
-  // Mobile navigation: 'tags' | 'entries' | 'detail'
-  const [mobileView, setMobileView] = useState<MobileView>('tags');
 
   const isMobile = useIsMobile();
-  const dirtyRef = useRef(false);
-  const selectedEntryIdRef = useRef<string | null>(null);
-  const prevSelectedIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    selectedEntryIdRef.current = selectedEntryId;
-  }, [selectedEntryId]);
-
-  const handleDirtyChange = useCallback((dirty: boolean) => {
-    dirtyRef.current = dirty;
-  }, []);
-
-  const confirmUnsavedChanges = useCallback(() => {
-    if (!dirtyRef.current) return true;
-    return window.confirm('You have unsaved changes. Discard and leave?');
-  }, []);
-
-  useEffect(() => {
-    if (!editingId) return;
-    const handler = (e: BeforeUnloadEvent) => {
-      if (dirtyRef.current) e.preventDefault();
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [editingId]);
+  const vault = useVaultState({ initialEntries, initialTrash, initialSyncError, isMobile, onLogout });
 
   const handleResizeTags = useCallback((delta: number) => {
     setTagsWidth((w) => Math.max(140, Math.min(400, w + delta)));
@@ -175,278 +95,32 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
     setEntriesWidth((w) => Math.max(200, Math.min(600, w + delta)));
   }, []);
 
-  const allTags = useMemo(() => {
-    const tagSet = new Set<string>();
-    entries.forEach((e) => e.tags.forEach((t) => tagSet.add(t)));
-    return Array.from(tagSet).sort();
-  }, [entries]);
-
-  const tagCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    entries.forEach((entry) => {
-      entry.tags.forEach((tag) => {
-        counts[tag] = (counts[tag] || 0) + 1;
-      });
-    });
-    return counts;
-  }, [entries]);
-
-  const filteredEntries = useMemo(() => {
-    if (trashMode) return trashEntries;
-    return filterEntries(entries, { selectedTag, searchQuery });
-  }, [entries, trashEntries, trashMode, selectedTag, searchQuery]);
-
-  const selectedEntry = (trashMode ? trashEntries : entries).find((e) => e.id === selectedEntryId) || null;
-
-  const handleSelectTag = useCallback(
-    (tag: string | null) => {
-      if (!confirmUnsavedChanges()) return;
-      setTrashMode(false);
-      setSelectedTag(tag);
-      setSelectedEntryId(null);
-      setEditingId(null);
-      setSettingsMode(false);
-      setSettingsPage(null);
-      if (isMobile) setMobileView('entries');
-    },
-    [isMobile, confirmUnsavedChanges],
-  );
-
-  const handleSelectEntry = useCallback(
-    (id: string) => {
-      if (!confirmUnsavedChanges()) return;
-      setSelectedEntryId(id);
-      setEditingId(null);
-      if (isMobile) setMobileView('detail');
-    },
-    [isMobile, confirmUnsavedChanges],
-  );
-
-  const handleOpenTrash = useCallback(() => {
-    if (!trashEntries.length) return;
-    if (!confirmUnsavedChanges()) return;
-    setTrashMode(true);
-    setSelectedTag(null);
-    setSelectedEntryId(null);
-    setEditingId(null);
-    setSettingsMode(false);
-    setSettingsPage(null);
-    if (isMobile) setMobileView('entries');
-  }, [trashEntries.length, isMobile, confirmUnsavedChanges]);
-
-  const handleNewEntry = useCallback(
-    (type: EntryType) => {
-      if (trashMode) return;
-      if (!confirmUnsavedChanges()) return;
-      prevSelectedIdRef.current = selectedEntryIdRef.current;
-      const newEntry = buildBlankEntry(type, selectedTag);
-      setEntries((prev) => [newEntry, ...prev]);
-      setSelectedEntryId(newEntry.id);
-      setEditingId(newEntry.id);
-      if (isMobile) setMobileView('detail');
-    },
-    [selectedTag, isMobile, trashMode, confirmUnsavedChanges],
-  );
-
-  const handleSave = useCallback(
-    async (updated: Entry) => {
-      if (trashMode) return;
-      setSyncError('');
-      setSaving(true);
-      const wasNew = isLocalEntryId(updated.id) || Boolean(updated._isNew);
-
-      try {
-        const saved = await persistEntryUpdate(updated, wasNew);
-        setEntries((prev) => prev.map((e) => (e.id === updated.id ? saved : e)));
-        if (wasNew) setSelectedEntryId(saved.id);
-        setEditingId(null);
-      } catch (err) {
-        setSyncError(err instanceof Error ? err.message : 'Failed to save entry.');
-      } finally {
-        setSaving(false);
-      }
-    },
-    [trashMode],
-  );
-
-  const handleRestore = useCallback(async (entryId: string, commitHash: string) => {
-    setSyncError('');
-    setSaving(true);
-    try {
-      const restored = await restoreEntryVersion(entryId, commitHash);
-      setEntries((prev) => prev.map((e) => (e.id === entryId ? normalizeEntry(restored) : e)));
-      return true;
-    } catch (err) {
-      setSyncError(err instanceof Error ? err.message : 'Failed to restore entry.');
-      return false;
-    } finally {
-      setSaving(false);
-    }
-  }, []);
-
-  // Shared by handleRestoreDeletedVersion/handleRestoreDeletedEntry: both
-  // move a just-restored entry out of the trash list and into the live one.
-  const restoreEntryFromTrash = useCallback((entryId: string, restored: Entry) => {
-    setTrashEntries((prev) => prev.filter((e) => e.id !== entryId));
-    setEntries((prev) => [restored, ...prev.filter((e) => e.id !== restored.id)]);
-    setTrashMode(false);
-    setSelectedEntryId(restored.id);
-  }, []);
-
-  const handleRestoreDeletedVersion = useCallback(
-    async (entryId: string, commitHash: string) => {
-      setSyncError('');
-      setSaving(true);
-      try {
-        const restored = normalizeEntry(await restoreDeletedEntryVersion(entryId, commitHash));
-        restoreEntryFromTrash(entryId, restored);
-        return true;
-      } catch (err) {
-        setSyncError(err instanceof Error ? err.message : 'Failed to restore deleted entry version.');
-        return false;
-      } finally {
-        setSaving(false);
-      }
-    },
-    [restoreEntryFromTrash],
-  );
-
-  const handleRestoreDeletedEntry = useCallback(
-    async (entryId: string) => {
-      setSyncError('');
-      setSaving(true);
-      try {
-        const restored = normalizeEntry(await restoreDeletedUserEntry(entryId));
-        restoreEntryFromTrash(entryId, restored);
-        setEditingId(null);
-        if (isMobile) setMobileView('detail');
-      } catch (err) {
-        setSyncError(err instanceof Error ? err.message : 'Failed to restore deleted entry.');
-      } finally {
-        setSaving(false);
-      }
-    },
-    [isMobile, restoreEntryFromTrash],
-  );
-
-  // Removes an entry from wherever it currently lives: permanently from
-  // trash, soft-deleted into trash from the live list, or (for an unsaved
-  // local draft) just discarded outright.
-  const removeEntryByMode = useCallback(
-    async (id: string) => {
-      if (trashMode) {
-        await permanentlyDeleteUserEntry(id);
-        setTrashEntries((prev) => prev.filter((e) => e.id !== id));
-        return;
-      }
-      if (!isLocalEntryId(id)) {
-        const trashed = await deleteUserEntry(id);
-        setEntries((prev) => prev.filter((e) => e.id !== id));
-        setTrashEntries((prev) => [trashed, ...prev.filter((e) => e.id !== trashed.id)]);
-        return;
-      }
-      setEntries((prev) => prev.filter((e) => e.id !== id));
-    },
-    [trashMode],
-  );
-
-  const handleDelete = useCallback(
-    async (id: string) => {
-      setSyncError('');
-      setDeleting(true);
-      try {
-        await removeEntryByMode(id);
-        setSelectedEntryId((prev) => (prev === id ? null : prev));
-        setEditingId(null);
-        if (isMobile) setMobileView('entries');
-      } catch (err) {
-        setSyncError(err instanceof Error ? err.message : 'Failed to delete entry.');
-      } finally {
-        setDeleting(false);
-      }
-    },
-    [isMobile, removeEntryByMode],
-  );
-
-  const handleEdit = useCallback(
-    (id: string) => {
-      if (trashMode) return;
-      setEditingId(id);
-    },
-    [trashMode],
-  );
-
-  const handleSettings = useCallback(() => {
-    if (!confirmUnsavedChanges()) return;
-    setSettingsMode((prev) => {
-      if (!prev) {
-        setSelectedEntryId(null);
-        setEditingId(null);
-        setSettingsPage(null);
-        setTrashMode(false);
-        if (isMobile) setMobileView('entries');
-      }
-      return !prev;
-    });
-  }, [confirmUnsavedChanges, isMobile]);
-
-  const handleSelectSetting = useCallback((page: string) => {
-    setSettingsPage(page as SettingsPageId);
-  }, []);
-
-  const handleCancelEdit = useCallback(() => {
-    if (!canDiscardEdit(editingId, dirtyRef.current, confirmUnsavedChanges)) return;
-
-    if (editingId && isLocalEntryId(editingId)) {
-      const restoreId = prevSelectedIdRef.current ?? null;
-      prevSelectedIdRef.current = null;
-      setEntries((prev) => prev.filter((e) => e.id !== editingId));
-      setSelectedEntryId(restoreId);
-      if (isMobile) setMobileView(restoreId ? 'detail' : 'entries');
-    }
-
-    setEditingId(null);
-  }, [isMobile, editingId, confirmUnsavedChanges]);
-
-  const handleMobileBack = () => {
-    if (mobileView === 'detail') {
-      if (!confirmUnsavedChanges()) return;
-      setMobileView('entries');
-    } else if (mobileView === 'entries') setMobileView('tags');
-  };
-
-  const handleLogoutGuarded = useCallback(() => {
-    if (!confirmUnsavedChanges()) return;
-    onLogout();
-  }, [onLogout, confirmUnsavedChanges]);
-
-  const handleSearchChange = (e: ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value);
   const preventSubmit = (e: FormEvent<HTMLFormElement>) => e.preventDefault();
 
-  const detailPane = selectedEntry ? (
+  const detailPane = vault.selectedEntry ? (
     <EntryDetail
-      key={selectedEntry.id}
-      entry={selectedEntry}
-      isEditing={!trashMode && editingId === selectedEntry.id}
-      onEdit={handleEdit}
-      onSave={handleSave}
-      onDelete={handleDelete}
-      onCancel={handleCancelEdit}
-      saving={saving}
-      deleting={deleting}
-      allTags={allTags}
-      onDirtyChange={handleDirtyChange}
-      onRestore={trashMode ? handleRestoreDeletedVersion : handleRestore}
-      onRestoreEntry={handleRestoreDeletedEntry}
-      isTrashView={trashMode}
+      key={vault.selectedEntry.id}
+      entry={vault.selectedEntry}
+      isEditing={!vault.trashMode && vault.editingId === vault.selectedEntry.id}
+      onEdit={vault.handleEdit}
+      onSave={vault.handleSave}
+      onDelete={vault.handleDelete}
+      onCancel={vault.handleCancelEdit}
+      saving={vault.saving}
+      deleting={vault.deleting}
+      allTags={vault.allTags}
+      onDirtyChange={vault.handleDirtyChange}
+      onRestore={vault.trashMode ? vault.handleRestoreDeletedVersion : vault.handleRestore}
+      onRestoreEntry={vault.handleRestoreDeletedEntry}
+      isTrashView={vault.trashMode}
       isMobile={isMobile}
     />
   ) : (
     <div className="d-flex align-items-center justify-content-center h-100 text-muted">
       <div className="text-center">
-        <i className={`bi ${trashMode ? 'bi-trash' : 'bi-shield-lock'}`} style={{ fontSize: '4rem' }}></i>
+        <i className={`bi ${vault.trashMode ? 'bi-trash' : 'bi-shield-lock'}`} style={{ fontSize: '4rem' }}></i>
         <p className="mt-3">
-          {trashMode ? 'Select a deleted entry to view details' : 'Select an entry to view details'}
+          {vault.trashMode ? 'Select a deleted entry to view details' : 'Select an entry to view details'}
         </p>
       </div>
     </div>
@@ -458,8 +132,8 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
       <nav className="navbar navbar-dark bg-dark px-0 py-1 flex-nowrap justify-content-start" style={{ minHeight: 48 }}>
         {isMobile ? (
           <div className="d-flex align-items-center w-100 px-2">
-            {mobileView !== 'tags' && (
-              <button className="btn btn-outline-light btn-sm flex-shrink-0 me-2" onClick={handleMobileBack}>
+            {vault.mobileView !== 'tags' && (
+              <button className="btn btn-outline-light btn-sm flex-shrink-0 me-2" onClick={vault.handleMobileBack}>
                 <i className="bi bi-chevron-left"></i>
               </button>
             )}
@@ -467,7 +141,7 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
               className="m-0"
               style={{
                 minWidth: 0,
-                width: mobileView !== 'tags' ? 'calc(100% - 42px)' : '100%',
+                width: vault.mobileView !== 'tags' ? 'calc(100% - 42px)' : '100%',
               }}
               onSubmit={preventSubmit}
             >
@@ -479,16 +153,16 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
                   type="text"
                   className="form-control bg-secondary border-secondary text-light"
                   placeholder="Search..."
-                  value={searchQuery}
-                  onChange={handleSearchChange}
+                  value={vault.searchQuery}
+                  onChange={vault.handleSearchChange}
                   maxLength={256}
-                  disabled={settingsMode || editingId !== null}
+                  disabled={vault.settingsMode || vault.editingId !== null}
                 />
-                {searchQuery && (
+                {vault.searchQuery && (
                   <button
                     type="button"
                     className="btn btn-secondary border-secondary"
-                    onClick={() => setSearchQuery('')}
+                    onClick={vault.handleClearSearch}
                   >
                     <i className="bi bi-x-lg"></i>
                   </button>
@@ -513,16 +187,16 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
                     type="text"
                     className="form-control bg-secondary border-secondary text-light"
                     placeholder="Search..."
-                    value={searchQuery}
-                    onChange={handleSearchChange}
+                    value={vault.searchQuery}
+                    onChange={vault.handleSearchChange}
                     maxLength={256}
-                    disabled={settingsMode || editingId !== null}
+                    disabled={vault.settingsMode || vault.editingId !== null}
                   />
-                  {searchQuery && (
+                  {vault.searchQuery && (
                     <button
                       type="button"
                       className="btn btn-secondary border-secondary"
-                      onClick={() => setSearchQuery('')}
+                      onClick={vault.handleClearSearch}
                     >
                       <i className="bi bi-x-lg"></i>
                     </button>
@@ -534,9 +208,9 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
           </>
         )}
       </nav>
-      {syncError && (
+      {vault.syncError && (
         <div className="alert alert-danger rounded-0 mb-0 py-2 px-3" role="alert">
-          {syncError}
+          {vault.syncError}
         </div>
       )}
 
@@ -545,47 +219,40 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
         {isMobile ? (
           /* Mobile: stacked views with navigation */
           <div className="h-100">
-            {mobileView === 'tags' && (
+            {vault.mobileView === 'tags' && (
               <TagsSidebar
-                tags={allTags}
-                allCount={entries.length}
-                tagCounts={tagCounts}
-                selectedTag={selectedTag}
-                onSelectTag={handleSelectTag}
-                onOpenTrash={handleOpenTrash}
-                trashCount={trashEntries.length}
-                trashMode={trashMode}
+                tags={vault.allTags}
+                allCount={vault.entries.length}
+                tagCounts={vault.tagCounts}
+                selectedTag={vault.selectedTag}
+                onSelectTag={vault.handleSelectTag}
+                onOpenTrash={vault.handleOpenTrash}
+                trashCount={vault.trashEntries.length}
+                trashMode={vault.trashMode}
                 userName={userName}
-                onSettings={handleSettings}
-                onLogout={handleLogoutGuarded}
-                settingsMode={settingsMode}
+                onSettings={vault.handleSettings}
+                onLogout={vault.handleLogoutGuarded}
+                settingsMode={vault.settingsMode}
                 mobile
               />
             )}
-            {mobileView === 'entries' &&
-              (settingsMode ? (
-                <SettingsList
-                  selectedPage={settingsPage}
-                  onSelectPage={(page) => {
-                    handleSelectSetting(page);
-                    setMobileView('detail');
-                  }}
-                  mobile
-                />
+            {vault.mobileView === 'entries' &&
+              (vault.settingsMode ? (
+                <SettingsList selectedPage={vault.settingsPage} onSelectPage={vault.handleSelectSettingMobile} mobile />
               ) : (
                 <EntryList
-                  entries={filteredEntries}
-                  selectedEntryId={selectedEntryId}
-                  onSelectEntry={handleSelectEntry}
-                  onNewEntry={handleNewEntry}
-                  selectedTag={selectedTag}
-                  trashMode={trashMode}
+                  entries={vault.filteredEntries}
+                  selectedEntryId={vault.selectedEntryId}
+                  onSelectEntry={vault.handleSelectEntry}
+                  onNewEntry={vault.handleNewEntry}
+                  selectedTag={vault.selectedTag}
+                  trashMode={vault.trashMode}
                   mobile
                 />
               ))}
-            {mobileView === 'detail' && (
+            {vault.mobileView === 'detail' && (
               <div className="h-100 overflow-auto bg-light">
-                {settingsMode ? <SettingsPanel page={settingsPage} /> : detailPane}
+                {vault.settingsMode ? <SettingsPanel page={vault.settingsPage} /> : detailPane}
               </div>
             )}
           </div>
@@ -594,38 +261,38 @@ function MainApp({ initialUserName, initialEntries, initialTrash, initialSyncErr
           <div className="d-flex h-100">
             <div className="d-flex flex-column bg-white" style={{ width: tagsWidth, flexShrink: 0 }}>
               <TagsSidebar
-                tags={allTags}
-                allCount={entries.length}
-                tagCounts={tagCounts}
-                selectedTag={selectedTag}
-                onSelectTag={handleSelectTag}
-                onOpenTrash={handleOpenTrash}
-                trashCount={trashEntries.length}
-                trashMode={trashMode}
+                tags={vault.allTags}
+                allCount={vault.entries.length}
+                tagCounts={vault.tagCounts}
+                selectedTag={vault.selectedTag}
+                onSelectTag={vault.handleSelectTag}
+                onOpenTrash={vault.handleOpenTrash}
+                trashCount={vault.trashEntries.length}
+                trashMode={vault.trashMode}
                 userName={userName}
-                onSettings={handleSettings}
-                onLogout={handleLogoutGuarded}
-                settingsMode={settingsMode}
+                onSettings={vault.handleSettings}
+                onLogout={vault.handleLogoutGuarded}
+                settingsMode={vault.settingsMode}
               />
             </div>
             <ResizeHandle onResize={handleResizeTags} />
             <div className="d-flex flex-column bg-white" style={{ width: entriesWidth, flexShrink: 0 }}>
-              {settingsMode ? (
-                <SettingsList selectedPage={settingsPage} onSelectPage={handleSelectSetting} />
+              {vault.settingsMode ? (
+                <SettingsList selectedPage={vault.settingsPage} onSelectPage={vault.handleSelectSetting} />
               ) : (
                 <EntryList
-                  entries={filteredEntries}
-                  selectedEntryId={selectedEntryId}
-                  onSelectEntry={handleSelectEntry}
-                  onNewEntry={handleNewEntry}
-                  selectedTag={selectedTag}
-                  trashMode={trashMode}
+                  entries={vault.filteredEntries}
+                  selectedEntryId={vault.selectedEntryId}
+                  onSelectEntry={vault.handleSelectEntry}
+                  onNewEntry={vault.handleNewEntry}
+                  selectedTag={vault.selectedTag}
+                  trashMode={vault.trashMode}
                 />
               )}
             </div>
             <ResizeHandle onResize={handleResizeEntries} />
             <div className="flex-grow-1 overflow-auto bg-light" style={{ minWidth: 300 }}>
-              {settingsMode ? <SettingsPanel page={settingsPage} /> : detailPane}
+              {vault.settingsMode ? <SettingsPanel page={vault.settingsPage} /> : detailPane}
             </div>
           </div>
         )}

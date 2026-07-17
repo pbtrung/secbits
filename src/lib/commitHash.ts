@@ -1,3 +1,6 @@
+// Commit identity: a canonical (key-sorted) JSON encoding hashed with
+// SHA3-256, truncated to 48 hex chars. Used by db.ts to detect whether a
+// save actually changed anything and to name each history commit.
 import { sha3_256Hex } from '../crypto';
 
 function canonicalize(value: unknown): unknown {

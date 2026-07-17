@@ -1,3 +1,7 @@
+// Plain data helpers shared by App.tsx and components: entry defaulting/
+// normalization, tag/search filtering, entry-type metadata, and deleted-at
+// display formatting. No crypto or InstantDB dependency — everything here
+// operates on already-decrypted Entry objects.
 import type { CustomField, Entry, EntryType } from '../types';
 
 export function formatExact(ts: number): string {
